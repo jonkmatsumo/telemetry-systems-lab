@@ -12,7 +12,7 @@ public:
 
     void Run();
 
-private:
+protected:
     telemetry::GenerateRequest config_;
     std::string run_id_;
     std::shared_ptr<DbClient> db_;
@@ -23,3 +23,4 @@ private:
     TelemetryRecord GenerateRecord(const HostProfile& host, 
                                    std::chrono::system_clock::time_point timestamp);
 };
+

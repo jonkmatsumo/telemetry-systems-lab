@@ -10,7 +10,6 @@ pkg_check_modules(PQXX REQUIRED libpqxx)
 pkg_check_modules(UUID REQUIRED uuid)
 
 
-
 find_package(fmt REQUIRED)
 find_package(spdlog REQUIRED)
 
@@ -59,7 +58,6 @@ add_executable(telemetry-generator
     src/db_client.cpp
 )
 
-
 target_include_directories(telemetry-generator PRIVATE ${GRPC_INCLUDE_DIRS} ${PROTOBUF_INCLUDE_DIRS} src)
 target_link_libraries(telemetry-generator
     telemetry_proto
@@ -71,5 +69,36 @@ target_link_libraries(telemetry-generator
     ${UUID_LIBRARIES}
 )
 
+# Tests
+enable_testing()
+find_package(GTest REQUIRED)
 
+# Unit Tests
+add_executable(unit_tests 
+    tests/unit_tests.cpp
+    src/generator.cpp
+    src/db_client.cpp
+)
+target_include_directories(unit_tests PRIVATE src ${GRPC_INCLUDE_DIRS} ${PROTOBUF_INCLUDE_DIRS})
+target_link_libraries(unit_tests
+    GTest::GTest
+    GTest::Main
+    telemetry_proto
+    ${GRPC_LIBRARIES}
+    ${PROTOBUF_LIBRARIES}
+    fmt::fmt
+    spdlog::spdlog
+    ${PQXX_LIBRARIES}
+    ${UUID_LIBRARIES}
+)
+
+add_test(NAME UnitTests COMMAND unit_tests)
+
+# Integration Test Client
+add_executable(test_client tests/client.cpp)
+target_link_libraries(test_client
+    telemetry_proto
+    ${GRPC_LIBRARIES}
+    ${PROTOBUF_LIBRARIES}
+)
 

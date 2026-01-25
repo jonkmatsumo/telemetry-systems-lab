@@ -15,8 +15,10 @@ RUN apt-get update && apt-get install -y \
     libfmt-dev \
     libspdlog-dev \
     uuid-dev \
+    libgtest-dev \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
+
 
 
 
@@ -26,6 +28,8 @@ WORKDIR /app
 COPY CMakeLists.txt .
 COPY proto/ proto/
 COPY src/ src/
+COPY tests/ tests/
+
 
 # Build
 RUN mkdir build && cd build && \
@@ -46,6 +50,10 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 COPY --from=builder /app/build/telemetry-generator .
+COPY --from=builder /app/build/unit_tests .
+COPY --from=builder /app/build/test_client .
+
+
 
 # Expose gRPC port
 EXPOSE 50051
