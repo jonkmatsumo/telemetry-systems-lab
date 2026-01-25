@@ -15,12 +15,26 @@ A C++ gRPC service for generating synthetic telemetry data (CPU, Memory, Disk, N
 
 ## Quick Start
 
-1. Start the services:
+## Quick Start
+
+1. Start the environment (Infrastructure + App):
    ```bash
-   docker compose up --build
+   make dev-up
    ```
 
 2. The service listens on port `50051`. The database is on `5434`.
+
+3. Rebuild incrementally during development:
+   ```bash
+   make build
+   make run
+   ```
+
+4. To shell into the container for debugging:
+   ```bash
+   make dev-shell
+   ```
+
 
 ## API Usage
 

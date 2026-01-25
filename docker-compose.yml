@@ -1,36 +1,19 @@
 services:
-  postgres:
-    image: postgres:16
-    container_name: telemetry_postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: telemetry
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5434:5432"
-
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   telemetry-generator:
-    build: .
+    build:
+      context: .
+      target: runtime
     container_name: telemetry_generator
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
       DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:5432/telemetry"
       SERVER_ADDRESS: "0.0.0.0:50051"
     ports:
       - "50051:50051"
-    # For MVP verification, we might just keep it running or restart
-    restart: unless-stopped
+    networks:
+      - telemetry_net
+    # Healthcheck dep is runtime specific, usually handled by orchestration or reliance on retries.
+    # We remove explicit depends_on: condition: service_healthy because infra is now external.
 
-volumes:
-  postgres_data:
+networks:
+  telemetry_net:
+    driver: bridge
