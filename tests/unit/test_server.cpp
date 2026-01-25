@@ -1,6 +1,11 @@
 #include <gtest/gtest.h>
 #include "server.h"
+#include <gtest/gtest.h>
+#include "server.h"
 #include <grpcpp/grpcpp.h>
+#include <thread>
+#include <chrono>
+
 
 // We can test the synchronous parts of TelemetryServiceImpl here.
 // Since the generator runs in a detach thread and requires DB, 
@@ -24,7 +29,12 @@ TEST(ServerTest, GenerateTelemetryReturnsUUID) {
     EXPECT_TRUE(status.ok());
     EXPECT_FALSE(resp.run_id().empty());
     EXPECT_EQ(resp.run_id().length(), 36); // UUID length
+    
+    // Give detached thread time to fail gracefully on dummy connection
+    // before process teardown destroys logging/statics.
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 }
+
 
 TEST(ServerTest, GetRunReturnsStatus) {
     TelemetryServiceImpl service("dummy");
