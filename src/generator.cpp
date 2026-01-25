@@ -47,6 +47,12 @@ void Generator::InitializeHosts() {
 
 TelemetryRecord Generator::GenerateRecord(const HostProfile& host, 
                                           std::chrono::system_clock::time_point timestamp) {
+    // Mutable host state requires passing by non-const reference or managing state elsewhere.
+    // Since we are iterating, let's cast away constness or update the vector in the loop.
+    // For MVP, we'll do the latter in the calling loop or just accept the const_cast for state updates 
+    // (dirty but keeps signature simple for now).
+    HostProfile& mutable_host = const_cast<HostProfile&>(host);
+
     TelemetryRecord r;
     r.metric_timestamp = timestamp;
     r.run_id = run_id_;
@@ -59,27 +65,97 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
     auto duration = timestamp.time_since_epoch();
     double hours = std::chrono::duration_cast<std::chrono::seconds>(duration).count() / 3600.0;
     
-    // Seasonality: Daily (24h) + Weekly (168h)
+    // Seasonality
     double daily = 10.0 * std::sin((2 * M_PI * hours / 24.0) + host.phase_shift);
     double weekly = 5.0 * std::sin((2 * M_PI * hours / 168.0));
     
-    // Deterministic noise using a hash of host+timestamp as seed for local randomness
-    // Simpler: Just use a standard rng passed in? For now, let's keep it simple with std::rand (bad for dist but ok for MVP)
-    // Better: LCG based on seed + point index.
-    
     double noise = (rand() % 200 - 100) / 10.0; // +/- 10%
     
-    r.cpu_usage = std::max(0.0, std::min(100.0, host.cpu_base + daily + weekly + noise));
+    double cpu = host.cpu_base + daily + weekly + noise;
     
-    // Correlation: Mem follows CPU 
-    r.memory_usage = std::max(0.0, std::min(100.0, r.cpu_usage * 0.7 + 20.0 + (rand() % 50 - 25)/10.0));
+    // Anomaly Probability Checks
+    double p = (rand() % 10000) / 10000.0; // 0.0 to 1.0
+    bool is_anomaly = false;
+    std::string type;
+
+    // 1. Collective / Burst Anomaly (Stateful)
+    // If not already in burst, check start probability
+    if (mutable_host.burst_remaining > 0) {
+        mutable_host.burst_remaining--;
+        cpu += 40.0; // Sustained load
+        is_anomaly = true;
+        type = "COLLECTIVE_BURST";
+    } else if (config_.has_anomaly_config() && p < config_.anomaly_config().collective_rate()) {
+        mutable_host.burst_remaining = config_.anomaly_config().burst_duration_points();
+        if (mutable_host.burst_remaining == 0) mutable_host.burst_remaining = 5; // default
+        cpu += 40.0;
+        is_anomaly = true;
+        type = "COLLECTIVE_BURST";
+    }
+
+    // 2. Correlation Break (Stateful)
+    if (mutable_host.correlation_break_remaining > 0) {
+        mutable_host.correlation_break_remaining--;
+        mutable_host.correlation_broken = true;
+        is_anomaly = true;
+        type = "CORRELATION_BREAK";
+    } else if (config_.has_anomaly_config() && p < config_.anomaly_config().correlation_break_rate()) {
+         mutable_host.correlation_break_remaining = 5;
+         mutable_host.correlation_broken = true;
+         is_anomaly = true;
+         type = "CORRELATION_BREAK";
+    } else {
+        mutable_host.correlation_broken = false;
+    }
+
+    // 3. Contextual Anomaly (Time based: 1AM-5AM UTC)
+    // Simple check: hours mod 24. Assuming simplified UTC.
+    int hour_of_day = (long)hours % 24;
+    // Check constraint if provided in config, otherwise default 1-5am logic check only if rate > 0
+    if (config_.has_anomaly_config() && config_.anomaly_config().contextual_rate() > 0) {
+        // Only trigger if random check passes AND we are in the window
+        double p_ctx = (rand() % 10000) / 10000.0;
+        if (hour_of_day >= 1 && hour_of_day <= 5 && p_ctx < config_.anomaly_config().contextual_rate()) {
+             cpu = 90.0 + (rand() % 10); // Pin high
+             is_anomaly = true;
+             type = (type.empty() ? "CONTEXTUAL" : type + ",CONTEXTUAL");
+        }
+    }
+
+    // 4. Point Spike (Transient)
+    if (config_.has_anomaly_config() && p < config_.anomaly_config().point_rate()) {
+        cpu += 50.0;
+        is_anomaly = true;
+        type = (type.empty() ? "POINT_SPIKE" : type + ",POINT_SPIKE");
+    }
+
+    // Clamp CPU
+    r.cpu_usage = std::max(0.0, std::min(100.0, cpu));
+    
+    // Derived Metrics
+    // Memory follows CPU unless Correlation Break
+    if (mutable_host.correlation_broken) {
+        // Inverse or decoupled
+        r.memory_usage = std::max(0.0, std::min(100.0, 100.0 - r.cpu_usage + noise));
+    } else {
+        r.memory_usage = std::max(0.0, std::min(100.0, r.cpu_usage * 0.7 + 20.0 + (rand() % 50 - 25)/10.0));
+    }
     
     r.disk_utilization = 30.0 + (rand() % 200 - 100)/20.0; 
     
     // RX/TX
     r.network_rx_rate = std::max(0.0, 10.0 + (daily/2.0) + (rand() % 100)/10.0);
-    r.network_tx_rate = r.network_rx_rate * 0.8 + (rand() % 50)/10.0;
+    // Correlation break could also affect Network
+    if (mutable_host.correlation_broken) {
+         r.network_tx_rate = 1.0; // Data sink (high RX, low TX)
+         r.network_rx_rate += 50.0; // DDoS simulation
+    } else {
+         r.network_tx_rate = r.network_rx_rate * 0.8 + (rand() % 50)/10.0;
+    }
     
+    r.is_anomaly = is_anomaly;
+    r.anomaly_type = type;
+
     // Ingestion Lag
     // Use fixed lag from config or default 2000ms
     int lag_ms = config_.timing_config().fixed_lag_ms();
@@ -92,6 +168,7 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
     
     return r;
 }
+
 
 void Generator::Run() {
     spdlog::info("Starting generation run {}", run_id_);

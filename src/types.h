@@ -13,7 +13,13 @@ struct HostProfile {
     double cpu_base;
     double mem_base;
     double phase_shift; // 0 to 2pi
+    
+    // Anomaly State
+    int burst_remaining = 0;
+    bool correlation_broken = false;
+    int correlation_break_remaining = 0;
 };
+
 
 struct TelemetryRecord {
     std::chrono::system_clock::time_point metric_timestamp;
