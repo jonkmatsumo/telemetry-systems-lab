@@ -18,9 +18,10 @@ std::chrono::system_clock::time_point ParseTime(const std::string& iso) {
 
 Generator::Generator(const telemetry::GenerateRequest& request, 
                      std::string run_id, 
-                     std::shared_ptr<DbClient> db_client)
+                     std::shared_ptr<IDbClient> db_client)
     : config_(request), run_id_(run_id), db_(db_client) {
 }
+
 
 void Generator::InitializeHosts() {
     std::mt19937_64 rng(config_.seed());

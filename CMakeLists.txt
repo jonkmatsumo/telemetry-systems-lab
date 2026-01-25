@@ -75,11 +75,14 @@ find_package(GTest REQUIRED)
 
 # Unit Tests
 add_executable(unit_tests 
-    tests/unit_tests.cpp
+    tests/unit/test_generator.cpp
+    tests/unit/test_server.cpp
     src/generator.cpp
     src/db_client.cpp
+    src/server.cpp
 )
-target_include_directories(unit_tests PRIVATE src ${GRPC_INCLUDE_DIRS} ${PROTOBUF_INCLUDE_DIRS})
+
+target_include_directories(unit_tests PRIVATE src tests ${GRPC_INCLUDE_DIRS} ${PROTOBUF_INCLUDE_DIRS})
 target_link_libraries(unit_tests
     GTest::GTest
     GTest::Main
