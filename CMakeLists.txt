@@ -52,7 +52,13 @@ target_link_libraries(telemetry_proto
 target_include_directories(telemetry_proto PUBLIC ${PROTO_GEN_DIR})
 
 # Main Server
-add_executable(telemetry-generator src/main.cpp src/server.cpp)
+add_executable(telemetry-generator 
+    src/main.cpp 
+    src/server.cpp
+    src/generator.cpp
+    src/db_client.cpp
+)
+
 
 target_include_directories(telemetry-generator PRIVATE ${GRPC_INCLUDE_DIRS} ${PROTOBUF_INCLUDE_DIRS} src)
 target_link_libraries(telemetry-generator

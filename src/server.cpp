@@ -1,4 +1,7 @@
 #include "server.h"
+#include "generator.h"
+#include "db_client.h"
+
 #include <uuid/uuid.h>
 #include <thread>
 #include <chrono>
@@ -18,19 +21,27 @@ Status TelemetryServiceImpl::GenerateTelemetry(ServerContext* context, const Gen
     spdlog::info("Received GenerateTelemetry request. Tier: {}, HostCount: {}, RunID: {}", 
                  request->tier(), request->host_count(), run_id);
 
-    // TODO: Persist run status to DB (PENDING)
+    // Spawn background generation thread
+    // Capture request by value to ensure valid lifetime
+    GenerateRequest req_copy = *request;
+    std::string conn = db_conn_str_;
     
-    // TODO: Spawn background generation thread
-    // For skeleton verification, just log
-    std::thread([run_id]() {
+    std::thread([run_id, req_copy, conn]() {
         spdlog::info("Background generation for run {} started...", run_id);
-        std::this_thread::sleep_for(std::chrono::seconds(2));
+        try {
+            auto db = std::make_shared<DbClient>(conn);
+            Generator gen(req_copy, run_id, db);
+            gen.Run();
+        } catch (const std::exception& e) {
+             spdlog::error("Thread for run {} failed: {}", run_id, e.what());
+        }
         spdlog::info("Background generation for run {} finished.", run_id);
     }).detach();
 
     response->set_run_id(run_id);
     return Status::OK;
 }
+
 
 Status TelemetryServiceImpl::GetRun(ServerContext* context, const GetRunRequest* request,
                                    RunStatus* response) {
