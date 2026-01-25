@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build & Unit Test
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      # We cannot easily cache apt packages, but we can cache ccache
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake git \
+            libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
+            libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev \
+            pkg-config ccache
+
+      - name: Setup Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
+
+      - name: Configure CMake
+        run: |
+          export CCACHE_DIR=$HOME/.ccache
+          cmake -B build -S . -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Run Unit Tests
+        run: ctest --test-dir build --output-on-failure -R UnitTests
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-22.04
+    needs: build-and-test # Optional: depend on build to fail fast
+    
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: telemetry
+        ports:
+          - 5432:5432
+        # Set health check to ensure DB is ready
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake git \
+            libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
+            libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev \
+            pkg-config ccache
+
+      - name: Initialize Database Schema
+        env:
+          PGPASSWORD: password
+        run: |
+          sudo apt-get install -y postgresql-client
+          psql -h localhost -U postgres -d telemetry -f db/init.sql
+
+      - name: Configure CMake
+        run: cmake -B build -S .
+
+      - name: Build Integration Tests
+        run: cmake --build build --target db_integration_tests -j$(nproc)
+
+      - name: Run Integration Tests
+        env:
+          DB_CONNECTION_STRING: "postgresql://postgres:password@localhost:5432/telemetry"
+        run: ./build/db_integration_tests
+
+  docker-check:
+    name: Validate Docker Build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker Image
+        run: docker build . --target runtime
