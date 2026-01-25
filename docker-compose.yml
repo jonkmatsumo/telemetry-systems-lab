@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: telemetry_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: telemetry
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5434:5432"
+
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  telemetry-generator:
+    build: .
+    container_name: telemetry_generator
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:5432/telemetry"
+      SERVER_ADDRESS: "0.0.0.0:50051"
+    ports:
+      - "50051:50051"
+    # For MVP verification, we might just keep it running or restart
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
