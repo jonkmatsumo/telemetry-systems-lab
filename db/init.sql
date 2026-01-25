@@ -1,0 +1,48 @@
+-- Create tables for Telemetry Generator MVP
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Table: generation_runs
+-- Tracks metadata for each generation job
+CREATE TABLE IF NOT EXISTS generation_runs (
+    run_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    tier TEXT NOT NULL,
+    host_count INT NOT NULL,
+    start_time TIMESTAMPTZ NOT NULL,
+    end_time TIMESTAMPTZ NOT NULL,
+    interval_seconds INT NOT NULL,
+    seed BIGINT NOT NULL,
+    status TEXT NOT NULL, -- PENDING, RUNNING, SUCCEEDED, FAILED, CANCELLED
+    inserted_rows BIGINT NOT NULL DEFAULT 0,
+    config JSONB NOT NULL,
+    error TEXT NULL
+);
+
+-- Table: host_telemetry_archival
+-- Main time-series storage
+CREATE TABLE IF NOT EXISTS host_telemetry_archival (
+    ingestion_time TIMESTAMPTZ NOT NULL,
+    metric_timestamp TIMESTAMPTZ NOT NULL,
+    host_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    region TEXT NOT NULL,
+    cpu_usage DOUBLE PRECISION NOT NULL,
+    memory_usage DOUBLE PRECISION NOT NULL,
+    disk_utilization DOUBLE PRECISION NOT NULL,
+    network_rx_rate DOUBLE PRECISION NOT NULL,
+    network_tx_rate DOUBLE PRECISION NOT NULL,
+    labels JSONB NOT NULL,
+    run_id UUID NOT NULL REFERENCES generation_runs(run_id),
+    is_anomaly BOOLEAN NOT NULL DEFAULT FALSE,
+    anomaly_type TEXT NULL
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_telemetry_run_id ON host_telemetry_archival(run_id);
+CREATE INDEX IF NOT EXISTS idx_telemetry_host_ts ON host_telemetry_archival(host_id, metric_timestamp);
+CREATE INDEX IF NOT EXISTS idx_telemetry_region_ts ON host_telemetry_archival(region, metric_timestamp);
+-- BRIN index is good for naturally ordered time-series data
+CREATE INDEX IF NOT EXISTS idx_telemetry_brin_ts ON host_telemetry_archival USING BRIN(metric_timestamp);
+-- GIN index for JSONB labels querying
+CREATE INDEX IF NOT EXISTS idx_telemetry_labels ON host_telemetry_archival USING GIN(labels);
