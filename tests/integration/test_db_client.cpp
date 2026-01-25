@@ -85,3 +85,21 @@ TEST_F(DbClientTest, BatchInsert) {
     // Validation of row count would require querying DB directly or helper
     // For now, no-throw is good indication of successful execution
 }
+
+TEST_F(DbClientTest, EmptyBatch) {
+    DbClient client(conn_str);
+    std::vector<TelemetryRecord> batch;
+    // Should behave gracefully (no-op)
+    ASSERT_NO_THROW(client.BatchInsertTelemetry(batch));
+}
+
+// We can't easily test bad connection parameters as integration env provides correct valid.
+// Unless we instantiate with bad string.
+TEST(DbClientFailureTest, InvalidConnection) {
+    DbClient client("postgresql://baduser:badpass@localhost:5432/bad_db");
+    telemetry::GenerateRequest req;
+    // Should catch exception internally and log error (no throw from API surface)
+    // CreateRun logs error but doesn't throw.
+    ASSERT_NO_THROW(client.CreateRun("id", req, "PENDING"));
+}
+

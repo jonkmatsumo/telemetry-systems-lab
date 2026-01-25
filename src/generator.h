@@ -3,6 +3,8 @@
 #include "telemetry.grpc.pb.h"
 #include <atomic>
 #include <memory>
+#include <random>
+
 
 class Generator {
 public:
@@ -23,5 +25,11 @@ protected:
     void InitializeHosts();
     TelemetryRecord GenerateRecord(const HostProfile& host, 
                                    std::chrono::system_clock::time_point timestamp);
+    
+    // RNG must be mutable if GenerateRecord is const, but better to make local
+    // To ensure determinism across method calls, we need a member RNG or pass it around.
+    // If we make it a member, GenerateRecord can't be const (which is fine).
+    std::mt19937_64 rng_;
 };
+
 

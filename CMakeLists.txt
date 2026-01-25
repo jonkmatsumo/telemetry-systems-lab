@@ -97,11 +97,30 @@ target_link_libraries(unit_tests
 
 add_test(NAME UnitTests COMMAND unit_tests)
 
-# Integration Test Client
+# Integration Test Client (End-to-End)
 add_executable(test_client tests/client.cpp)
 target_link_libraries(test_client
     telemetry_proto
     ${GRPC_LIBRARIES}
     ${PROTOBUF_LIBRARIES}
 )
+
+# Integration Test (DB Only)
+add_executable(db_integration_tests
+    tests/integration/test_db_client.cpp
+    src/db_client.cpp
+)
+target_include_directories(db_integration_tests PRIVATE src ${GRPC_INCLUDE_DIRS} ${PROTOBUF_INCLUDE_DIRS})
+target_link_libraries(db_integration_tests
+    GTest::GTest
+    GTest::Main
+    telemetry_proto
+    ${GRPC_LIBRARIES}
+    ${PROTOBUF_LIBRARIES}
+    fmt::fmt
+    spdlog::spdlog
+    ${PQXX_LIBRARIES}
+    ${UUID_LIBRARIES}
+)
+
 

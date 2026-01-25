@@ -19,12 +19,13 @@ std::chrono::system_clock::time_point ParseTime(const std::string& iso) {
 Generator::Generator(const telemetry::GenerateRequest& request, 
                      std::string run_id, 
                      std::shared_ptr<IDbClient> db_client)
-    : config_(request), run_id_(run_id), db_(db_client) {
+    : config_(request), run_id_(run_id), db_(db_client), rng_(request.seed()) {
 }
 
 
 void Generator::InitializeHosts() {
-    std::mt19937_64 rng(config_.seed());
+    // Make a copy of the RNG for init so we don't advance the main sequence
+    // Or just use the main RNG. Let's use the main RNG for consistency.
     std::uniform_real_distribution<double> cpu_dist(10.0, 60.0); // Baseline averages
     std::uniform_real_distribution<double> phase_dist(0.0, 6.28);
     
@@ -38,9 +39,9 @@ void Generator::InitializeHosts() {
         h.host_id = fmt::format("host-{}-{}", config_.tier(), i);
         h.project_id = "proj-" + config_.tier(); // keeping simple
         h.region = regions[i % regions.size()];
-        h.cpu_base = cpu_dist(rng);
+        h.cpu_base = cpu_dist(rng_);
         h.mem_base = h.cpu_base * 0.8 + 10.0; // simple correlation for base
-        h.phase_shift = phase_dist(rng);
+        h.phase_shift = phase_dist(rng_);
         h.labels_json = fmt::format(R"({{"service": "backend", "tier": "{}"}})", config_.tier());
         hosts_.push_back(h);
     }
@@ -70,12 +71,15 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
     double daily = 10.0 * std::sin((2 * M_PI * hours / 24.0) + host.phase_shift);
     double weekly = 5.0 * std::sin((2 * M_PI * hours / 168.0));
     
-    double noise = (rand() % 200 - 100) / 10.0; // +/- 10%
+    std::uniform_real_distribution<double> noise_dist(-10.0, 10.0);
+    double noise = noise_dist(rng_);
+
     
     double cpu = host.cpu_base + daily + weekly + noise;
     
     // Anomaly Probability Checks
-    double p = (rand() % 10000) / 10000.0; // 0.0 to 1.0
+    std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
+    double p = prob_dist(rng_);
     bool is_anomaly = false;
     std::string type;
 
@@ -115,9 +119,10 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
     // Check constraint if provided in config, otherwise default 1-5am logic check only if rate > 0
     if (config_.has_anomaly_config() && config_.anomaly_config().contextual_rate() > 0) {
         // Only trigger if random check passes AND we are in the window
-        double p_ctx = (rand() % 10000) / 10000.0;
+        double p_ctx = prob_dist(rng_);
         if (hour_of_day >= 1 && hour_of_day <= 5 && p_ctx < config_.anomaly_config().contextual_rate()) {
-             cpu = 90.0 + (rand() % 10); // Pin high
+             std::uniform_real_distribution<double> spike_dist(0.0, 10.0);
+             cpu = 90.0 + spike_dist(rng_); // Pin high
              is_anomaly = true;
              type = (type.empty() ? "CONTEXTUAL" : type + ",CONTEXTUAL");
         }
@@ -139,19 +144,23 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
         // Inverse or decoupled
         r.memory_usage = std::max(0.0, std::min(100.0, 100.0 - r.cpu_usage + noise));
     } else {
-        r.memory_usage = std::max(0.0, std::min(100.0, r.cpu_usage * 0.7 + 20.0 + (rand() % 50 - 25)/10.0));
+         std::uniform_real_distribution<double> mem_noise(-2.5, 2.5);
+         r.memory_usage = std::max(0.0, std::min(100.0, r.cpu_usage * 0.7 + 20.0 + mem_noise(rng_)));
     }
     
-    r.disk_utilization = 30.0 + (rand() % 200 - 100)/20.0; 
+    std::uniform_real_distribution<double> disk_noise(-5.0, 5.0);
+    r.disk_utilization = 30.0 + disk_noise(rng_); 
     
     // RX/TX
-    r.network_rx_rate = std::max(0.0, 10.0 + (daily/2.0) + (rand() % 100)/10.0);
+    std::uniform_real_distribution<double> net_node(0.0, 10.0);
+    r.network_rx_rate = std::max(0.0, 10.0 + (daily/2.0) + net_node(rng_));
     // Correlation break could also affect Network
     if (mutable_host.correlation_broken) {
          r.network_tx_rate = 1.0; // Data sink (high RX, low TX)
          r.network_rx_rate += 50.0; // DDoS simulation
     } else {
-         r.network_tx_rate = r.network_rx_rate * 0.8 + (rand() % 50)/10.0;
+         std::uniform_real_distribution<double> net_jitter(0.0, 5.0);
+         r.network_tx_rate = r.network_rx_rate * 0.8 + net_jitter(rng_);
     }
     
     r.is_anomaly = is_anomaly;
@@ -163,7 +172,9 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
     if (lag_ms == 0) lag_ms = 2000;
     
     // Add jitter (simple uniform for MVP, lognormal in full impl)
-    int jitter = rand() % 500;
+    std::uniform_int_distribution<int> jitter_dist(0, 500);
+    int jitter = jitter_dist(rng_);
+
     
     r.ingestion_time = timestamp + std::chrono::milliseconds(lag_ms + jitter);
     

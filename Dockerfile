@@ -52,6 +52,8 @@ WORKDIR /app
 COPY --from=builder /app/build/telemetry-generator .
 COPY --from=builder /app/build/unit_tests .
 COPY --from=builder /app/build/test_client .
+COPY --from=builder /app/build/db_integration_tests .
+
 
 
 
