@@ -14,8 +14,10 @@ RUN apt-get update && apt-get install -y \
     libpqxx-dev \
     libfmt-dev \
     libspdlog-dev \
+    uuid-dev \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
+
 
 
 WORKDIR /app

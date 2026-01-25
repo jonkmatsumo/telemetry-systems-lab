@@ -6,18 +6,64 @@ set(CMAKE_CXX_STANDARD 20)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GRPC REQUIRED grpc++)
 pkg_check_modules(PROTOBUF REQUIRED protobuf)
+pkg_check_modules(PQXX REQUIRED libpqxx)
+pkg_check_modules(UUID REQUIRED uuid)
+
+
 
 find_package(fmt REQUIRED)
 find_package(spdlog REQUIRED)
 
-# Proto functionality will be added in Phase B
-# For now, just a dummy executable to pass the docker build
-add_executable(telemetry-generator src/main.cpp)
+# Proto Generation
+set(PROTO_SRC proto/telemetry.proto)
+set(PROTO_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
-target_include_directories(telemetry-generator PRIVATE ${GRPC_INCLUDE_DIRS} ${PROTOBUF_INCLUDE_DIRS})
+# Find the protoc compiler
+find_program(PROTOC_EXECUTABLE protoc REQUIRED)
+
+# Generate C++ sources
+execute_process(
+    COMMAND mkdir -p ${PROTO_GEN_DIR}
+)
+
+add_custom_command(
+    OUTPUT ${PROTO_GEN_DIR}/telemetry.grpc.pb.cc ${PROTO_GEN_DIR}/telemetry.grpc.pb.h
+           ${PROTO_GEN_DIR}/telemetry.pb.cc ${PROTO_GEN_DIR}/telemetry.pb.h
+    COMMAND ${PROTOC_EXECUTABLE}
+        --grpc_out=${PROTO_GEN_DIR}
+        --cpp_out=${PROTO_GEN_DIR}
+        --plugin=protoc-gen-grpc=`which grpc_cpp_plugin`
+        -I ${CMAKE_CURRENT_SOURCE_DIR}/proto
+        ${CMAKE_CURRENT_SOURCE_DIR}/proto/telemetry.proto
+    DEPENDS ${PROTO_SRC}
+)
+
+add_library(telemetry_proto
+    ${PROTO_GEN_DIR}/telemetry.grpc.pb.cc
+    ${PROTO_GEN_DIR}/telemetry.grpc.pb.h
+    ${PROTO_GEN_DIR}/telemetry.pb.cc
+    ${PROTO_GEN_DIR}/telemetry.pb.h
+)
+
+target_link_libraries(telemetry_proto
+    ${GRPC_LIBRARIES}
+    ${PROTOBUF_LIBRARIES}
+)
+target_include_directories(telemetry_proto PUBLIC ${PROTO_GEN_DIR})
+
+# Main Server
+add_executable(telemetry-generator src/main.cpp src/server.cpp)
+
+target_include_directories(telemetry-generator PRIVATE ${GRPC_INCLUDE_DIRS} ${PROTOBUF_INCLUDE_DIRS} src)
 target_link_libraries(telemetry-generator
+    telemetry_proto
     ${GRPC_LIBRARIES}
     ${PROTOBUF_LIBRARIES}
     fmt::fmt
     spdlog::spdlog
+    ${PQXX_LIBRARIES}
+    ${UUID_LIBRARIES}
 )
+
+
+

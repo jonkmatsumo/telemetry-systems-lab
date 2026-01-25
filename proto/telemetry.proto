@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package telemetry;
+
+service TelemetryService {
+  // Starts a new generation run (async)
+  rpc GenerateTelemetry (GenerateRequest) returns (GenerateResponse);
+  
+  // Queries the status of a specific run
+  rpc GetRun (GetRunRequest) returns (RunStatus);
+}
+
+message GenerateRequest {
+  string tier = 1; // ALPHA, BETA, GAMMA
+  int32 host_count = 2; // e.g., 50, 100, 1000
+  
+  // Time range
+  string start_time_iso = 3; 
+  string end_time_iso = 4;
+  int32 interval_seconds = 5; // e.g. 600
+
+  // Configuration
+  repeated string regions = 6;
+  AnomalyConfig anomaly_config = 7;
+  TimingConfig timing_config = 8;
+  int64 seed = 9;
+}
+
+message GenerateResponse {
+  string run_id = 1;
+}
+
+message GetRunRequest {
+  string run_id = 1;
+}
+
+message RunStatus {
+  string run_id = 1;
+  string status = 2; // PENDING, RUNNING, SUCCEEDED, FAILED
+  int64 inserted_rows = 3;
+  string error = 4;
+}
+
+message AnomalyConfig {
+  double point_rate = 1;       // e.g. 0.001
+  double contextual_rate = 2;
+  double collective_rate = 3;
+  double correlation_break_rate = 4;
+  int32 burst_duration_points = 5;
+}
+
+message TimingConfig {
+  int32 fixed_lag_ms = 1;
+  double jitter_mu = 2; // lognormal mu
+  double jitter_sigma = 3; // lognormal sigma
+  int32 max_clock_drift_ms = 4;
+}
