@@ -96,9 +96,12 @@ find_package(GTest REQUIRED)
 add_executable(unit_tests 
     tests/unit/test_generator.cpp
     tests/unit/test_server.cpp
+    tests/unit/test_contract.cpp
+    tests/unit/test_preprocessing.cpp
     src/generator.cpp
     src/db_client.cpp
     src/server.cpp
+    src/preprocessing.cpp
 )
 
 target_include_directories(unit_tests PRIVATE src tests ${GRPC_INCLUDE_DIRS} ${PROTOBUF_INCLUDE_DIRS})
