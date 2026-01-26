@@ -21,7 +21,7 @@ COPY --chown=flutteruser:flutteruser web_ui/ web_ui/
 RUN cd web_ui && flutter build web --release
 
 # Stage 2: C++ Dependencies
-FROM ubuntu:22.04 as base
+FROM ubuntu:22.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     build-essential cmake git libgrpc++-dev libprotobuf-dev \
@@ -33,15 +33,15 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Stage 3: C++ Builder
-FROM base as builder
+FROM base AS builder
 COPY CMakeLists.txt .
 COPY proto/ proto/
 COPY src/ src/
 COPY tests/ tests/
-RUN mkdir build && cd build && cmake .. && make -j$(nproc)
+RUN mkdir build && cd build && cmake .. && make -j2
 
 # Stage 4: Runtime
-FROM ubuntu:22.04 as runtime
+FROM ubuntu:22.04 AS runtime
 RUN apt-get update && apt-get install -y \
     libgrpc++1 libprotobuf23 libpqxx-6.4 libfmt8 libspdlog1 \
     python3 python3-pip \

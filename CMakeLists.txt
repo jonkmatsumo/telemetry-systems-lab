@@ -16,8 +16,6 @@ find_package(spdlog REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
-# Fix for Eigen3 visibility/template mismatch on some GCC versions
-add_compile_definitions(EIGEN_DONT_VECTORIZE)
 
 # Proto Generation
 set(PROTO_SRC proto/telemetry.proto)
