@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y \
     libpqxx-dev \
     libfmt-dev \
     libspdlog-dev \
+    libeigen3-dev \
+    nlohmann-json3-dev \
     uuid-dev \
     libgtest-dev \
     pkg-config \
