@@ -1,8 +1,8 @@
+#include "detectors/pca_model.h"
 #include "api_server.h"
 #include <spdlog/spdlog.h>
 #include <thread>
 #include "detectors/detector_a.h"
-#include "detectors/pca_model.h"
 #include "preprocessing.h"
 #include "detector_config.h"
 
