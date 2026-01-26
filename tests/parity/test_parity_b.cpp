@@ -14,7 +14,7 @@ protected:
     }
 };
 
-TEST_F(ParityBTest, MatchesPythonScores) {
+TEST_F(ParityBTest, MatchesGoldenScores) {
     PcaModel model;
     // Load artifact (path relative to repo root assumed)
     // In CTest, working dir is usually build dir, so we need typical path handling

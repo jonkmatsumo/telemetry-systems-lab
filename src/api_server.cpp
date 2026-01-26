@@ -1,6 +1,8 @@
 #include "detectors/pca_model.h"
 #include "api_server.h"
+#include "training/pca_trainer.h"
 #include <spdlog/spdlog.h>
+#include <filesystem>
 #include <thread>
 #include "detectors/detector_a.h"
 #include "preprocessing.h"
@@ -10,7 +12,7 @@ namespace telemetry {
 namespace api {
 
 ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_str)
-    : grpc_target_(grpc_target) 
+    : grpc_target_(grpc_target), db_conn_str_(db_conn_str)
 {
     // Initialize gRPC Stub
     auto channel = grpc::CreateChannel(grpc_target, grpc::InsecureChannelCredentials());
@@ -139,18 +141,18 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
             db_client_->UpdateModelRunStatus(model_run_id, "RUNNING");
 
             std::string output_dir = "artifacts/pca/" + model_run_id;
-            std::string cmd = "python3 python/training/train_pca.py --dataset_id " + dataset_id + 
-                              " --output_dir " + output_dir;
-            
-            spdlog::info("Executing training command: {}", cmd);
-            int ret = std::system(cmd.c_str());
+            std::string output_path = output_dir + "/model.json";
 
-            if (ret == 0) {
+            try {
+                std::filesystem::create_directories(output_dir);
+                auto artifact = telemetry::training::TrainPcaFromDb(db_conn_str_, dataset_id, 3, 99.5);
+                telemetry::training::WriteArtifactJson(artifact, output_path);
+
                 spdlog::info("Training successful for model {}", model_run_id);
-                db_client_->UpdateModelRunStatus(model_run_id, "COMPLETED", output_dir + "/model.json");
-            } else {
-                spdlog::error("Training failed for model {} with exit code {}", model_run_id, ret);
-                db_client_->UpdateModelRunStatus(model_run_id, "FAILED", "", "Process exited with code " + std::to_string(ret));
+                db_client_->UpdateModelRunStatus(model_run_id, "COMPLETED", output_path);
+            } catch (const std::exception& e) {
+                spdlog::error("Training failed for model {}: {}", model_run_id, e.what());
+                db_client_->UpdateModelRunStatus(model_run_id, "FAILED", "", e.what());
             }
         }).detach();
 

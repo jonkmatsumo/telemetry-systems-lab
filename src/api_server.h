@@ -37,6 +37,7 @@ private:
     std::unique_ptr<DbClient> db_client_;
     
     std::string grpc_target_;
+    std::string db_conn_str_;
 };
 
 } // namespace api

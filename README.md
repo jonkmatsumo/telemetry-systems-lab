@@ -8,7 +8,7 @@ A high-performance, full-stack anomaly detection system capable of generating sy
 graph TD
     UI[Flutter Web App] -->|HTTP/JSON| API[HTTP API Service :8080]
     API -->|gRPC| GEN[Generator Service :50051]
-    API -->|Subprocess| PY[Python Trainer]
+    API -->|In-process| CPP[Native C++ Trainer]
     API -->|SQL| DB[(Postgres :5432)]
     GEN -->|SQL| DB
 ```
@@ -18,7 +18,7 @@ The system is decomposed into five core components:
 1.  **HTTP API (C++)**: Orchestrator and BFF (Backend for Frontend). Exposes REST endpoints, calls the gRPC generator, and serves the static **Flutter Web** assets.
 2.  **Generator (C++)**: High-throughput producer for synthetic data. Exposes a gRPC interface.
 3.  **Database (PostgreSQL)**: Central store for telemetry, runs, models, and alerts.
-4.  **Training (Python)**: PCA training logic invoked by the API server as a subprocess.
+4.  **Training (C++)**: PCA training logic invoked by the API server.
 5.  **Management Plane (Dart)**: Unified logic across the **Flutter Web Dashboard** and the **Dart CLI Tool** for system orchestration and verification.
 
 ## Build Instructions
@@ -28,7 +28,7 @@ The system is decomposed into five core components:
 - CMake 3.15+
 - PostgreSQL (libpqxx)
 - gRPC & Protobuf
-- Eigen3, nlohmann/json, spdlog, fmt
+- nlohmann/json, spdlog, fmt
 
 ### Building
 ```bash
@@ -55,9 +55,7 @@ This populates the `host_telemetry_archival` table.
 ### 2. Train Model
 Train the PCA model on generated data:
 ```bash
-cd python/training
-pip install -r requirements.txt
-python train_pca.py
+./build/telemetry-train-pca --dataset_id <RUN_ID> --db_conn "<DB_CONN_STR>" --output_dir artifacts/pca/default
 ```
 Outputs `artifacts/pca/default/model.json`.
 
@@ -92,7 +90,7 @@ Run the comprehensive test suite (Unit + Parity):
 
 ## Features
 - **Deterministic**: Seeded generation for reproducible anomalies.
-- **Parity**: Python training and C++ inference are bit-exact (verified via `tests/parity`).
+- **Parity**: Training and C++ inference are bit-exact (verified via `tests/parity`).
 - **Fusion**: Combines robust statistical checks (Z-score) with multivariate PCA reconstruction error.
 - **Alert Management**: Includes anti-flapping (hysteresis) and storm-control (cooldown) logic.
 
