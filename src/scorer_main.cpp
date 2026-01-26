@@ -9,6 +9,9 @@
 #include "preprocessing.h"
 #include "detector_config.h"
 
+#include <map>
+#include "detectors/detector_a.h"
+
 using namespace telemetry;
 using namespace telemetry::anomaly;
 
@@ -21,42 +24,55 @@ int main(int argc, char** argv) {
     // Default Config
     DetectorConfig config;
     config.preprocessing.log1p_network = false;
+    // Tweak output for test visibility
+    config.outliers.robust_z_threshold = 2.0; 
 
     Preprocessor preprocessor(config.preprocessing);
-
-    // DB Connection (using environment variables ideally, hardcoded for MVP plumbing)
-    // In real app, we might use a dedicated Reader or stream.
-    // For Phase 0, we just want to prove we can link and build.
-    spdlog::info("Simulating DB connection...");
-
-    // TODO: Connect IDbClient (requires factoring out factory or just using DbClient directly)
-    // For now, let's just instantiate a dummy loop to prove the contract logic works in a main loop.
     
-    // Simulate a stream of records
-    spdlog::info("Starting scoring loop...");
+    // State: Map host_id -> DetectorA
+    std::map<std::string, DetectorA> detectors;
+
+    // Simulation Loop
+    spdlog::info("Starting scoring loop (Simulation)...");
     
-    // Mock record
-    TelemetryRecord r;
-    r.host_id = "host-1";
-    r.cpu_usage = 45.5;
-    r.memory_usage = 60.2;
-    r.disk_utilization = 30.0;
-    r.network_rx_rate = 100.0;
-    r.network_tx_rate = 50.0;
-    r.metric_timestamp = std::chrono::system_clock::now();
+    // Create a detector for host-1
+    detectors.emplace("host-1", DetectorA(config.window, config.outliers));
 
-    // Vectorize
-    FeatureVector vec = FeatureVector::FromRecord(r);
+    // Simulate 100 points
+    for (int i = 0; i < 100; ++i) {
+        TelemetryRecord r;
+        r.host_id = "host-1";
+        r.cpu_usage = 50.0 + (i % 10); // Normal noise
+        
+        // Inject Anomaly at i=50
+        if (i == 50) {
+            r.cpu_usage = 200.0; // Spike
+            spdlog::warn("Injecting CPU anomaly at i=50");
+        }
 
-    // Preprocess
-    preprocessor.Apply(vec);
+        r.memory_usage = 60.0;
+        r.disk_utilization = 30.0;
+        r.network_rx_rate = 100.0;
+        r.network_tx_rate = 50.0;
 
-    spdlog::info("Processed record for {}: Vector=[{}, {}, {}, {}, {}]", 
-        r.host_id, 
-        vec.cpu_usage(), vec.memory_usage(), vec.disk_utilization(), 
-        vec.network_rx_rate(), vec.network_tx_rate());
+        // 1. Vectorize
+        FeatureVector vec = FeatureVector::FromRecord(r);
 
-    spdlog::info("Scorer plumbing complete. Waiting for termination...");
-    // Just exit for MVP test
+        // 2. Preprocess
+        preprocessor.Apply(vec);
+
+        // 3. Detect
+        if (detectors.find(r.host_id) != detectors.end()) {
+            auto& detector = detectors.at(r.host_id);
+            AnomalyScore score = detector.Update(vec);
+            
+            if (score.is_anomaly) {
+                spdlog::info("[ANOMALY DETECTED] Host: {} Step: {} MaxZ: {:.2f} Details: {}", 
+                    r.host_id, i, score.max_z_score, score.details);
+            }
+        }
+    }
+
+    spdlog::info("Scorer simulation complete.");
     return 0;
 }
