@@ -20,6 +20,8 @@ public:
 
     void BatchInsertTelemetry(const std::vector<TelemetryRecord>& records) override;
 
+    void InsertAlert(const Alert& alert);
+
 private:
     std::string conn_str_;
 };

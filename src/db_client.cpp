@@ -16,10 +16,6 @@ void DbClient::CreateRun(const std::string& run_id,
         std::string config_json;
         google::protobuf::util::MessageToJsonString(config, &config_json);
 
-        // ISO time strings to SQL timestamp conversion is handled by Postgres if string format is correct
-        // But the proto has start_time_iso. 
-        // We will insert simple placeholders for now, assuming ISO 8601 strings in config
-        
         W.exec_params("INSERT INTO generation_runs (run_id, tier, host_count, start_time, end_time, interval_seconds, seed, status, config) "
                       "VALUES ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6, $7, $8, $9::jsonb)",
                       run_id, config.tier(), config.host_count(), 
@@ -60,14 +56,7 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
         
-        std::vector<std::string> columns = {
-             "ingestion_time", "metric_timestamp", "host_id", "project_id", "region", 
-             "cpu_usage", "memory_usage", "disk_utilization", "network_rx_rate", "network_tx_rate", 
-             "labels", "run_id", "is_anomaly", "anomaly_type"
-        };
-        
         pqxx::stream_to stream(W, "host_telemetry_archival");
-
 
         auto to_iso = [](std::chrono::system_clock::time_point tp) {
             return fmt::format("{:%Y-%m-%d %H:%M:%S%z}", tp);
@@ -96,7 +85,26 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Batch insert failed: {}", e.what());
-        // In real system, we might retry or propagate error
         throw;
+    }
+}
+
+void DbClient::InsertAlert(const Alert& alert) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        
+        auto to_iso = [](std::chrono::system_clock::time_point tp) {
+            return fmt::format("{:%Y-%m-%d %H:%M:%S%z}", tp);
+        };
+
+        W.exec_params("INSERT INTO alerts (host_id, run_id, timestamp, severity, detector_source, score, details) "
+                      "VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7::jsonb)",
+                      alert.host_id, alert.run_id, to_iso(alert.timestamp),
+                      alert.severity, alert.source, alert.score, alert.details_json);
+        W.commit();
+        spdlog::info("Inserted alert for host {} severity {}", alert.host_id, alert.severity);
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to insert alert: {}", e.what());
     }
 }

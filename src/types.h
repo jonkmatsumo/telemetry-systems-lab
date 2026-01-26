@@ -41,3 +41,14 @@ struct TelemetryRecord {
     bool is_anomaly = false;
     std::string anomaly_type;
 };
+
+struct Alert {
+    std::string host_id;
+    std::string run_id;
+    std::chrono::system_clock::time_point timestamp;
+    std::string severity; // LOW, MEDIUM, HIGH, CRITICAL
+    std::string source;
+    double score;
+    std::string details_json;
+};
+

@@ -79,6 +79,7 @@ add_executable(telemetry-scorer
     src/preprocessing.cpp
     src/detectors/detector_a.cpp
     src/detectors/pca_model.cpp
+    src/alert_manager.cpp
 )
 
 target_include_directories(telemetry-scorer PRIVATE src)
@@ -106,12 +107,14 @@ add_executable(unit_tests
     tests/unit/test_contract.cpp
     tests/unit/test_preprocessing.cpp
     tests/unit/test_detector_a.cpp
+    tests/unit/test_alert_manager.cpp
     src/generator.cpp
     src/db_client.cpp
     src/server.cpp
     src/preprocessing.cpp
     src/detectors/detector_a.cpp
     src/detectors/pca_model.cpp
+    src/alert_manager.cpp
     tests/parity/test_parity_b.cpp
 )
 
