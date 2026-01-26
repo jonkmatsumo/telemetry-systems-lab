@@ -5,7 +5,7 @@ using namespace telemetry::anomaly;
 
 // Test contract ordering
 TEST(FeatureContractTest, VectorMappingIsCorrect) {
-    telemetry::TelemetryRecord r;
+    TelemetryRecord r;
     r.cpu_usage = 10.0;
     r.memory_usage = 20.0;
     r.disk_utilization = 30.0;

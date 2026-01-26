@@ -66,7 +66,7 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
              "labels", "run_id", "is_anomaly", "anomaly_type"
         };
         
-        pqxx::stream_to stream(W, "host_telemetry_archival", columns);
+        pqxx::stream_to stream(W, "host_telemetry_archival");
 
 
         auto to_iso = [](std::chrono::system_clock::time_point tp) {
