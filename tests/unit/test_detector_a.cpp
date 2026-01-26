@@ -80,3 +80,36 @@ TEST_F(DetectorATest, RollingWindowWorks) {
     // Internal state verification is hard without friend class, 
     // but we trust the maths if anomaly detection works consistent with expectations.
 }
+
+TEST_F(DetectorATest, PoisoningMitigationWorks) {
+    config.outliers.enable_poison_mitigation = true;
+    config.outliers.poison_skip_threshold = 5.0; // Skip if Z > 5.0
+    config.outliers.robust_z_threshold = 3.0;
+    config.window.size = 20;
+    config.window.min_history = 5;
+    config.window.recompute_interval = 1; 
+    
+    DetectorA detector(config.window, config.outliers);
+    FeatureVector v;
+    
+    // 1. Establish stable baseline with enough points for stability
+    for (int i=0; i<30; ++i) {
+        v.data.fill(10.0);
+        v.cpu_usage() = 10.0 + (i % 3); // 10, 11, 12, 10, 11, 12... Median=11. MAD=1.
+        detector.Update(v);
+    }
+    
+    // 2. Inject massive outliers (30.0) -> Z = |30-11|/1 = 19. 19 > 5.0 -> Skip.
+    v.cpu_usage() = 30.0;
+    for (int i=0; i<10; ++i) {
+        auto res = detector.Update(v);
+        EXPECT_TRUE(res.is_anomaly) << "Outlier " << i << " should be anomalous. Details: " << res.details;
+        EXPECT_NE(res.details.find("(skipped)"), std::string::npos);
+    }
+    
+    // 3. Test a value (15.0) -> Z = |15-11|/1 = 4. 3.0 < 4.0 < 5.0 -> Anomalous but NOT skipped.
+    v.cpu_usage() = 15.0;
+    auto res = detector.Update(v);
+    EXPECT_TRUE(res.is_anomaly) << "Value 15.0 should be anomalous. Details: " << res.details;
+    EXPECT_EQ(res.details.find("(skipped)"), std::string::npos);
+}

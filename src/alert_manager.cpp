@@ -54,6 +54,9 @@ std::vector<Alert> AlertManager::Evaluate(const std::string& host_id,
     // If A (Stats) -> MEDIUM (outlier)
     // If A and Score > 10.0 -> HIGH
     
+    // Safety check: ensure we don't treat non-evaluated B as a valid score if flag was somehow true (unlikely)
+    // But mainly to clarify logic.
+    
     if (detector_a_flag && detector_b_flag) {
         alert.severity = "CRITICAL";
         alert.source = "FUSION_A_B";

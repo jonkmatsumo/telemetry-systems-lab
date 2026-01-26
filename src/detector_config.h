@@ -16,13 +16,23 @@ struct WindowConfig {
 struct OutlierConfig {
     double z_score_threshold = 3.0;
     double robust_z_threshold = 3.5;
-    double max_skip_window = 5; // how many samples can we skip updates for if they are anomalies
+    
+    // Poisoning Mitigation
+    bool enable_poison_mitigation = false;
+    double poison_skip_threshold = 7.0; // Higher than detection threshold to only skip obvious outliers
+};
+
+struct GatingConfig {
+    bool enable_gating = false;
+    double z_trigger_threshold = 3.0;
+    long period_ms = 60000;
 };
 
 struct DetectorConfig {
     PreprocessingConfig preprocessing;
     WindowConfig window;
     OutlierConfig outliers;
+    GatingConfig gating;
 };
 
 } // namespace anomaly
