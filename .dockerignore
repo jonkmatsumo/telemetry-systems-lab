@@ -1,0 +1,7 @@
+.git
+.gitignore
+build/
+postgres_data/
+**/.DS_Store
+README.md
+docker-compose*.yml

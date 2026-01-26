@@ -1,0 +1,16 @@
+services:
+  telemetry-generator:
+    build:
+      target: dev
+    # Command keeps container alive for interactive shell usage
+    command: [ "tail", "-f", "/dev/null" ]
+    volumes:
+      - ./src:/app/src
+      - ./proto:/app/proto
+      - ./tests:/app/tests
+      - ./CMakeLists.txt:/app/CMakeLists.txt
+      # Persist the build directory so object files aren't lost on restart
+      - build_cache:/app/build
+
+volumes:
+  build_cache:
