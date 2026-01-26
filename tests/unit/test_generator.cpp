@@ -96,14 +96,8 @@ TEST(GeneratorMathTest, ContextualAnomaly) {
     h.host_id = "test-host-ctx";
     h.cpu_base = 20.0; 
     
-    // 3 AM
-    std::tm tm = {};
-    tm.tm_year = 2025 - 1900;
-    tm.tm_mon = 0;
-    tm.tm_mday = 1;
-    tm.tm_hour = 3; 
-    std::time_t t = std::mktime(&tm);
-    auto timestamp = std::chrono::system_clock::from_time_t(t);
+    // 3 AM UTC (3 hours since epoch)
+    auto timestamp = std::chrono::system_clock::time_point(std::chrono::hours(3));
     
     auto rec = gen.PublicGenerateRecord(h, timestamp);
     
