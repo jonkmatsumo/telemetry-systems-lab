@@ -63,3 +63,30 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 CREATE INDEX IF NOT EXISTS idx_alerts_run_id ON alerts(run_id);
 CREATE INDEX IF NOT EXISTS idx_alerts_host_id ON alerts(host_id);
+
+-- Table: model_runs
+-- Tracks training jobs and artifacts
+CREATE TABLE IF NOT EXISTS model_runs (
+    model_run_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    dataset_id UUID NOT NULL REFERENCES generation_runs(run_id),
+    name TEXT NOT NULL, -- e.g. "pca_default"
+    status TEXT NOT NULL, -- PENDING, RUNNING, COMPLETED, FAILED
+    artifact_path TEXT NULL,
+    error TEXT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ NULL
+);
+
+-- Table: inference_runs
+-- Tracks inference requests and outcomes
+CREATE TABLE IF NOT EXISTS inference_runs (
+    inference_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    model_run_id UUID NOT NULL REFERENCES model_runs(model_run_id),
+    status TEXT NOT NULL,
+    anomaly_count INT NOT NULL DEFAULT 0,
+    details JSONB NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_runs_dataset_id ON model_runs(dataset_id);
+CREATE INDEX IF NOT EXISTS idx_inference_model_id ON inference_runs(model_run_id);

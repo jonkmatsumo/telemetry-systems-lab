@@ -1,13 +1,15 @@
 cmake_minimum_required(VERSION 3.15)
 project(telemetry-generator)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GRPC REQUIRED IMPORTED_TARGET grpc++)
 pkg_check_modules(PROTOBUF REQUIRED IMPORTED_TARGET protobuf)
 pkg_check_modules(PQXX REQUIRED IMPORTED_TARGET libpqxx)
 pkg_check_modules(UUID REQUIRED IMPORTED_TARGET uuid)
+# Optional: On some systems httplib is a library, on others header-only
+pkg_search_module(HTTPLIB IMPORTED_TARGET cpp-httplib libcpp-httplib)
 
 
 
@@ -15,6 +17,10 @@ find_package(fmt REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(nlohmann_json REQUIRED)
+
+# Fix for Eigen3 on GCC/Ubuntu 22.04
+add_definitions(-DEIGEN_STRONG_INLINE=inline)
+
 
 # Proto Generation
 set(PROTO_SRC proto/telemetry.proto)
@@ -94,6 +100,34 @@ target_link_libraries(telemetry-scorer
     Eigen3::Eigen
     nlohmann_json::nlohmann_json
 )
+
+# HTTP API Service
+add_executable(telemetry-api
+    src/api_main.cpp
+    src/api_server.cpp
+    src/db_client.cpp
+    src/preprocessing.cpp
+    src/detectors/detector_a.cpp
+    src/detectors/pca_model.cpp
+    src/alert_manager.cpp
+)
+target_include_directories(telemetry-api PRIVATE src)
+target_link_libraries(telemetry-api
+    telemetry_proto
+    PkgConfig::GRPC
+    PkgConfig::PROTOBUF
+    fmt::fmt
+    spdlog::spdlog
+    PkgConfig::PQXX
+    PkgConfig::UUID
+    Eigen3::Eigen
+    nlohmann_json::nlohmann_json
+    Threads::Threads
+)
+
+if(HTTPLIB_FOUND)
+    target_link_libraries(telemetry-api PkgConfig::HTTPLIB)
+endif()
 
 # Benchmark Tool
 add_executable(telemetry-benchmark

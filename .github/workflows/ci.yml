@@ -26,7 +26,7 @@ jobs:
             build-essential cmake git \
             libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
             libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev \
-            libeigen3-dev nlohmann-json3-dev \
+            libeigen3-dev nlohmann-json3-dev libcpp-httplib-dev \
             pkg-config ccache
 
       - name: Setup Cache
@@ -79,7 +79,7 @@ jobs:
             build-essential cmake git \
             libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
             libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev \
-            libeigen3-dev nlohmann-json3-dev \
+            libeigen3-dev nlohmann-json3-dev libcpp-httplib-dev \
             pkg-config ccache
 
       - name: Initialize Database Schema
@@ -107,3 +107,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build Docker Image
         run: docker build . --target runtime
+
+  web-ui-build:
+    name: Flutter Web Build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+      - name: Build Web UI
+        run: |
+          git config --global --add safe.directory $GITHUB_WORKSPACE/web_ui
+          cd web_ui
+          flutter pub get
+          flutter build web --release

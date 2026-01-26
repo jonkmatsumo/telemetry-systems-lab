@@ -4,17 +4,22 @@ A high-performance, full-stack anomaly detection system capable of generating sy
 
 ## Architecture
 
-The system consists of four main components:
+```mermaid
+graph TD
+    UI[Flutter Web App] -->|HTTP/JSON| API[HTTP API Service :8080]
+    API -->|gRPC| GEN[Generator Service :50051]
+    API -->|Subprocess| PY[Python Trainer]
+    API -->|SQL| DB[(Postgres :5432)]
+    GEN -->|SQL| DB
+```
 
-1.  **Generator (C++)**: Produces synthetic high-frequency telemetry data (CPU, Memory, Disk, Network) with seasonality and injected anomalies (Spike, Burst, Trend, Correlation Break).
-2.  **Database (PostgreSQL)**: Efficiently stores raw time-series data and generated alerts.
-3.  **Training (Python/Scikit-Learn)**: Offline pipeline that extracts data from DB, trains a robust PCA model, and exports portable artifacts (`model.json`).
-4.  **Scorer (C++)**: High-performance inference engine that:
-    - Loads `model.json` artifacts.
-    - Performs statistical analysis (Median/MAD) for simple outliers.
-    - Performs PCA inference (Eigen3) for structural/correlation anomalies.
-    - Fuses signals via `AlertManager` (Hysteresis & Cooldown).
-    - Writes actionable alerts back to the DB.
+The system is decomposed into five core components:
+
+1.  **HTTP API (C++)**: Orchestrator and BFF (Backend for Frontend). Exposes REST endpoints, calls the gRPC generator, and serves the static **Flutter Web** assets.
+2.  **Generator (C++)**: High-throughput producer for synthetic data. Exposes a gRPC interface.
+3.  **Database (PostgreSQL)**: Central store for telemetry, runs, models, and alerts.
+4.  **Training (Python)**: PCA training logic invoked by the API server as a subprocess.
+5.  **Management Plane (Dart)**: Unified logic across the **Flutter Web Dashboard** and the **Dart CLI Tool** for system orchestration and verification.
 
 ## Build Instructions
 
