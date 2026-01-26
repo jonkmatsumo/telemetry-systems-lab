@@ -78,6 +78,7 @@ add_executable(telemetry-scorer
     src/db_client.cpp
     src/preprocessing.cpp
     src/detectors/detector_a.cpp
+    src/detectors/pca_model.cpp
 )
 
 target_include_directories(telemetry-scorer PRIVATE src)
@@ -89,6 +90,8 @@ target_link_libraries(telemetry-scorer
     spdlog::spdlog
     PkgConfig::PQXX
     PkgConfig::UUID
+    Eigen3::Eigen
+    nlohmann_json::nlohmann_json
 )
 
 
@@ -108,6 +111,8 @@ add_executable(unit_tests
     src/server.cpp
     src/preprocessing.cpp
     src/detectors/detector_a.cpp
+    src/detectors/pca_model.cpp
+    tests/parity/test_parity_b.cpp
 )
 
 target_include_directories(unit_tests PRIVATE src tests)
@@ -121,7 +126,10 @@ target_link_libraries(unit_tests
     spdlog::spdlog
     PkgConfig::PQXX
     PkgConfig::UUID
+    Eigen3::Eigen
+    nlohmann_json::nlohmann_json
 )
+
 
 add_test(NAME UnitTests COMMAND unit_tests)
 
