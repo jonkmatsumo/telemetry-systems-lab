@@ -69,7 +69,18 @@ def train_and_export(output_dir="artifacts/pca/default"):
     print(f"Training complete. p99.5 Threshold: {threshold:.4f}")
     
     # 5. Export
+    import os
+    os.makedirs(output_dir, exist_ok=True)
     export_pca_artifact(pca, scaler, FEATURES, threshold, f"{output_dir}/model.json")
 
 if __name__ == "__main__":
-    train_and_export()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset_id", type=str, help="ID of the dataset to train on")
+    parser.add_argument("--output_dir", type=str, default="artifacts/pca/default", help="Output directory for model.json")
+    args = parser.parse_args()
+    
+    if args.dataset_id:
+        print(f"Training on dataset: {args.dataset_id}")
+        
+    train_and_export(output_dir=args.output_dir)

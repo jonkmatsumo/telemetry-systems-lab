@@ -26,6 +26,44 @@ public:
         }
     }
 
+    telemetry::RunStatus GetRunStatus(const std::string& run_id) override {
+        telemetry::RunStatus status;
+        status.set_run_id(run_id);
+        status.set_status("RUNNING"); // Match previous dummy behavior for tests
+        status.set_inserted_rows(12345);
+        return status;
+    }
+
+    std::string CreateModelRun(const std::string& dataset_id, const std::string& name) override {
+        return "mock-model-run-id";
+    }
+
+    void UpdateModelRunStatus(const std::string& model_run_id, 
+                              const std::string& status, 
+                              const std::string& artifact_path = "", 
+                              const std::string& error = "") override {
+        // No-op
+    }
+
+    nlohmann::json GetModelRun(const std::string& model_run_id) override {
+        nlohmann::json j;
+        j["model_run_id"] = model_run_id;
+        j["status"] = "COMPLETED";
+        j["artifact_path"] = "artifacts/pca/default/model.json";
+        return j;
+    }
+
+    std::string CreateInferenceRun(const std::string& model_run_id) override {
+        return "mock-inference-id";
+    }
+
+    void UpdateInferenceRunStatus(const std::string& inference_id, 
+                                          const std::string& status, 
+                                          int anomaly_count, 
+                                          const nlohmann::json& details = {}) override {
+        // No-op
+    }
+
     // Inspection helpers
     size_t last_batch_size = 0;
     TelemetryRecord last_record;

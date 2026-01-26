@@ -24,12 +24,12 @@ Status TelemetryServiceImpl::GenerateTelemetry(ServerContext* context, const Gen
     // Spawn background generation thread
     // Capture request by value to ensure valid lifetime
     GenerateRequest req_copy = *request;
-    std::string conn = db_conn_str_;
+    auto factory = db_factory_;
     
-    std::thread([run_id, req_copy, conn]() {
+    std::thread([run_id, req_copy, factory]() {
         spdlog::info("Background generation for run {} started...", run_id);
         try {
-            auto db = std::make_shared<DbClient>(conn);
+            auto db = factory();
             Generator gen(req_copy, run_id, db);
             gen.Run();
         } catch (const std::exception& e) {
@@ -47,9 +47,8 @@ Status TelemetryServiceImpl::GetRun(ServerContext* context, const GetRunRequest*
                                    RunStatus* response) {
     spdlog::info("Received GetRun request for RunID: {}", request->run_id());
     
-    response->set_run_id(request->run_id());
-    response->set_status("RUNNING"); // Dummy status
-    response->set_inserted_rows(12345);
+    auto db = db_factory_();
+    *response = db->GetRunStatus(request->run_id());
     
     return Status::OK;
 }

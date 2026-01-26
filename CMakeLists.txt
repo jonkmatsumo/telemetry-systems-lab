@@ -95,6 +95,30 @@ target_link_libraries(telemetry-scorer
     nlohmann_json::nlohmann_json
 )
 
+# HTTP API Service
+add_executable(telemetry-api
+    src/api_main.cpp
+    src/api_server.cpp
+    src/db_client.cpp
+    src/preprocessing.cpp
+    src/detectors/detector_a.cpp
+    src/detectors/pca_model.cpp
+    src/alert_manager.cpp
+)
+target_include_directories(telemetry-api PRIVATE src)
+target_link_libraries(telemetry-api
+    telemetry_proto
+    PkgConfig::GRPC
+    PkgConfig::PROTOBUF
+    fmt::fmt
+    spdlog::spdlog
+    PkgConfig::PQXX
+    PkgConfig::UUID
+    Eigen3::Eigen
+    nlohmann_json::nlohmann_json
+    Threads::Threads
+)
+
 # Benchmark Tool
 add_executable(telemetry-benchmark
     src/benchmark_main.cpp

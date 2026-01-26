@@ -1,8 +1,12 @@
 #pragma once
 
+#include <grpcpp/grpcpp.h>
+#include <functional>
+#include <memory>
 #include "telemetry.grpc.pb.h"
 #include <spdlog/spdlog.h>
-#include <grpcpp/grpcpp.h>
+#include "db_client.h"
+#include "idb_client.h"
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -14,10 +18,20 @@ using telemetry::GenerateResponse;
 using telemetry::GetRunRequest;
 using telemetry::RunStatus;
 
-class TelemetryServiceImpl final : public TelemetryService::Service {
+class TelemetryServiceImpl final : public ::telemetry::TelemetryService::Service {
 public:
+    using DbFactory = std::function<std::shared_ptr<IDbClient>()>;
+
     explicit TelemetryServiceImpl(std::string db_conn_str) 
-        : db_conn_str_(std::move(db_conn_str)) {}
+        : db_conn_str_(std::move(db_conn_str)) 
+    {
+        db_factory_ = [this]() {
+            return std::make_shared<DbClient>(db_conn_str_);
+        };
+    }
+
+    explicit TelemetryServiceImpl(DbFactory factory)
+        : db_factory_(std::move(factory)) {}
 
     Status GenerateTelemetry(ServerContext* context, const GenerateRequest* request,
                              GenerateResponse* response) override;
@@ -26,6 +40,7 @@ public:
                   RunStatus* response) override;
 
 private:
-   std::string db_conn_str_;
+    std::string db_conn_str_;
+    DbFactory db_factory_;
 };
 
