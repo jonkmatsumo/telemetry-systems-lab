@@ -4,16 +4,20 @@ RUN apt-get update && apt-get install -y \
     curl git unzip xz-utils libglu1-mesa \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Create non-root user
+RUN useradd -m flutteruser
+USER flutteruser
+WORKDIR /home/flutteruser
+
 # Install Flutter
-RUN git clone https://github.com/flutter/flutter.git -b stable /flutter
-ENV PATH="/flutter/bin:$PATH"
+RUN git clone https://github.com/flutter/flutter.git -b stable flutter
+ENV PATH="/home/flutteruser/flutter/bin:$PATH"
 RUN flutter doctor
 
-COPY web_ui/pubspec.* web_ui/
+COPY --chown=flutteruser:flutteruser web_ui/pubspec.* web_ui/
 RUN cd web_ui && flutter pub get
 
-COPY web_ui/ web_ui/
+COPY --chown=flutteruser:flutteruser web_ui/ web_ui/
 RUN cd web_ui && flutter build web --release
 
 # Stage 2: C++ Dependencies
@@ -51,7 +55,7 @@ COPY --from=builder /app/build/telemetry-generator .
 COPY --from=builder /app/build/telemetry-api .
 COPY --from=builder /app/build/telemetry-scorer .
 COPY --from=builder /app/build/unit_tests .
-COPY --from=web-builder /app/web_ui/build/web ./www
+COPY --from=web-builder /home/flutteruser/web_ui/build/web ./www
 COPY python/ python/
 
 EXPOSE 8080 50051

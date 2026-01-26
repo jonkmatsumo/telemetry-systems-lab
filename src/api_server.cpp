@@ -100,7 +100,7 @@ void ApiServer::HandleGenerateData(const httplib::Request& req, httplib::Respons
 }
 
 void ApiServer::HandleGetDataset(const httplib::Request& req, httplib::Response& res) {
-    std::string run_id = req.path_params.at("id");
+    std::string run_id = req.matches[1];
     
     grpc::ClientContext context;
     telemetry::GetRunRequest g_req;
@@ -165,7 +165,7 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
 }
 
 void ApiServer::HandleGetTrainStatus(const httplib::Request& req, httplib::Response& res) {
-    std::string model_run_id = req.path_params.at("id");
+    std::string model_run_id = req.matches[1];
     auto j = db_client_->GetModelRun(model_run_id);
     if (j.empty()) {
         SendError(res, "Model run not found", 404);

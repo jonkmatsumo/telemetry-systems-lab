@@ -115,10 +115,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 'stable'
           channel: 'stable'
       - name: Build Web UI
         run: |
+          git config --global --add safe.directory $GITHUB_WORKSPACE/web_ui
           cd web_ui
           flutter pub get
           flutter build web --release
