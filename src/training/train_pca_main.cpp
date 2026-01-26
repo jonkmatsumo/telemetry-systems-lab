@@ -1,8 +1,10 @@
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <string>
 
 #include "training/pca_trainer.h"
+#include <pqxx/pqxx>
 
 static std::string get_env(const char* key) {
     const char* val = std::getenv(key);
@@ -48,8 +50,38 @@ int main(int argc, char** argv) {
     std::string output_path = output_dir + "/model.json";
 
     try {
+        size_t row_count = 0;
+        {
+            pqxx::connection conn(db_conn_str);
+            pqxx::work txn(conn);
+            auto res = txn.exec_params(
+                "SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1 AND is_anomaly = false",
+                dataset_id
+            );
+            if (!res.empty()) {
+                row_count = res[0][0].as<size_t>();
+            }
+            txn.commit();
+        }
+
+        std::cout << "Training PCA for dataset_id=" << dataset_id
+                  << " rows=" << row_count
+                  << " n_components=" << n_components
+                  << " percentile=" << percentile
+                  << std::endl;
+
+        auto train_start = std::chrono::steady_clock::now();
         auto artifact = telemetry::training::TrainPcaFromDb(db_conn_str, dataset_id, n_components, percentile);
+        auto train_end = std::chrono::steady_clock::now();
         telemetry::training::WriteArtifactJson(artifact, output_path);
+        auto write_end = std::chrono::steady_clock::now();
+
+        std::chrono::duration<double> train_secs = train_end - train_start;
+        std::chrono::duration<double> write_secs = write_end - train_end;
+
+        std::cout << "Training time (s): " << train_secs.count() << std::endl;
+        std::cout << "Artifact write time (s): " << write_secs.count() << std::endl;
+        std::cout << "Artifact path: " << output_path << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Training failed: " << e.what() << std::endl;
         return 1;

@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS host_telemetry_archival (
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_telemetry_run_id ON host_telemetry_archival(run_id);
+CREATE INDEX IF NOT EXISTS idx_telemetry_run_anomaly ON host_telemetry_archival(run_id, is_anomaly);
 CREATE INDEX IF NOT EXISTS idx_telemetry_host_ts ON host_telemetry_archival(host_id, metric_timestamp);
 CREATE INDEX IF NOT EXISTS idx_telemetry_region_ts ON host_telemetry_archival(region, metric_timestamp);
 -- BRIN index is good for naturally ordered time-series data
