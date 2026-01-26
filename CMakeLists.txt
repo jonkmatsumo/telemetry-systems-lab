@@ -8,6 +8,8 @@ pkg_check_modules(GRPC REQUIRED IMPORTED_TARGET grpc++)
 pkg_check_modules(PROTOBUF REQUIRED IMPORTED_TARGET protobuf)
 pkg_check_modules(PQXX REQUIRED IMPORTED_TARGET libpqxx)
 pkg_check_modules(UUID REQUIRED IMPORTED_TARGET uuid)
+# Optional: On some systems httplib is a library, on others header-only
+pkg_search_module(HTTPLIB IMPORTED_TARGET cpp-httplib libcpp-httplib)
 
 
 
@@ -122,6 +124,10 @@ target_link_libraries(telemetry-api
     nlohmann_json::nlohmann_json
     Threads::Threads
 )
+
+if(HTTPLIB_FOUND)
+    target_link_libraries(telemetry-api PkgConfig::HTTPLIB)
+endif()
 
 # Benchmark Tool
 add_executable(telemetry-benchmark
