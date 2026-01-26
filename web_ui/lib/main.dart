@@ -308,7 +308,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _buildDatasetStatus() {
     return Container(
-      margin: const EdgeInsets.top(24),
+      margin: const EdgeInsets.only(top: 24),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)),
       child: Column(
@@ -374,7 +374,4 @@ class _DashboardPageState extends State<DashboardPage> {
       default: return Colors.white54;
     }
   }
-}
-extension on EdgeInsets {
-  static EdgeInsets top(double value) => EdgeInsets.only(top: value);
 }
