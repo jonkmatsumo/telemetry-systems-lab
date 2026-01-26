@@ -14,7 +14,7 @@ protected:
     }
 };
 
-TEST_F(ParityBTest, MatchesGoldenScores) {
+TEST_F(ParityBTest, MatchesGoldenRegression) {
     PcaModel model;
     // Load artifact (path relative to repo root assumed)
     // In CTest, working dir is usually build dir, so we need typical path handling
@@ -24,7 +24,7 @@ TEST_F(ParityBTest, MatchesGoldenScores) {
     }
     ASSERT_NO_THROW(model.Load(model_path));
 
-    // Load golden data
+    // Load golden regression data (C++-canonical artifacts)
     std::string golden_path = "../tests/parity/golden/parity_b.json";
     if (std::ifstream(golden_path).fail()) {
         golden_path = "tests/parity/golden/parity_b.json";

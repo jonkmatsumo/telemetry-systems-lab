@@ -88,9 +88,20 @@ Run the comprehensive test suite (Unit + Parity):
 ./build/unit_tests
 ```
 
+### Parity (C++-canonical golden regression)
+Parity verifies that C++ inference matches committed golden artifacts. Goldens should only be updated when
+the training output is intentionally changed and validated; otherwise, treat them as immutable regression baselines.
+
+### Trainer Scale Validation
+Use the PCA trainer CLI against an existing dataset to capture timing and row counts:
+```bash
+./build/telemetry-train-pca --dataset_id <RUN_ID> --db_conn "<DB_CONN_STR>" --output_dir artifacts/pca/default
+```
+Record: rows processed, training time, and artifact write time. Compare results across dataset sizes.
+
 ## Features
 - **Deterministic**: Seeded generation for reproducible anomalies.
-- **Parity**: Training and C++ inference are bit-exact (verified via `tests/parity`).
+- **Golden Regression**: C++ inference matches committed golden artifacts (verified via `tests/parity`).
 - **Fusion**: Combines robust statistical checks (Z-score) with multivariate PCA reconstruction error.
 - **Alert Management**: Includes anti-flapping (hysteresis) and storm-control (cooldown) logic.
 
