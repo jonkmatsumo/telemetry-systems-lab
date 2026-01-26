@@ -16,6 +16,9 @@ find_package(spdlog REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
+# Fix for Eigen3 on GCC/Ubuntu 22.04
+add_definitions(-DEIGEN_STRONG_INLINE=inline)
+
 
 # Proto Generation
 set(PROTO_SRC proto/telemetry.proto)
