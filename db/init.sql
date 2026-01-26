@@ -46,3 +46,20 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_region_ts ON host_telemetry_archival(re
 CREATE INDEX IF NOT EXISTS idx_telemetry_brin_ts ON host_telemetry_archival USING BRIN(metric_timestamp);
 -- GIN index for JSONB labels querying
 CREATE INDEX IF NOT EXISTS idx_telemetry_labels ON host_telemetry_archival USING GIN(labels);
+
+-- Table: alerts
+-- Stores anomalies detected by fusion engine
+CREATE TABLE IF NOT EXISTS alerts (
+    alert_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    host_id TEXT NOT NULL,
+    run_id UUID NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL,
+    severity TEXT NOT NULL, -- LOW, MEDIUM, HIGH, CRITICAL
+    detector_source TEXT NOT NULL, -- "DETECTOR_A", "DETECTOR_B", "FUSION"
+    score DOUBLE PRECISION NOT NULL,
+    details JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_run_id ON alerts(run_id);
+CREATE INDEX IF NOT EXISTS idx_alerts_host_id ON alerts(host_id);

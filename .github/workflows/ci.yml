@@ -26,6 +26,7 @@ jobs:
             build-essential cmake git \
             libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
             libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev \
+            libeigen3-dev nlohmann-json3-dev \
             pkg-config ccache
 
       - name: Setup Cache
@@ -78,6 +79,7 @@ jobs:
             build-essential cmake git \
             libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
             libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev \
+            libeigen3-dev nlohmann-json3-dev \
             pkg-config ccache
 
       - name: Initialize Database Schema

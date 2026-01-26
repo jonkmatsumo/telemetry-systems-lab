@@ -39,3 +39,13 @@
 
 # debug information files
 *.dwo
+
+# Build Directory
+build/
+
+# Generated Artifacts
+# Allow default model for tests, but ignore other runs
+/artifacts/*
+!/artifacts/pca/
+!/artifacts/pca/default/
+!/artifacts/pca/default/model.json
