@@ -3,8 +3,7 @@ import numpy as np
 import os
 import sys
 
-# Add python/training to path to use export_utils if needed, 
-# but we will just load the json directly to rely on the artifact interface.
+# Load the JSON directly to rely on the artifact interface.
 
 ARTIFACT_PATH = "artifacts/pca/default/model.json"
 OUTPUT_DIR = "tests/parity/golden"

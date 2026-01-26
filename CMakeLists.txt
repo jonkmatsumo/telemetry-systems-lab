@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.15)
 project(telemetry-generator)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GRPC REQUIRED IMPORTED_TARGET grpc++)
@@ -15,11 +17,7 @@ pkg_search_module(HTTPLIB IMPORTED_TARGET cpp-httplib libcpp-httplib)
 
 find_package(fmt REQUIRED)
 find_package(spdlog REQUIRED)
-find_package(Eigen3 REQUIRED)
 find_package(nlohmann_json REQUIRED)
-
-# Fix for Eigen3 on GCC/Ubuntu 22.04
-add_definitions(-DEIGEN_STRONG_INLINE=inline)
 
 
 # Proto Generation
@@ -59,6 +57,23 @@ target_link_libraries(telemetry_proto
 )
 target_include_directories(telemetry_proto PUBLIC ${PROTO_GEN_DIR})
 
+# Linear algebra utilities (Eigen-free)
+add_library(telemetry_linalg
+    src/linalg/matrix.cpp
+)
+target_include_directories(telemetry_linalg PUBLIC src)
+
+# PCA training library
+add_library(telemetry_trainer
+    src/training/pca_trainer.cpp
+)
+target_include_directories(telemetry_trainer PUBLIC src)
+target_link_libraries(telemetry_trainer
+    telemetry_linalg
+    nlohmann_json::nlohmann_json
+    PkgConfig::PQXX
+)
+
 # Main Server
 add_executable(telemetry-generator 
     src/main.cpp 
@@ -91,13 +106,14 @@ add_executable(telemetry-scorer
 target_include_directories(telemetry-scorer PRIVATE src)
 target_link_libraries(telemetry-scorer
     telemetry_proto
+    telemetry_linalg
+    telemetry_trainer
     PkgConfig::GRPC
     PkgConfig::PROTOBUF
     fmt::fmt
     spdlog::spdlog
     PkgConfig::PQXX
     PkgConfig::UUID
-    Eigen3::Eigen
     nlohmann_json::nlohmann_json
 )
 
@@ -114,13 +130,14 @@ add_executable(telemetry-api
 target_include_directories(telemetry-api PRIVATE src)
 target_link_libraries(telemetry-api
     telemetry_proto
+    telemetry_linalg
+    telemetry_trainer
     PkgConfig::GRPC
     PkgConfig::PROTOBUF
     fmt::fmt
     spdlog::spdlog
     PkgConfig::PQXX
     PkgConfig::UUID
-    Eigen3::Eigen
     nlohmann_json::nlohmann_json
     Threads::Threads
 )
@@ -139,10 +156,19 @@ add_executable(telemetry-benchmark
 )
 target_include_directories(telemetry-benchmark PRIVATE src)
 target_link_libraries(telemetry-benchmark
+    telemetry_linalg
     fmt::fmt
     spdlog::spdlog
-    Eigen3::Eigen
     nlohmann_json::nlohmann_json
+)
+
+# PCA Training CLI
+add_executable(telemetry-train-pca
+    src/training/train_pca_main.cpp
+)
+target_include_directories(telemetry-train-pca PRIVATE src)
+target_link_libraries(telemetry-train-pca
+    telemetry_trainer
 )
 
 # Tests
@@ -157,6 +183,8 @@ add_executable(unit_tests
     tests/unit/test_preprocessing.cpp
     tests/unit/test_detector_a.cpp
     tests/unit/test_alert_manager.cpp
+    tests/unit/test_linalg.cpp
+    tests/unit/test_pca_trainer.cpp
     src/generator.cpp
     src/db_client.cpp
     src/server.cpp
@@ -172,13 +200,14 @@ target_link_libraries(unit_tests
     GTest::GTest
     GTest::Main
     telemetry_proto
+    telemetry_linalg
+    telemetry_trainer
     PkgConfig::GRPC
     PkgConfig::PROTOBUF
     fmt::fmt
     spdlog::spdlog
     PkgConfig::PQXX
     PkgConfig::UUID
-    Eigen3::Eigen
     nlohmann_json::nlohmann_json
 )
 
@@ -210,5 +239,3 @@ target_link_libraries(db_integration_tests
     PkgConfig::PQXX
     PkgConfig::UUID
 )
-
-

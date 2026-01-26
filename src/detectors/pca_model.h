@@ -2,7 +2,7 @@
 
 #include <string>
 #include <vector>
-#include <Eigen/Dense>
+#include "linalg/matrix.h"
 #include "../contract.h"
 
 namespace telemetry {
@@ -33,14 +33,14 @@ private:
     bool loaded_ = false;
     
     // Preprocessing (StandardScaler)
-    Eigen::VectorXd cur_mean_;
-    Eigen::VectorXd cur_scale_;
+    linalg::Vector cur_mean_;
+    linalg::Vector cur_scale_;
 
     // PCA
     // Components matrix (k x d)
-    Eigen::MatrixXd components_;
-    // PCA Mean (centered) - often 0 if StandardScaler checks out, but scikit-learn PCA tracks it too
-    Eigen::VectorXd pca_mean_;
+    linalg::Matrix components_;
+    // PCA Mean (centered) - often ~0 if StandardScaler checks out, but we track it for parity
+    linalg::Vector pca_mean_;
 
     double threshold_ = 0.0;
 };

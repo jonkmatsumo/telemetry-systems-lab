@@ -12,6 +12,27 @@ namespace anomaly {
 
 using json = nlohmann::json;
 
+static linalg::Vector vec_sub(const linalg::Vector& a, const linalg::Vector& b) {
+    if (a.size() != b.size()) throw std::runtime_error("vec_sub dimension mismatch");
+    linalg::Vector out(a.size(), 0.0);
+    for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] - b[i];
+    return out;
+}
+
+static linalg::Vector vec_add(const linalg::Vector& a, const linalg::Vector& b) {
+    if (a.size() != b.size()) throw std::runtime_error("vec_add dimension mismatch");
+    linalg::Vector out(a.size(), 0.0);
+    for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] + b[i];
+    return out;
+}
+
+static linalg::Vector vec_div(const linalg::Vector& a, const linalg::Vector& b) {
+    if (a.size() != b.size()) throw std::runtime_error("vec_div dimension mismatch");
+    linalg::Vector out(a.size(), 0.0);
+    for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] / b[i];
+    return out;
+}
+
 void PcaModel::Load(const std::string& artifact_path) {
     std::ifstream f(artifact_path);
     if (!f.is_open()) {
@@ -29,8 +50,8 @@ void PcaModel::Load(const std::string& artifact_path) {
         throw std::runtime_error("Dimension mismatch in artifact preprocessing");
     }
 
-    cur_mean_ = Eigen::Map<Eigen::VectorXd>(raw_mean.data(), raw_mean.size());
-    cur_scale_ = Eigen::Map<Eigen::VectorXd>(raw_scale.data(), raw_scale.size());
+    cur_mean_ = raw_mean;
+    cur_scale_ = raw_scale;
 
     // 2. PCA
     // Components are stored as list of lists (k x d)
@@ -40,16 +61,16 @@ void PcaModel::Load(const std::string& artifact_path) {
     int d = raw_components[0].size();
     if (d != FeatureVector::kSize) throw std::runtime_error("Dimension mismatch in PCA components");
 
-    // Copy to Eigen Matrix
-    components_.resize(k, d);
+    // Copy to matrix
+    components_ = linalg::Matrix(static_cast<size_t>(k), static_cast<size_t>(d));
     for (int i = 0; i < k; ++i) {
         for (int c = 0; c < d; ++c) {
-            components_(i, c) = raw_components[i][c];
+            components_(static_cast<size_t>(i), static_cast<size_t>(c)) = raw_components[i][c];
         }
     }
 
     auto raw_pca_mean = j["model"]["mean"].get<std::vector<double>>();
-    pca_mean_ = Eigen::Map<Eigen::VectorXd>(raw_pca_mean.data(), raw_pca_mean.size());
+    pca_mean_ = raw_pca_mean;
 
     // 3. Thresholds
     threshold_ = j["thresholds"]["reconstruction_error"].get<double>();
@@ -63,46 +84,34 @@ PcaScore PcaModel::Score(const FeatureVector& vec) const {
     PcaScore result;
     if (!loaded_) return result;
 
-    // Adapt FeatureVector to Eigen
+    // Adapt FeatureVector to vector
     // Note: FeatureVector is std::array, guaranteed contiguous
-    Eigen::Map<const Eigen::VectorXd> x_raw(vec.data.data(), FeatureVector::kSize);
+    linalg::Vector x_raw(vec.data.begin(), vec.data.end());
 
     // 1. Standardize: (x - u) / s
-    // Array-wise operations
-    Eigen::VectorXd x_scaled = (x_raw - cur_mean_).array() / cur_scale_.array();
+    linalg::Vector x_scaled = vec_div(vec_sub(x_raw, cur_mean_), cur_scale_);
 
     // 2. PCA Project
-    // PCA formula in sklearn:
+    // PCA formula:
     // X_centered = X - pca_mean_
     // X_transformed = X_centered * components.T
     
-    Eigen::VectorXd x_centered = x_scaled - pca_mean_;
-    Eigen::VectorXd x_proj = components_ * x_centered; // (k, d) * (d, 1) -> (k, 1)
+    linalg::Vector x_centered = vec_sub(x_scaled, pca_mean_);
+    linalg::Vector x_proj = linalg::matvec(components_, x_centered); // (k, d) * (d, 1) -> (k, 1)
 
     // 3. Reconstruct
     // X_recon_scaled = X_transformed * components + pca_mean_
-    Eigen::VectorXd x_recon_centered = x_proj.transpose() * components_; // (1, k) * (k, d) -> (1, d). Transpose back to column vector?
-    // Let's stick to column vectors in Eigen logic consistent with matrix mult:
-    // x_proj is (k, 1). components is (k, d).
-    // Reconstruct = (k,1)' * (k,d) ? No. 
-    // Sklearn: inverse_transform(X) = X @ components + mean
-    // checking dims: (n, k) @ (k, d) -> (n, d).
-    // For single vector (1, k) @ (k, d) -> (1, d).
-    
-    // Here we have x_proj as VectorXd (k).
-    // so x_recon_centered = components^T * x_proj
-    // (d, k) * (k, 1) -> (d, 1)
-    Eigen::VectorXd x_recon_centered_col = components_.transpose() * x_proj;
-    
-    Eigen::VectorXd x_recon_scaled = x_recon_centered_col + pca_mean_;
+    linalg::Matrix components_t = linalg::transpose(components_);
+    linalg::Vector x_recon_centered_col = linalg::matvec(components_t, x_proj);
+    linalg::Vector x_recon_scaled = vec_add(x_recon_centered_col, pca_mean_);
 
     // 4. Residual
-    Eigen::VectorXd diff = x_scaled - x_recon_scaled;
-    result.reconstruction_error = diff.norm(); // L2 norm
+    linalg::Vector diff = vec_sub(x_scaled, x_recon_scaled);
+    result.reconstruction_error = linalg::l2_norm(diff); // L2 norm
 
     // Store residuals
     result.residuals.resize(FeatureVector::kSize);
-    Eigen::VectorXd::Map(result.residuals.data(), result.residuals.size()) = diff;
+    result.residuals = diff;
 
     if (result.reconstruction_error > threshold_) {
         result.is_anomaly = true;
