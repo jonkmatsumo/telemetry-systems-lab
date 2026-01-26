@@ -74,6 +74,7 @@ add_executable(telemetry-scorer
     src/scorer_main.cpp
     src/db_client.cpp
     src/preprocessing.cpp
+    src/detectors/detector_a.cpp
 )
 
 target_include_directories(telemetry-scorer PRIVATE src)
@@ -98,10 +99,12 @@ add_executable(unit_tests
     tests/unit/test_server.cpp
     tests/unit/test_contract.cpp
     tests/unit/test_preprocessing.cpp
+    tests/unit/test_detector_a.cpp
     src/generator.cpp
     src/db_client.cpp
     src/server.cpp
     src/preprocessing.cpp
+    src/detectors/detector_a.cpp
 )
 
 target_include_directories(unit_tests PRIVATE src tests)
