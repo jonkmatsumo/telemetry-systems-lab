@@ -69,6 +69,25 @@ target_link_libraries(telemetry-generator
     ${UUID_LIBRARIES}
 )
 
+# Scorer Executable
+add_executable(telemetry-scorer
+    src/scorer_main.cpp
+    src/db_client.cpp
+    src/preprocessing.cpp
+)
+
+target_include_directories(telemetry-scorer PRIVATE ${GRPC_INCLUDE_DIRS} ${PROTOBUF_INCLUDE_DIRS} src)
+target_link_libraries(telemetry-scorer
+    telemetry_proto
+    ${GRPC_LIBRARIES}
+    ${PROTOBUF_LIBRARIES}
+    fmt::fmt
+    spdlog::spdlog
+    ${PQXX_LIBRARIES}
+    ${UUID_LIBRARIES}
+)
+
+
 # Tests
 enable_testing()
 find_package(GTest REQUIRED)
