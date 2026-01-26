@@ -1,4 +1,5 @@
 #include "training/pca_trainer.h"
+#include <tuple>
 
 #include <algorithm>
 #include <cmath>
@@ -8,6 +9,7 @@
 
 #include <nlohmann/json.hpp>
 #include <pqxx/pqxx>
+#include <pqxx/strconv>
 
 #include "contract.h"
 
@@ -56,7 +58,9 @@ static void stream_samples(const std::string& db_conn_str,
         "FROM host_telemetry_archival WHERE run_id = " + txn.quote(dataset_id) + " AND is_anomaly = false";
     pqxx::stream_from stream(txn, query);
 
-    for (auto [cpu, mem, disk, rx, tx] : stream.iter<double, double, double, double, double>()) {
+    std::tuple<double, double, double, double, double> row_data;
+    while (stream >> row_data) {
+        auto [cpu, mem, disk, rx, tx] = row_data;
         linalg::Vector x(telemetry::anomaly::FeatureVector::kSize, 0.0);
         x[0] = cpu;
         x[1] = mem;
@@ -65,6 +69,7 @@ static void stream_samples(const std::string& db_conn_str,
         x[4] = tx;
         on_sample(x);
     }
+
     stream.complete();
     txn.commit();
 }
