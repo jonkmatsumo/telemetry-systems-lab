@@ -95,6 +95,21 @@ target_link_libraries(telemetry-scorer
     nlohmann_json::nlohmann_json
 )
 
+# Benchmark Tool
+add_executable(telemetry-benchmark
+    src/benchmark_main.cpp
+    src/preprocessing.cpp
+    src/detectors/detector_a.cpp
+    src/detectors/pca_model.cpp
+    src/alert_manager.cpp
+)
+target_include_directories(telemetry-benchmark PRIVATE src)
+target_link_libraries(telemetry-benchmark
+    fmt::fmt
+    spdlog::spdlog
+    Eigen3::Eigen
+    nlohmann_json::nlohmann_json
+)
 
 # Tests
 enable_testing()

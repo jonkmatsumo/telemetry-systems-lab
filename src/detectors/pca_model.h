@@ -27,6 +27,7 @@ public:
 
     // Accessors for testing
     double GetThreshold() const { return threshold_; }
+    bool IsLoaded() const { return loaded_; }
 
 private:
     bool loaded_ = false;
