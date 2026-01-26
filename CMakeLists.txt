@@ -10,8 +10,11 @@ pkg_check_modules(PQXX REQUIRED IMPORTED_TARGET libpqxx)
 pkg_check_modules(UUID REQUIRED IMPORTED_TARGET uuid)
 
 
+
 find_package(fmt REQUIRED)
 find_package(spdlog REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 # Proto Generation
 set(PROTO_SRC proto/telemetry.proto)
