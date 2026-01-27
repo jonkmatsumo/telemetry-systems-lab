@@ -106,7 +106,7 @@ class _BarChartPainter extends CustomPainter {
 
     for (int i = 0; i < values.length; i++) {
       final h = maxV == 0 ? 0 : (values[i] / maxV) * size.height;
-      final rect = Rect.fromLTWH(i * barWidth, size.height - h, barWidth * 0.9, h);
+      final rect = Rect.fromLTWH(i * barWidth, size.height - h, barWidth * 0.9, h.toDouble());
       canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(4)), paint);
     }
   }

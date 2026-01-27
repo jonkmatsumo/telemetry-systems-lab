@@ -116,7 +116,9 @@ class HistogramData {
 
   factory HistogramData.fromJson(Map<String, dynamic> json) {
     return HistogramData(
-      edges: (json['edges'] as List? ?? []).map((e) => (e ?? 0.0).toDouble()).toList(),
+      edges: (json['edges'] as List? ?? [])
+          .map<double>((e) => (e ?? 0.0).toDouble())
+          .toList(),
       counts: (json['counts'] as List? ?? []).map((e) => e as int).toList(),
     );
   }
@@ -232,10 +234,14 @@ class EvalMetrics {
         'fn': json['confusion']?['fn'] ?? 0,
       },
       roc: (json['roc'] as List? ?? [])
-          .map((e) => (e as Map).map((k, v) => MapEntry(k.toString(), (v ?? 0.0).toDouble())))
+          .map<Map<String, double>>((e) => (e as Map).map(
+                (k, v) => MapEntry(k.toString(), (v ?? 0.0).toDouble()),
+              ))
           .toList(),
       pr: (json['pr'] as List? ?? [])
-          .map((e) => (e as Map).map((k, v) => MapEntry(k.toString(), (v ?? 0.0).toDouble())))
+          .map<Map<String, double>>((e) => (e as Map).map(
+                (k, v) => MapEntry(k.toString(), (v ?? 0.0).toDouble()),
+              ))
           .toList(),
     );
   }
