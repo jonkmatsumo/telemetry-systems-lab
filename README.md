@@ -97,7 +97,12 @@ Use the PCA trainer CLI against an existing dataset to capture timing and row co
 ```bash
 ./build/telemetry-train-pca --dataset_id <RUN_ID> --db_conn "<DB_CONN_STR>" --output_dir artifacts/pca/default
 ```
-Record: rows processed, training time, and artifact write time. Compare results across dataset sizes.
+The trainer emits:
+- rows processed
+- training time (seconds)
+- artifact write time (seconds)
+- artifact path
+Compare results across dataset sizes to validate scale behavior.
 
 ## Features
 - **Deterministic**: Seeded generation for reproducible anomalies.
