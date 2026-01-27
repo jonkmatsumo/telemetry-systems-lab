@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <chrono>
+#include <nlohmann/json.hpp>
 
 // Integration test - requires running Postgres instance
 class DbClientTest : public ::testing::Test {
@@ -103,3 +104,44 @@ TEST(DbClientFailureTest, InvalidConnection) {
     ASSERT_NO_THROW(client.CreateRun("id", req, "PENDING"));
 }
 
+TEST_F(DbClientTest, ListFiltersAndPagination) {
+    DbClient client(conn_str);
+
+    std::string run_id = GenerateUUID();
+    telemetry::GenerateRequest req;
+    req.set_tier("INTEGRATION");
+    req.set_start_time_iso("2025-01-01T00:00:00Z");
+    req.set_end_time_iso("2025-01-01T01:00:00Z");
+    req.set_interval_seconds(60);
+    req.set_seed(42);
+    req.set_host_count(1);
+    ASSERT_NO_THROW(client.CreateRun(run_id, req, "INTEGRATION_TEST"));
+    ASSERT_NO_THROW(client.UpdateRunStatus(run_id, "INTEGRATION_TEST", 1));
+
+    std::string model_run_id = client.CreateModelRun(run_id, "test_model");
+    ASSERT_FALSE(model_run_id.empty());
+    ASSERT_NO_THROW(client.UpdateModelRunStatus(model_run_id, "COMPLETED", "/tmp/test_artifact.json"));
+
+    std::string inference_id = client.CreateInferenceRun(model_run_id);
+    ASSERT_FALSE(inference_id.empty());
+    ASSERT_NO_THROW(client.UpdateInferenceRunStatus(inference_id, "COMPLETED", 0, nlohmann::json::array(), 1.0));
+
+    std::string job_id = client.CreateScoreJob(run_id, model_run_id);
+    ASSERT_FALSE(job_id.empty());
+    ASSERT_NO_THROW(client.UpdateScoreJob(job_id, "COMPLETED", 10, 10));
+
+    auto runs = client.ListGenerationRuns(50, 0, "INTEGRATION_TEST");
+    ASSERT_FALSE(runs.empty());
+
+    auto models = client.ListModelRuns(50, 0, "COMPLETED", run_id);
+    ASSERT_FALSE(models.empty());
+
+    auto inference_runs = client.ListInferenceRuns(run_id, model_run_id, 50, 0, "COMPLETED");
+    ASSERT_FALSE(inference_runs.empty());
+
+    auto jobs = client.ListScoreJobs(50, 0, "COMPLETED", run_id, model_run_id);
+    ASSERT_FALSE(jobs.empty());
+
+    auto future_filtered = client.ListGenerationRuns(50, 0, "INTEGRATION_TEST", "2999-01-01T00:00:00Z");
+    ASSERT_TRUE(future_filtered.empty());
+}

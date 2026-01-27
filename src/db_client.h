@@ -38,13 +38,25 @@ public:
 
     void InsertAlert(const Alert& alert);
 
-    nlohmann::json ListGenerationRuns(int limit, int offset);
+    nlohmann::json ListGenerationRuns(int limit,
+                                      int offset,
+                                      const std::string& status = "",
+                                      const std::string& created_from = "",
+                                      const std::string& created_to = "");
     nlohmann::json GetDatasetDetail(const std::string& run_id);
-    nlohmann::json ListModelRuns(int limit, int offset);
+    nlohmann::json ListModelRuns(int limit,
+                                 int offset,
+                                 const std::string& status = "",
+                                 const std::string& dataset_id = "",
+                                 const std::string& created_from = "",
+                                 const std::string& created_to = "");
     nlohmann::json ListInferenceRuns(const std::string& dataset_id,
                                      const std::string& model_run_id,
                                      int limit,
-                                     int offset);
+                                     int offset,
+                                     const std::string& status = "",
+                                     const std::string& created_from = "",
+                                     const std::string& created_to = "");
     nlohmann::json GetInferenceRun(const std::string& inference_id);
 
     nlohmann::json GetDatasetSummary(const std::string& run_id, int topk);
@@ -80,6 +92,13 @@ public:
                         long processed_rows,
                         const std::string& error = "");
     nlohmann::json GetScoreJob(const std::string& job_id);
+    nlohmann::json ListScoreJobs(int limit,
+                                 int offset,
+                                 const std::string& status = "",
+                                 const std::string& dataset_id = "",
+                                 const std::string& model_run_id = "",
+                                 const std::string& created_from = "",
+                                 const std::string& created_to = "");
 
     struct ScoringRow {
         long record_id = 0;

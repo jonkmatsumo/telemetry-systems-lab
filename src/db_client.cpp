@@ -225,15 +225,32 @@ void DbClient::UpdateInferenceRunStatus(const std::string& inference_id,
     }
 }
 
-nlohmann::json DbClient::ListGenerationRuns(int limit, int offset) {
+nlohmann::json DbClient::ListGenerationRuns(int limit,
+                                            int offset,
+                                            const std::string& status,
+                                            const std::string& created_from,
+                                            const std::string& created_to) {
     nlohmann::json out = nlohmann::json::array();
     try {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
-        auto res = N.exec_params(
+        std::string query =
             "SELECT run_id, status, inserted_rows, created_at, start_time, end_time, interval_seconds, host_count, tier "
-            "FROM generation_runs ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-            limit, offset);
+            "FROM generation_runs ";
+        std::vector<std::string> where;
+        if (!status.empty()) where.push_back("status = " + N.quote(status));
+        if (!created_from.empty()) where.push_back("created_at >= " + N.quote(created_from));
+        if (!created_to.empty()) where.push_back("created_at <= " + N.quote(created_to));
+        if (!where.empty()) {
+            query += "WHERE ";
+            for (size_t i = 0; i < where.size(); ++i) {
+                query += where[i];
+                if (i + 1 < where.size()) query += " AND ";
+            }
+            query += " ";
+        }
+        query += "ORDER BY created_at DESC LIMIT $1 OFFSET $2";
+        auto res = N.exec_params(query, limit, offset);
         for (const auto& row : res) {
             nlohmann::json j;
             j["run_id"] = row[0].as<std::string>();
@@ -281,15 +298,34 @@ nlohmann::json DbClient::GetDatasetDetail(const std::string& run_id) {
     return j;
 }
 
-nlohmann::json DbClient::ListModelRuns(int limit, int offset) {
+nlohmann::json DbClient::ListModelRuns(int limit,
+                                       int offset,
+                                       const std::string& status,
+                                       const std::string& dataset_id,
+                                       const std::string& created_from,
+                                       const std::string& created_to) {
     nlohmann::json out = nlohmann::json::array();
     try {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
-        auto res = N.exec_params(
+        std::string query =
             "SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at "
-            "FROM model_runs ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-            limit, offset);
+            "FROM model_runs ";
+        std::vector<std::string> where;
+        if (!status.empty()) where.push_back("status = " + N.quote(status));
+        if (!dataset_id.empty()) where.push_back("dataset_id = " + N.quote(dataset_id));
+        if (!created_from.empty()) where.push_back("created_at >= " + N.quote(created_from));
+        if (!created_to.empty()) where.push_back("created_at <= " + N.quote(created_to));
+        if (!where.empty()) {
+            query += "WHERE ";
+            for (size_t i = 0; i < where.size(); ++i) {
+                query += where[i];
+                if (i + 1 < where.size()) query += " AND ";
+            }
+            query += " ";
+        }
+        query += "ORDER BY created_at DESC LIMIT $1 OFFSET $2";
+        auto res = N.exec_params(query, limit, offset);
         for (const auto& row : res) {
             nlohmann::json j;
             j["model_run_id"] = row[0].as<std::string>();
@@ -311,7 +347,10 @@ nlohmann::json DbClient::ListModelRuns(int limit, int offset) {
 nlohmann::json DbClient::ListInferenceRuns(const std::string& dataset_id,
                                            const std::string& model_run_id,
                                            int limit,
-                                           int offset) {
+                                           int offset,
+                                           const std::string& status,
+                                           const std::string& created_from,
+                                           const std::string& created_to) {
     nlohmann::json out = nlohmann::json::array();
     try {
         pqxx::connection C(conn_str_);
@@ -322,6 +361,9 @@ nlohmann::json DbClient::ListInferenceRuns(const std::string& dataset_id,
         std::vector<std::string> where;
         if (!dataset_id.empty()) where.push_back("m.dataset_id = " + N.quote(dataset_id));
         if (!model_run_id.empty()) where.push_back("i.model_run_id = " + N.quote(model_run_id));
+        if (!status.empty()) where.push_back("i.status = " + N.quote(status));
+        if (!created_from.empty()) where.push_back("i.created_at >= " + N.quote(created_from));
+        if (!created_to.empty()) where.push_back("i.created_at <= " + N.quote(created_to));
         if (!where.empty()) {
             base += "WHERE ";
             for (size_t i = 0; i < where.size(); ++i) {
@@ -676,6 +718,55 @@ nlohmann::json DbClient::GetScoreJob(const std::string& job_id) {
         spdlog::error("Failed to get score job {}: {}", job_id, e.what());
     }
     return j;
+}
+
+nlohmann::json DbClient::ListScoreJobs(int limit,
+                                       int offset,
+                                       const std::string& status,
+                                       const std::string& dataset_id,
+                                       const std::string& model_run_id,
+                                       const std::string& created_from,
+                                       const std::string& created_to) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        std::string query =
+            "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, error, created_at, completed_at "
+            "FROM dataset_score_jobs ";
+        std::vector<std::string> where;
+        if (!status.empty()) where.push_back("status = " + N.quote(status));
+        if (!dataset_id.empty()) where.push_back("dataset_id = " + N.quote(dataset_id));
+        if (!model_run_id.empty()) where.push_back("model_run_id = " + N.quote(model_run_id));
+        if (!created_from.empty()) where.push_back("created_at >= " + N.quote(created_from));
+        if (!created_to.empty()) where.push_back("created_at <= " + N.quote(created_to));
+        if (!where.empty()) {
+            query += "WHERE ";
+            for (size_t i = 0; i < where.size(); ++i) {
+                query += where[i];
+                if (i + 1 < where.size()) query += " AND ";
+            }
+            query += " ";
+        }
+        query += "ORDER BY created_at DESC LIMIT $1 OFFSET $2";
+        auto res = N.exec_params(query, limit, offset);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["job_id"] = row[0].as<std::string>();
+            j["dataset_id"] = row[1].as<std::string>();
+            j["model_run_id"] = row[2].as<std::string>();
+            j["status"] = row[3].as<std::string>();
+            j["total_rows"] = row[4].as<long>();
+            j["processed_rows"] = row[5].as<long>();
+            j["error"] = row[6].is_null() ? "" : row[6].as<std::string>();
+            j["created_at"] = row[7].as<std::string>();
+            j["completed_at"] = row[8].is_null() ? "" : row[8].as<std::string>();
+            out.push_back(j);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to list score jobs: {}", e.what());
+    }
+    return out;
 }
 
 std::vector<DbClient::ScoringRow> DbClient::FetchScoringRows(const std::string& dataset_id, long offset, int limit) {

@@ -87,6 +87,10 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleScoreDatasetJob(req, res);
     });
 
+    svr_.Get("/jobs", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleListJobs(req, res);
+    });
+
     svr_.Get("/jobs/:id", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetJobStatus(req, res);
     });
@@ -161,7 +165,10 @@ void ApiServer::HandleGenerateData(const httplib::Request& req, httplib::Respons
 void ApiServer::HandleListDatasets(const httplib::Request& req, httplib::Response& res) {
     int limit = GetIntParam(req, "limit", 50);
     int offset = GetIntParam(req, "offset", 0);
-    auto runs = db_client_->ListGenerationRuns(limit, offset);
+    std::string status = GetStrParam(req, "status");
+    std::string created_from = GetStrParam(req, "created_from");
+    std::string created_to = GetStrParam(req, "created_to");
+    auto runs = db_client_->ListGenerationRuns(limit, offset, status, created_from, created_to);
     nlohmann::json resp;
     resp["items"] = runs;
     resp["limit"] = limit;
@@ -354,7 +361,11 @@ void ApiServer::HandleGetTrainStatus(const httplib::Request& req, httplib::Respo
 void ApiServer::HandleListModels(const httplib::Request& req, httplib::Response& res) {
     int limit = GetIntParam(req, "limit", 50);
     int offset = GetIntParam(req, "offset", 0);
-    auto models = db_client_->ListModelRuns(limit, offset);
+    std::string status = GetStrParam(req, "status");
+    std::string dataset_id = GetStrParam(req, "dataset_id");
+    std::string created_from = GetStrParam(req, "created_from");
+    std::string created_to = GetStrParam(req, "created_to");
+    auto models = db_client_->ListModelRuns(limit, offset, status, dataset_id, created_from, created_to);
     nlohmann::json resp;
     resp["items"] = models;
     resp["limit"] = limit;
@@ -460,7 +471,10 @@ void ApiServer::HandleListInferenceRuns(const httplib::Request& req, httplib::Re
     std::string model_run_id = GetStrParam(req, "model_run_id");
     int limit = GetIntParam(req, "limit", 50);
     int offset = GetIntParam(req, "offset", 0);
-    auto runs = db_client_->ListInferenceRuns(dataset_id, model_run_id, limit, offset);
+    std::string status = GetStrParam(req, "status");
+    std::string created_from = GetStrParam(req, "created_from");
+    std::string created_to = GetStrParam(req, "created_to");
+    auto runs = db_client_->ListInferenceRuns(dataset_id, model_run_id, limit, offset, status, created_from, created_to);
     nlohmann::json resp;
     resp["items"] = runs;
     resp["limit"] = limit;
@@ -476,6 +490,22 @@ void ApiServer::HandleGetInferenceRun(const httplib::Request& req, httplib::Resp
         return;
     }
     SendJson(res, j);
+}
+
+void ApiServer::HandleListJobs(const httplib::Request& req, httplib::Response& res) {
+    int limit = GetIntParam(req, "limit", 50);
+    int offset = GetIntParam(req, "offset", 0);
+    std::string status = GetStrParam(req, "status");
+    std::string dataset_id = GetStrParam(req, "dataset_id");
+    std::string model_run_id = GetStrParam(req, "model_run_id");
+    std::string created_from = GetStrParam(req, "created_from");
+    std::string created_to = GetStrParam(req, "created_to");
+    auto jobs = db_client_->ListScoreJobs(limit, offset, status, dataset_id, model_run_id, created_from, created_to);
+    nlohmann::json resp;
+    resp["items"] = jobs;
+    resp["limit"] = limit;
+    resp["offset"] = offset;
+    SendJson(res, resp);
 }
 
 void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Response& res) {
