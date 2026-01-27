@@ -32,6 +32,10 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Stage 2b: Dev Image (for docker compose dev-up)
+FROM base AS dev
+CMD ["tail", "-f", "/dev/null"]
+
 # Stage 3: C++ Builder
 FROM base AS builder
 COPY CMakeLists.txt .
