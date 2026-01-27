@@ -23,14 +23,30 @@ public:
 private:
     // Route Handlers
     void HandleGenerateData(const httplib::Request& req, httplib::Response& res);
+    void HandleListDatasets(const httplib::Request& req, httplib::Response& res);
     void HandleGetDataset(const httplib::Request& req, httplib::Response& res);
+    void HandleDatasetSummary(const httplib::Request& req, httplib::Response& res);
+    void HandleDatasetTopK(const httplib::Request& req, httplib::Response& res);
+    void HandleDatasetTimeSeries(const httplib::Request& req, httplib::Response& res);
+    void HandleDatasetHistogram(const httplib::Request& req, httplib::Response& res);
     void HandleTrainModel(const httplib::Request& req, httplib::Response& res);
     void HandleGetTrainStatus(const httplib::Request& req, httplib::Response& res);
+    void HandleListModels(const httplib::Request& req, httplib::Response& res);
+    void HandleGetModelDetail(const httplib::Request& req, httplib::Response& res);
     void HandleInference(const httplib::Request& req, httplib::Response& res);
+    void HandleListInferenceRuns(const httplib::Request& req, httplib::Response& res);
+    void HandleGetInferenceRun(const httplib::Request& req, httplib::Response& res);
+    void HandleScoreDatasetJob(const httplib::Request& req, httplib::Response& res);
+    void HandleGetJobStatus(const httplib::Request& req, httplib::Response& res);
+    void HandleModelEval(const httplib::Request& req, httplib::Response& res);
+    void HandleModelErrorDistribution(const httplib::Request& req, httplib::Response& res);
 
     // Helpers
     void SendJson(httplib::Response& res, const nlohmann::json& j, int status = 200);
     void SendError(httplib::Response& res, const std::string& msg, int status = 400);
+    static int GetIntParam(const httplib::Request& req, const std::string& key, int def);
+    static double GetDoubleParam(const httplib::Request& req, const std::string& key, double def);
+    static std::string GetStrParam(const httplib::Request& req, const std::string& key);
 
     httplib::Server svr_;
     std::unique_ptr<telemetry::TelemetryService::Stub> stub_;
