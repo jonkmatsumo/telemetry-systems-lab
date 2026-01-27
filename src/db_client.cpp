@@ -2,6 +2,7 @@
 #include <spdlog/spdlog.h>
 #include <google/protobuf/util/json_util.h>
 #include <fmt/chrono.h>
+#include <algorithm>
 
 
 DbClient::DbClient(const std::string& connection_string) : conn_str_(connection_string) {}
@@ -211,14 +212,618 @@ std::string DbClient::CreateInferenceRun(const std::string& model_run_id) {
 void DbClient::UpdateInferenceRunStatus(const std::string& inference_id, 
                                         const std::string& status, 
                                         int anomaly_count, 
-                                        const nlohmann::json& details) {
+                                        const nlohmann::json& details,
+                                        double latency_ms) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        W.exec_params("UPDATE inference_runs SET status=$1, anomaly_count=$2, details=$3::jsonb WHERE inference_id=$4",
-                     status, anomaly_count, details.dump(), inference_id);
+        W.exec_params("UPDATE inference_runs SET status=$1, anomaly_count=$2, details=$3::jsonb, latency_ms=$4 WHERE inference_id=$5",
+                     status, anomaly_count, details.dump(), latency_ms, inference_id);
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to update inference run {}: {}", inference_id, e.what());
     }
+}
+
+nlohmann::json DbClient::ListGenerationRuns(int limit, int offset) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT run_id, status, inserted_rows, created_at, start_time, end_time, interval_seconds, host_count, tier "
+            "FROM generation_runs ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+            limit, offset);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["run_id"] = row[0].as<std::string>();
+            j["status"] = row[1].as<std::string>();
+            j["inserted_rows"] = row[2].as<long>();
+            j["created_at"] = row[3].as<std::string>();
+            j["start_time"] = row[4].as<std::string>();
+            j["end_time"] = row[5].as<std::string>();
+            j["interval_seconds"] = row[6].as<int>();
+            j["host_count"] = row[7].as<int>();
+            j["tier"] = row[8].as<std::string>();
+            out.push_back(j);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to list generation runs: {}", e.what());
+    }
+    return out;
+}
+
+nlohmann::json DbClient::GetDatasetDetail(const std::string& run_id) {
+    nlohmann::json j;
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT run_id, status, inserted_rows, created_at, start_time, end_time, interval_seconds, host_count, tier, error, config "
+            "FROM generation_runs WHERE run_id = $1",
+            run_id);
+        if (!res.empty()) {
+            j["run_id"] = res[0][0].as<std::string>();
+            j["status"] = res[0][1].as<std::string>();
+            j["inserted_rows"] = res[0][2].as<long>();
+            j["created_at"] = res[0][3].as<std::string>();
+            j["start_time"] = res[0][4].as<std::string>();
+            j["end_time"] = res[0][5].as<std::string>();
+            j["interval_seconds"] = res[0][6].as<int>();
+            j["host_count"] = res[0][7].as<int>();
+            j["tier"] = res[0][8].as<std::string>();
+            j["error"] = res[0][9].is_null() ? "" : res[0][9].as<std::string>();
+            j["config"] = res[0][10].is_null() ? nlohmann::json::object() : nlohmann::json::parse(res[0][10].c_str());
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get dataset detail {}: {}", run_id, e.what());
+    }
+    return j;
+}
+
+nlohmann::json DbClient::ListModelRuns(int limit, int offset) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at "
+            "FROM model_runs ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+            limit, offset);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["model_run_id"] = row[0].as<std::string>();
+            j["dataset_id"] = row[1].as<std::string>();
+            j["name"] = row[2].as<std::string>();
+            j["status"] = row[3].as<std::string>();
+            j["artifact_path"] = row[4].is_null() ? "" : row[4].as<std::string>();
+            j["error"] = row[5].is_null() ? "" : row[5].as<std::string>();
+            j["created_at"] = row[6].as<std::string>();
+            j["completed_at"] = row[7].is_null() ? "" : row[7].as<std::string>();
+            out.push_back(j);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to list model runs: {}", e.what());
+    }
+    return out;
+}
+
+nlohmann::json DbClient::ListInferenceRuns(const std::string& dataset_id,
+                                           const std::string& model_run_id,
+                                           int limit,
+                                           int offset) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        std::string base =
+            "SELECT i.inference_id, i.model_run_id, m.dataset_id, i.status, i.anomaly_count, i.latency_ms, i.created_at "
+            "FROM inference_runs i JOIN model_runs m ON i.model_run_id = m.model_run_id ";
+        std::vector<std::string> where;
+        if (!dataset_id.empty()) where.push_back("m.dataset_id = " + N.quote(dataset_id));
+        if (!model_run_id.empty()) where.push_back("i.model_run_id = " + N.quote(model_run_id));
+        if (!where.empty()) {
+            base += "WHERE ";
+            for (size_t i = 0; i < where.size(); ++i) {
+                base += where[i];
+                if (i + 1 < where.size()) base += " AND ";
+            }
+            base += " ";
+        }
+        base += "ORDER BY i.created_at DESC LIMIT $1 OFFSET $2";
+        auto res = N.exec_params(base, limit, offset);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["inference_id"] = row[0].as<std::string>();
+            j["model_run_id"] = row[1].as<std::string>();
+            j["dataset_id"] = row[2].as<std::string>();
+            j["status"] = row[3].as<std::string>();
+            j["anomaly_count"] = row[4].as<int>();
+            j["latency_ms"] = row[5].is_null() ? 0.0 : row[5].as<double>();
+            j["created_at"] = row[6].as<std::string>();
+            out.push_back(j);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to list inference runs: {}", e.what());
+    }
+    return out;
+}
+
+nlohmann::json DbClient::GetInferenceRun(const std::string& inference_id) {
+    nlohmann::json j;
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT inference_id, model_run_id, status, anomaly_count, latency_ms, details, created_at "
+            "FROM inference_runs WHERE inference_id = $1",
+            inference_id);
+        if (!res.empty()) {
+            j["inference_id"] = res[0][0].as<std::string>();
+            j["model_run_id"] = res[0][1].as<std::string>();
+            j["status"] = res[0][2].as<std::string>();
+            j["anomaly_count"] = res[0][3].as<int>();
+            j["latency_ms"] = res[0][4].is_null() ? 0.0 : res[0][4].as<double>();
+            j["details"] = res[0][5].is_null() ? nlohmann::json::array() : nlohmann::json::parse(res[0][5].c_str());
+            j["created_at"] = res[0][6].as<std::string>();
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get inference run {}: {}", inference_id, e.what());
+    }
+    return j;
+}
+
+nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) {
+    nlohmann::json j;
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        auto res = W.exec_params(
+            "SELECT COUNT(*), MIN(metric_timestamp), MAX(metric_timestamp), "
+            "SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) "
+            "FROM host_telemetry_archival WHERE run_id = $1",
+            run_id);
+        if (!res.empty()) {
+            long count = res[0][0].as<long>();
+            j["row_count"] = count;
+            j["time_range"]["min_ts"] = res[0][1].is_null() ? "" : res[0][1].as<std::string>();
+            j["time_range"]["max_ts"] = res[0][2].is_null() ? "" : res[0][2].as<std::string>();
+            long anomalies = res[0][3].is_null() ? 0 : res[0][3].as<long>();
+            j["anomaly_rate"] = count > 0 ? static_cast<double>(anomalies) / static_cast<double>(count) : 0.0;
+        }
+
+        auto res_types = W.exec_params(
+            "SELECT anomaly_type, COUNT(*) FROM host_telemetry_archival "
+            "WHERE run_id = $1 AND is_anomaly = true AND anomaly_type IS NOT NULL "
+            "GROUP BY anomaly_type ORDER BY COUNT(*) DESC",
+            run_id);
+        nlohmann::json type_counts = nlohmann::json::array();
+        long other = 0;
+        int idx = 0;
+        for (const auto& row : res_types) {
+            std::string type = row[0].as<std::string>();
+            long cnt = row[1].as<long>();
+            if (idx < topk) {
+                nlohmann::json entry;
+                entry["label"] = type;
+                entry["count"] = cnt;
+                type_counts.push_back(entry);
+            } else {
+                other += cnt;
+            }
+            idx++;
+        }
+        if (other > 0) {
+            nlohmann::json entry;
+            entry["label"] = "other";
+            entry["count"] = other;
+            type_counts.push_back(entry);
+        }
+        j["anomaly_type_counts"] = type_counts;
+
+        auto res_distinct = W.exec_params(
+            "SELECT COUNT(DISTINCT host_id), COUNT(DISTINCT project_id), COUNT(DISTINCT region) "
+            "FROM host_telemetry_archival WHERE run_id = $1",
+            run_id);
+        if (!res_distinct.empty()) {
+            j["distinct_counts"]["host_id"] = res_distinct[0][0].as<long>();
+            j["distinct_counts"]["project_id"] = res_distinct[0][1].as<long>();
+            j["distinct_counts"]["region"] = res_distinct[0][2].as<long>();
+        }
+
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get dataset summary {}: {}", run_id, e.what());
+    }
+    return j;
+}
+
+nlohmann::json DbClient::GetTopK(const std::string& run_id,
+                                 const std::string& column,
+                                 int k,
+                                 const std::string& is_anomaly,
+                                 const std::string& anomaly_type,
+                                 const std::string& start_time,
+                                 const std::string& end_time) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        std::string query = "SELECT " + column + ", COUNT(*) FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id);
+        if (!is_anomaly.empty()) {
+            query += " AND is_anomaly = " + W.quote(is_anomaly == "true");
+        }
+        if (!anomaly_type.empty()) {
+            query += " AND anomaly_type = " + W.quote(anomaly_type);
+        }
+        if (!start_time.empty()) {
+            query += " AND metric_timestamp >= " + W.quote(start_time);
+        }
+        if (!end_time.empty()) {
+            query += " AND metric_timestamp <= " + W.quote(end_time);
+        }
+        query += " GROUP BY " + column + " ORDER BY COUNT(*) DESC LIMIT " + std::to_string(k);
+        auto res = W.exec(query);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["label"] = row[0].is_null() ? "" : row[0].as<std::string>();
+            j["count"] = row[1].as<long>();
+            out.push_back(j);
+        }
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get topk for {}: {}", run_id, e.what());
+    }
+    return out;
+}
+
+nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
+                                       const std::vector<std::string>& metrics,
+                                       const std::vector<std::string>& aggs,
+                                       int bucket_seconds,
+                                       const std::string& is_anomaly,
+                                       const std::string& anomaly_type,
+                                       const std::string& start_time,
+                                       const std::string& end_time) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        std::string bucket_expr = "to_timestamp(floor(extract(epoch from metric_timestamp) / " +
+                                  std::to_string(bucket_seconds) + ") * " + std::to_string(bucket_seconds) + ")";
+
+        std::string select = bucket_expr + " AS bucket_ts";
+        for (const auto& metric : metrics) {
+            for (const auto& agg : aggs) {
+                std::string col = metric;
+                std::string alias = metric + "_" + agg;
+                if (agg == "mean") select += ", AVG(" + col + ") AS " + alias;
+                else if (agg == "min") select += ", MIN(" + col + ") AS " + alias;
+                else if (agg == "max") select += ", MAX(" + col + ") AS " + alias;
+                else if (agg == "p50") select += ", PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY " + col + ") AS " + alias;
+                else if (agg == "p95") select += ", PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY " + col + ") AS " + alias;
+            }
+        }
+
+        std::string query = "SELECT " + select + " FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id);
+        if (!is_anomaly.empty()) {
+            query += " AND is_anomaly = " + W.quote(is_anomaly == "true");
+        }
+        if (!anomaly_type.empty()) {
+            query += " AND anomaly_type = " + W.quote(anomaly_type);
+        }
+        if (!start_time.empty()) {
+            query += " AND metric_timestamp >= " + W.quote(start_time);
+        }
+        if (!end_time.empty()) {
+            query += " AND metric_timestamp <= " + W.quote(end_time);
+        }
+        query += " GROUP BY bucket_ts ORDER BY bucket_ts ASC";
+        auto res = W.exec(query);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["ts"] = row[0].as<std::string>();
+            int col_idx = 1;
+            for (const auto& metric : metrics) {
+                for (const auto& agg : aggs) {
+                    std::string key = metric + "_" + agg;
+                    j[key] = row[col_idx].is_null() ? 0.0 : row[col_idx].as<double>();
+                    col_idx++;
+                }
+            }
+            out.push_back(j);
+        }
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get timeseries {}: {}", run_id, e.what());
+    }
+    return out;
+}
+
+nlohmann::json DbClient::GetHistogram(const std::string& run_id,
+                                      const std::string& metric,
+                                      int bins,
+                                      double min_val,
+                                      double max_val,
+                                      const std::string& is_anomaly,
+                                      const std::string& anomaly_type,
+                                      const std::string& start_time,
+                                      const std::string& end_time) {
+    nlohmann::json out;
+    out["edges"] = nlohmann::json::array();
+    out["counts"] = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        if (max_val <= min_val) {
+            auto res = W.exec_params(
+                "SELECT MIN(" + metric + "), MAX(" + metric + ") FROM host_telemetry_archival WHERE run_id = $1",
+                run_id);
+            if (!res.empty() && !res[0][0].is_null() && !res[0][1].is_null()) {
+                min_val = res[0][0].as<double>();
+                max_val = res[0][1].as<double>();
+            }
+        }
+        if (max_val <= min_val) {
+            return out;
+        }
+
+        double step = (max_val - min_val) / static_cast<double>(bins);
+        for (int i = 0; i <= bins; ++i) {
+            out["edges"].push_back(min_val + step * i);
+        }
+
+        std::string query = "SELECT width_bucket(" + metric + ", " + std::to_string(min_val) + ", " +
+                            std::to_string(max_val) + ", " + std::to_string(bins) + ") AS b, COUNT(*) "
+                            "FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id);
+        if (!is_anomaly.empty()) {
+            query += " AND is_anomaly = " + W.quote(is_anomaly == "true");
+        }
+        if (!anomaly_type.empty()) {
+            query += " AND anomaly_type = " + W.quote(anomaly_type);
+        }
+        if (!start_time.empty()) {
+            query += " AND metric_timestamp >= " + W.quote(start_time);
+        }
+        if (!end_time.empty()) {
+            query += " AND metric_timestamp <= " + W.quote(end_time);
+        }
+        query += " GROUP BY b ORDER BY b ASC";
+        auto res = W.exec(query);
+
+        std::vector<long> counts(static_cast<size_t>(bins), 0);
+        for (const auto& row : res) {
+            int b = row[0].as<int>();
+            long cnt = row[1].as<long>();
+            if (b >= 1 && b <= bins) {
+                counts[static_cast<size_t>(b - 1)] = cnt;
+            }
+        }
+        for (int i = 0; i < bins; ++i) {
+            out["counts"].push_back(counts[static_cast<size_t>(i)]);
+        }
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get histogram {}: {}", run_id, e.what());
+    }
+    return out;
+}
+
+std::string DbClient::CreateScoreJob(const std::string& dataset_id, const std::string& model_run_id) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        auto res = W.exec_params(
+            "INSERT INTO dataset_score_jobs (dataset_id, model_run_id, status) "
+            "VALUES ($1, $2, 'PENDING') RETURNING job_id",
+            dataset_id, model_run_id);
+        W.commit();
+        if (!res.empty()) return res[0][0].as<std::string>();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to create score job: {}", e.what());
+    }
+    return "";
+}
+
+void DbClient::UpdateScoreJob(const std::string& job_id,
+                              const std::string& status,
+                              long total_rows,
+                              long processed_rows,
+                              const std::string& error) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        if (status == "COMPLETED") {
+            W.exec_params(
+                "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, completed_at=NOW() WHERE job_id=$4",
+                status, total_rows, processed_rows, job_id);
+        } else if (!error.empty()) {
+            W.exec_params(
+                "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, error=$4 WHERE job_id=$5",
+                status, total_rows, processed_rows, error, job_id);
+        } else {
+            W.exec_params(
+                "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3 WHERE job_id=$4",
+                status, total_rows, processed_rows, job_id);
+        }
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to update score job {}: {}", job_id, e.what());
+    }
+}
+
+nlohmann::json DbClient::GetScoreJob(const std::string& job_id) {
+    nlohmann::json j;
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, error, created_at, completed_at "
+            "FROM dataset_score_jobs WHERE job_id = $1",
+            job_id);
+        if (!res.empty()) {
+            j["job_id"] = res[0][0].as<std::string>();
+            j["dataset_id"] = res[0][1].as<std::string>();
+            j["model_run_id"] = res[0][2].as<std::string>();
+            j["status"] = res[0][3].as<std::string>();
+            j["total_rows"] = res[0][4].as<long>();
+            j["processed_rows"] = res[0][5].as<long>();
+            j["error"] = res[0][6].is_null() ? "" : res[0][6].as<std::string>();
+            j["created_at"] = res[0][7].as<std::string>();
+            j["completed_at"] = res[0][8].is_null() ? "" : res[0][8].as<std::string>();
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get score job {}: {}", job_id, e.what());
+    }
+    return j;
+}
+
+std::vector<DbClient::ScoringRow> DbClient::FetchScoringRows(const std::string& dataset_id, long offset, int limit) {
+    std::vector<ScoringRow> rows;
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT record_id, is_anomaly, cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate "
+            "FROM host_telemetry_archival WHERE run_id = $1 ORDER BY record_id ASC LIMIT $2 OFFSET $3",
+            dataset_id, limit, offset);
+        rows.reserve(res.size());
+        for (const auto& row : res) {
+            ScoringRow r;
+            r.record_id = row[0].as<long>();
+            r.is_anomaly = row[1].as<bool>();
+            r.cpu = row[2].as<double>();
+            r.mem = row[3].as<double>();
+            r.disk = row[4].as<double>();
+            r.rx = row[5].as<double>();
+            r.tx = row[6].as<double>();
+            rows.push_back(r);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to fetch scoring rows: {}", e.what());
+    }
+    return rows;
+}
+
+void DbClient::InsertDatasetScores(const std::string& dataset_id,
+                                   const std::string& model_run_id,
+                                   const std::vector<std::pair<long, std::pair<double, bool>>>& scores) {
+    if (scores.empty()) return;
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        pqxx::stream_to stream(W, "dataset_scores", {"dataset_id", "model_run_id", "record_id", "reconstruction_error", "predicted_is_anomaly"});
+        for (const auto& entry : scores) {
+            stream << std::make_tuple(dataset_id, model_run_id, entry.first, entry.second.first, entry.second.second);
+        }
+        stream.complete();
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to insert dataset scores: {}", e.what());
+    }
+}
+
+nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
+                                        const std::string& model_run_id,
+                                        int points,
+                                        int max_samples) {
+    nlohmann::json out;
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT s.reconstruction_error, s.predicted_is_anomaly, h.is_anomaly "
+            "FROM dataset_scores s JOIN host_telemetry_archival h ON s.record_id = h.record_id "
+            "WHERE s.dataset_id = $1 AND s.model_run_id = $2",
+            dataset_id, model_run_id);
+        struct EvalRow { double err; bool pred; bool label; };
+        std::vector<EvalRow> samples;
+        samples.reserve(res.size());
+        for (const auto& row : res) {
+            samples.push_back({row[0].as<double>(), row[1].as<bool>(), row[2].as<bool>()});
+            if (max_samples > 0 && static_cast<int>(samples.size()) >= max_samples) break;
+        }
+
+        long tp = 0, fp = 0, tn = 0, fn = 0;
+        for (const auto& s : samples) {
+            if (s.pred && s.label) tp++;
+            else if (s.pred && !s.label) fp++;
+            else if (!s.pred && !s.label) tn++;
+            else fn++;
+        }
+        out["confusion"] = {{"tp", tp}, {"fp", fp}, {"tn", tn}, {"fn", fn}};
+
+        std::sort(samples.begin(), samples.end(),
+                  [](const auto& a, const auto& b) { return a.err > b.err; });
+        int n_points = points > 0 ? points : 50;
+        n_points = std::min(n_points, 200);
+        n_points = std::max(n_points, 10);
+
+        long positives = 0;
+        long negatives = 0;
+        for (const auto& s : samples) {
+            if (s.label) positives++;
+            else negatives++;
+        }
+
+        nlohmann::json roc = nlohmann::json::array();
+        nlohmann::json pr = nlohmann::json::array();
+        if (!samples.empty()) {
+            for (int i = 0; i < n_points; ++i) {
+                size_t idx = static_cast<size_t>((static_cast<double>(i) / (n_points - 1)) * (samples.size() - 1));
+                double threshold = samples[idx].err;
+                long ttp = 0, tfp = 0, tfn = 0;
+                for (const auto& s : samples) {
+                    bool pred = s.err >= threshold;
+                    if (pred && s.label) ttp++;
+                    else if (pred && !s.label) tfp++;
+                    else if (!pred && s.label) tfn++;
+                }
+                double tpr = positives > 0 ? static_cast<double>(ttp) / static_cast<double>(positives) : 0.0;
+                double fpr = negatives > 0 ? static_cast<double>(tfp) / static_cast<double>(negatives) : 0.0;
+                double precision = (ttp + tfp) > 0 ? static_cast<double>(ttp) / static_cast<double>(ttp + tfp) : 0.0;
+                double recall = tpr;
+                roc.push_back({{"fpr", fpr}, {"tpr", tpr}});
+                pr.push_back({{"precision", precision}, {"recall", recall}});
+            }
+        }
+        out["roc"] = roc;
+        out["pr"] = pr;
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get eval metrics: {}", e.what());
+    }
+    return out;
+}
+
+nlohmann::json DbClient::GetErrorDistribution(const std::string& dataset_id,
+                                              const std::string& model_run_id,
+                                              const std::string& group_by) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        std::string col = group_by;
+        std::string query =
+            "SELECT " + col + ", "
+            "COUNT(*), AVG(s.reconstruction_error), "
+            "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY s.reconstruction_error), "
+            "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY s.reconstruction_error) "
+            "FROM dataset_scores s JOIN host_telemetry_archival h ON s.record_id = h.record_id "
+            "WHERE s.dataset_id = " + W.quote(dataset_id) + " AND s.model_run_id = " + W.quote(model_run_id) +
+            " GROUP BY " + col + " ORDER BY COUNT(*) DESC";
+        auto res = W.exec(query);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["label"] = row[0].is_null() ? "" : row[0].as<std::string>();
+            j["count"] = row[1].as<long>();
+            j["mean"] = row[2].is_null() ? 0.0 : row[2].as<double>();
+            j["p50"] = row[3].is_null() ? 0.0 : row[3].as<double>();
+            j["p95"] = row[4].is_null() ? 0.0 : row[4].as<double>();
+            out.push_back(j);
+        }
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get error distribution: {}", e.what());
+    }
+    return out;
 }
