@@ -21,6 +21,7 @@ class _ControlPanelState extends State<ControlPanel> {
   ModelStatus? _currentModel;
   InferenceResponse? _inferenceResults;
   Timer? _pollingTimer;
+  bool _pollingInFlight = false;
 
   @override
   void dispose() {
@@ -32,7 +33,9 @@ class _ControlPanelState extends State<ControlPanel> {
 
   void _startPolling(String id, String type) {
     _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 4), (timer) async {
+      if (_pollingInFlight) return;
+      _pollingInFlight = true;
       final service = context.read<TelemetryService>();
       try {
         if (type == 'dataset') {
@@ -56,8 +59,26 @@ class _ControlPanelState extends State<ControlPanel> {
         timer.cancel();
         setState(() => _loading = false);
         _showError(e.toString());
+      } finally {
+        _pollingInFlight = false;
       }
     });
+  }
+
+  Future<void> _refreshStatus() async {
+    final service = context.read<TelemetryService>();
+    try {
+      if (_currentDataset != null) {
+        final status = await service.getDatasetStatus(_currentDataset!.runId);
+        setState(() => _currentDataset = status);
+      }
+      if (_currentModel != null) {
+        final status = await service.getModelStatus(_currentModel!.modelRunId);
+        setState(() => _currentModel = status);
+      }
+    } catch (e) {
+      _showError(e.toString());
+    }
   }
 
   void _generate() async {
@@ -138,6 +159,16 @@ class _ControlPanelState extends State<ControlPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildHeader(),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: _refreshStatus,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh Status'),
+              ),
+            ],
+          ),
           const SizedBox(height: 32),
           Wrap(
             spacing: 24,

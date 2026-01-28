@@ -20,6 +20,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
   bool _loadingDetail = false;
   ScoreJobStatus? _jobStatus;
   Timer? _jobTimer;
+  bool _jobPollingInFlight = false;
 
   @override
   void initState() {
@@ -53,13 +54,25 @@ class _ModelsScreenState extends State<ModelsScreen> {
   Future<void> _startScoring(String datasetId, String modelRunId) async {
     final jobId = await context.read<TelemetryService>().startScoreJob(datasetId, modelRunId);
     _jobTimer?.cancel();
-    _jobTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-      final status = await context.read<TelemetryService>().getJobStatus(jobId);
-      setState(() => _jobStatus = status);
-      if (status.status != 'RUNNING' && status.status != 'PENDING') {
-        timer.cancel();
+    _jobTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      if (_jobPollingInFlight) return;
+      _jobPollingInFlight = true;
+      try {
+        final status = await context.read<TelemetryService>().getJobProgress(jobId);
+        setState(() => _jobStatus = status);
+        if (status.status != 'RUNNING' && status.status != 'PENDING') {
+          timer.cancel();
+        }
+      } finally {
+        _jobPollingInFlight = false;
       }
     });
+  }
+
+  Future<void> _refreshJobStatus() async {
+    if (_jobStatus == null) return;
+    final status = await context.read<TelemetryService>().getJobProgress(_jobStatus!.jobId);
+    setState(() => _jobStatus = status);
   }
 
   Future<void> _loadEval(String datasetId, String modelRunId) async {
@@ -181,6 +194,15 @@ class _ModelsScreenState extends State<ModelsScreen> {
             padding: const EdgeInsets.only(top: 12),
             child: Text(
               'Scoring job: ${_jobStatus!.status} (${_jobStatus!.processedRows}/${_jobStatus!.totalRows}) ${_jobStatus!.error}',
+            ),
+          ),
+        if (_jobStatus != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: OutlinedButton.icon(
+              onPressed: _refreshJobStatus,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh Job Status'),
             ),
           ),
         const SizedBox(height: 16),

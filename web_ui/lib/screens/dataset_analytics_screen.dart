@@ -98,7 +98,14 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     child: FutureBuilder<List<TopKEntry>>(
                       future: _topRegionsFuture,
                       builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Text('Error: ${snapshot.error}');
+                        }
                         final items = snapshot.data ?? [];
+                        if (items.isEmpty) return const SizedBox.shrink();
                         return BarChart(values: items.map((e) => e.count.toDouble()).toList());
                       },
                     ),
@@ -111,7 +118,14 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     child: FutureBuilder<List<TopKEntry>>(
                       future: _topAnomalyFuture,
                       builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Text('Error: ${snapshot.error}');
+                        }
                         final items = snapshot.data ?? [];
+                        if (items.isEmpty) return const SizedBox.shrink();
                         return BarChart(values: items.map((e) => e.count.toDouble()).toList());
                       },
                     ),
@@ -124,8 +138,15 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     child: FutureBuilder<HistogramData>(
                       future: _cpuHistFuture,
                       builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Text('Error: ${snapshot.error}');
+                        }
                         final hist = snapshot.data;
                         final values = hist?.counts.map((e) => e.toDouble()).toList() ?? [];
+                        if (values.isEmpty) return const SizedBox.shrink();
                         return BarChart(values: values);
                       },
                     ),
@@ -138,6 +159,12 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     child: FutureBuilder<DatasetSummary>(
                       future: _summaryFuture,
                       builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Text('Error: ${snapshot.error}');
+                        }
                         final trend = snapshot.data?.anomalyRateTrend ?? [];
                         if (trend.isEmpty) return const SizedBox.shrink();
                         final xs = List<double>.generate(trend.length, (i) => i.toDouble());
@@ -158,6 +185,12 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 child: FutureBuilder<List<TimeSeriesPoint>>(
                   future: _cpuTsFuture,
                   builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return Text('Error: ${snapshot.error}');
+                    }
                     final points = snapshot.data ?? [];
                     if (points.isEmpty) return const SizedBox.shrink();
                     final xs = List<double>.generate(points.length, (i) => i.toDouble());
