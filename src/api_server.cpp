@@ -1,5 +1,6 @@
 #include "detectors/pca_model.h"
 #include "api_server.h"
+#include "api_debug.h"
 #include "training/pca_trainer.h"
 #include <spdlog/spdlog.h>
 #include <filesystem>
@@ -206,10 +207,18 @@ void ApiServer::HandleGetDataset(const httplib::Request& req, httplib::Response&
 void ApiServer::HandleDatasetSummary(const httplib::Request& req, httplib::Response& res) {
     std::string run_id = req.matches[1];
     int topk = GetIntParam(req, "topk", 5);
+    bool debug = GetStrParam(req, "debug") == "true";
+    auto start = std::chrono::steady_clock::now();
     auto summary = db_client_->GetDatasetSummary(run_id, topk);
+    auto end = std::chrono::steady_clock::now();
     if (summary.empty()) {
         SendError(res, "Dataset not found", 404);
         return;
+    }
+    if (debug) {
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        long row_count = summary.value("row_count", 0L);
+        summary["debug"] = BuildDebugMeta(duration_ms, row_count);
     }
     SendJson(res, summary);
 }
@@ -233,9 +242,18 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         SendError(res, "Invalid column", 400);
         return;
     }
+    bool debug = GetStrParam(req, "debug") == "true";
+    auto start = std::chrono::steady_clock::now();
     auto data = db_client_->GetTopK(run_id, allowed[column], k, is_anomaly, anomaly_type, start_time, end_time);
+    auto end = std::chrono::steady_clock::now();
     nlohmann::json resp;
     resp["items"] = data;
+    if (debug) {
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        nlohmann::json resolved;
+        resolved["column"] = allowed[column];
+        resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(data.size()), resolved);
+    }
     SendJson(res, resp);
 }
 
@@ -273,10 +291,21 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
     else if (bucket == "1h" || bucket.empty()) bucket_seconds = 3600;
     else if (bucket == "1d") bucket_seconds = 86400;
 
+    bool debug = GetStrParam(req, "debug") == "true";
+    auto start = std::chrono::steady_clock::now();
     auto data = db_client_->GetTimeSeries(run_id, metrics, aggs, bucket_seconds, is_anomaly, anomaly_type, start_time, end_time);
+    auto end = std::chrono::steady_clock::now();
     nlohmann::json resp;
     resp["items"] = data;
     resp["bucket_seconds"] = bucket_seconds;
+    if (debug) {
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        nlohmann::json resolved;
+        resolved["metrics"] = metrics;
+        resolved["aggs"] = aggs;
+        resolved["bucket_seconds"] = bucket_seconds;
+        resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(data.size()), resolved);
+    }
     SendJson(res, resp);
 }
 
@@ -300,7 +329,20 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
     std::string start_time = GetStrParam(req, "start_time");
     std::string end_time = GetStrParam(req, "end_time");
 
+    bool debug = GetStrParam(req, "debug") == "true";
+    auto start = std::chrono::steady_clock::now();
     auto data = db_client_->GetHistogram(run_id, metric, bins, min_val, max_val, is_anomaly, anomaly_type, start_time, end_time);
+    auto end = std::chrono::steady_clock::now();
+    if (debug) {
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        long row_count = data.value("counts", nlohmann::json::array()).size();
+        nlohmann::json resolved;
+        resolved["metric"] = metric;
+        resolved["bins"] = bins;
+        resolved["min"] = min_val;
+        resolved["max"] = max_val;
+        data["debug"] = BuildDebugMeta(duration_ms, row_count, resolved);
+    }
     SendJson(res, data);
 }
 
@@ -589,11 +631,22 @@ void ApiServer::HandleModelEval(const httplib::Request& req, httplib::Response& 
     std::string dataset_id = GetStrParam(req, "dataset_id");
     int points = GetIntParam(req, "points", 50);
     int max_samples = GetIntParam(req, "max_samples", 20000);
+    bool debug = GetStrParam(req, "debug") == "true";
     if (dataset_id.empty()) {
         SendError(res, "dataset_id required", 400);
         return;
     }
+    auto start = std::chrono::steady_clock::now();
     auto eval = db_client_->GetEvalMetrics(dataset_id, model_run_id, points, max_samples);
+    auto end = std::chrono::steady_clock::now();
+    if (debug) {
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        long row_count = eval.value("roc", nlohmann::json::array()).size();
+        nlohmann::json resolved;
+        resolved["points"] = points;
+        resolved["max_samples"] = max_samples;
+        eval["debug"] = BuildDebugMeta(duration_ms, row_count, resolved);
+    }
     SendJson(res, eval);
 }
 
@@ -601,6 +654,7 @@ void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httpli
     std::string model_run_id = req.matches[1];
     std::string dataset_id = GetStrParam(req, "dataset_id");
     std::string group_by = GetStrParam(req, "group_by");
+    bool debug = GetStrParam(req, "debug") == "true";
     if (dataset_id.empty() || group_by.empty()) {
         SendError(res, "dataset_id and group_by required", 400);
         return;
@@ -614,9 +668,17 @@ void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httpli
         SendError(res, "Invalid group_by", 400);
         return;
     }
+    auto start = std::chrono::steady_clock::now();
     auto dist = db_client_->GetErrorDistribution(dataset_id, model_run_id, allowed[group_by]);
+    auto end = std::chrono::steady_clock::now();
     nlohmann::json resp;
     resp["items"] = dist;
+    if (debug) {
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        nlohmann::json resolved;
+        resolved["group_by"] = allowed[group_by];
+        resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(dist.size()), resolved);
+    }
     SendJson(res, resp);
 }
 
