@@ -105,8 +105,10 @@ CREATE TABLE IF NOT EXISTS dataset_score_jobs (
     status TEXT NOT NULL, -- PENDING, RUNNING, COMPLETED, FAILED
     total_rows BIGINT NOT NULL DEFAULT 0,
     processed_rows BIGINT NOT NULL DEFAULT 0,
+    last_record_id BIGINT NOT NULL DEFAULT 0,
     error TEXT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ NULL
 );
 

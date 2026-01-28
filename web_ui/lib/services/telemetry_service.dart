@@ -47,6 +47,9 @@ class DatasetSummary {
   final double anomalyRate;
   final Map<String, int> distinctCounts;
   final List<Map<String, dynamic>> anomalyTypeCounts;
+  final double ingestionLatencyP50;
+  final double ingestionLatencyP95;
+  final List<AnomalyRatePoint> anomalyRateTrend;
 
   DatasetSummary({
     required this.rowCount,
@@ -55,6 +58,9 @@ class DatasetSummary {
     required this.anomalyRate,
     required this.distinctCounts,
     required this.anomalyTypeCounts,
+    required this.ingestionLatencyP50,
+    required this.ingestionLatencyP95,
+    required this.anomalyRateTrend,
   });
 
   factory DatasetSummary.fromJson(Map<String, dynamic> json) {
@@ -73,6 +79,27 @@ class DatasetSummary {
       anomalyTypeCounts: (json['anomaly_type_counts'] as List? ?? [])
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList(),
+      ingestionLatencyP50: (json['ingestion_latency_p50'] ?? 0.0).toDouble(),
+      ingestionLatencyP95: (json['ingestion_latency_p95'] ?? 0.0).toDouble(),
+      anomalyRateTrend: (json['anomaly_rate_trend'] as List? ?? [])
+          .map((e) => AnomalyRatePoint.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class AnomalyRatePoint {
+  final String ts;
+  final double anomalyRate;
+  final int total;
+
+  AnomalyRatePoint({required this.ts, required this.anomalyRate, required this.total});
+
+  factory AnomalyRatePoint.fromJson(Map<String, dynamic> json) {
+    return AnomalyRatePoint(
+      ts: json['ts'] ?? '',
+      anomalyRate: (json['anomaly_rate'] ?? 0.0).toDouble(),
+      total: json['total'] ?? 0,
     );
   }
 }
@@ -193,6 +220,8 @@ class ScoreJobStatus {
   final String status;
   final int totalRows;
   final int processedRows;
+  final int lastRecordId;
+  final String updatedAt;
   final String error;
 
   ScoreJobStatus({
@@ -200,6 +229,8 @@ class ScoreJobStatus {
     required this.status,
     required this.totalRows,
     required this.processedRows,
+    required this.lastRecordId,
+    required this.updatedAt,
     required this.error,
   });
 
@@ -209,6 +240,8 @@ class ScoreJobStatus {
       status: json['status'] ?? '',
       totalRows: json['total_rows'] ?? 0,
       processedRows: json['processed_rows'] ?? 0,
+      lastRecordId: json['last_record_id'] ?? 0,
+      updatedAt: json['updated_at'] ?? '',
       error: json['error'] ?? '',
     );
   }
@@ -446,8 +479,16 @@ class TelemetryService {
     throw Exception('Failed to run inference: ${response.body}');
   }
 
-  Future<List<DatasetRun>> listDatasets({int limit = 50, int offset = 0}) async {
+  Future<List<DatasetRun>> listDatasets(
+      {int limit = 50,
+      int offset = 0,
+      String? status,
+      String? createdFrom,
+      String? createdTo}) async {
     final params = {'limit': '$limit', 'offset': '$offset'};
+    if (status != null) params['status'] = status;
+    if (createdFrom != null) params['created_from'] = createdFrom;
+    if (createdTo != null) params['created_to'] = createdTo;
     final key = _cacheKey('/datasets', params);
     final cached = _readCache<List<DatasetRun>>(key);
     if (cached != null) return cached;
@@ -581,8 +622,18 @@ class TelemetryService {
     throw Exception('Failed to get histogram: ${response.body}');
   }
 
-  Future<List<ModelRunSummary>> listModels({int limit = 50, int offset = 0}) async {
+  Future<List<ModelRunSummary>> listModels(
+      {int limit = 50,
+      int offset = 0,
+      String? status,
+      String? datasetId,
+      String? createdFrom,
+      String? createdTo}) async {
     final params = {'limit': '$limit', 'offset': '$offset'};
+    if (status != null) params['status'] = status;
+    if (datasetId != null) params['dataset_id'] = datasetId;
+    if (createdFrom != null) params['created_from'] = createdFrom;
+    if (createdTo != null) params['created_to'] = createdTo;
     final key = _cacheKey('/models', params);
     final cached = _readCache<List<ModelRunSummary>>(key);
     if (cached != null) return cached;
@@ -611,13 +662,22 @@ class TelemetryService {
   }
 
   Future<List<InferenceRunSummary>> listInferenceRuns(
-      {String? datasetId, String? modelRunId, int limit = 50, int offset = 0}) async {
+      {String? datasetId,
+      String? modelRunId,
+      String? status,
+      String? createdFrom,
+      String? createdTo,
+      int limit = 50,
+      int offset = 0}) async {
     final params = <String, String>{
       'limit': '$limit',
       'offset': '$offset',
     };
     if (datasetId != null) params['dataset_id'] = datasetId;
     if (modelRunId != null) params['model_run_id'] = modelRunId;
+    if (status != null) params['status'] = status;
+    if (createdFrom != null) params['created_from'] = createdFrom;
+    if (createdTo != null) params['created_to'] = createdTo;
     final key = _cacheKey('/inference_runs', params);
     final cached = _readCache<List<InferenceRunSummary>>(key);
     if (cached != null) return cached;
@@ -658,6 +718,45 @@ class TelemetryService {
       return ScoreJobStatus.fromJson(jsonDecode(response.body));
     }
     throw Exception('Failed to get job status: ${response.body}');
+  }
+
+  Future<ScoreJobStatus> getJobProgress(String jobId) async {
+    final response = await http.get(Uri.parse('$baseUrl/jobs/$jobId/progress'));
+    if (response.statusCode == 200) {
+      return ScoreJobStatus.fromJson(jsonDecode(response.body));
+    }
+    throw Exception('Failed to get job progress: ${response.body}');
+  }
+
+  Future<List<ScoreJobStatus>> listScoreJobs(
+      {int limit = 50,
+      int offset = 0,
+      String? status,
+      String? datasetId,
+      String? modelRunId,
+      String? createdFrom,
+      String? createdTo}) async {
+    final params = <String, String>{
+      'limit': '$limit',
+      'offset': '$offset',
+    };
+    if (status != null) params['status'] = status;
+    if (datasetId != null) params['dataset_id'] = datasetId;
+    if (modelRunId != null) params['model_run_id'] = modelRunId;
+    if (createdFrom != null) params['created_from'] = createdFrom;
+    if (createdTo != null) params['created_to'] = createdTo;
+    final key = _cacheKey('/jobs', params);
+    final cached = _readCache<List<ScoreJobStatus>>(key);
+    if (cached != null) return cached;
+    final response = await http.get(_buildUri('/jobs', params));
+    if (response.statusCode == 200) {
+      final items = (jsonDecode(response.body)['items'] as List? ?? [])
+          .map((e) => ScoreJobStatus.fromJson(e as Map<String, dynamic>))
+          .toList();
+      _writeCache(key, items);
+      return items;
+    }
+    throw Exception('Failed to list score jobs: ${response.body}');
   }
 
   Future<EvalMetrics> getModelEval(String modelRunId, String datasetId,

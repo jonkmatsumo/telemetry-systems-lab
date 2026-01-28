@@ -1,5 +1,6 @@
 #include "detectors/pca_model.h"
 #include "api_server.h"
+#include "api_debug.h"
 #include "training/pca_trainer.h"
 #include <spdlog/spdlog.h>
 #include <filesystem>
@@ -87,6 +88,14 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleScoreDatasetJob(req, res);
     });
 
+    svr_.Get("/jobs", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleListJobs(req, res);
+    });
+
+    svr_.Get("/jobs/:id/progress", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGetJobProgress(req, res);
+    });
+
     svr_.Get("/jobs/:id", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetJobStatus(req, res);
     });
@@ -161,7 +170,10 @@ void ApiServer::HandleGenerateData(const httplib::Request& req, httplib::Respons
 void ApiServer::HandleListDatasets(const httplib::Request& req, httplib::Response& res) {
     int limit = GetIntParam(req, "limit", 50);
     int offset = GetIntParam(req, "offset", 0);
-    auto runs = db_client_->ListGenerationRuns(limit, offset);
+    std::string status = GetStrParam(req, "status");
+    std::string created_from = GetStrParam(req, "created_from");
+    std::string created_to = GetStrParam(req, "created_to");
+    auto runs = db_client_->ListGenerationRuns(limit, offset, status, created_from, created_to);
     nlohmann::json resp;
     resp["items"] = runs;
     resp["limit"] = limit;
@@ -199,10 +211,18 @@ void ApiServer::HandleGetDataset(const httplib::Request& req, httplib::Response&
 void ApiServer::HandleDatasetSummary(const httplib::Request& req, httplib::Response& res) {
     std::string run_id = req.matches[1];
     int topk = GetIntParam(req, "topk", 5);
+    bool debug = GetStrParam(req, "debug") == "true";
+    auto start = std::chrono::steady_clock::now();
     auto summary = db_client_->GetDatasetSummary(run_id, topk);
+    auto end = std::chrono::steady_clock::now();
     if (summary.empty()) {
         SendError(res, "Dataset not found", 404);
         return;
+    }
+    if (debug) {
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        long row_count = summary.value("row_count", 0L);
+        summary["debug"] = BuildDebugMeta(duration_ms, row_count);
     }
     SendJson(res, summary);
 }
@@ -226,9 +246,18 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         SendError(res, "Invalid column", 400);
         return;
     }
+    bool debug = GetStrParam(req, "debug") == "true";
+    auto start = std::chrono::steady_clock::now();
     auto data = db_client_->GetTopK(run_id, allowed[column], k, is_anomaly, anomaly_type, start_time, end_time);
+    auto end = std::chrono::steady_clock::now();
     nlohmann::json resp;
     resp["items"] = data;
+    if (debug) {
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        nlohmann::json resolved;
+        resolved["column"] = allowed[column];
+        resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(data.size()), resolved);
+    }
     SendJson(res, resp);
 }
 
@@ -266,10 +295,21 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
     else if (bucket == "1h" || bucket.empty()) bucket_seconds = 3600;
     else if (bucket == "1d") bucket_seconds = 86400;
 
+    bool debug = GetStrParam(req, "debug") == "true";
+    auto start = std::chrono::steady_clock::now();
     auto data = db_client_->GetTimeSeries(run_id, metrics, aggs, bucket_seconds, is_anomaly, anomaly_type, start_time, end_time);
+    auto end = std::chrono::steady_clock::now();
     nlohmann::json resp;
     resp["items"] = data;
     resp["bucket_seconds"] = bucket_seconds;
+    if (debug) {
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        nlohmann::json resolved;
+        resolved["metrics"] = metrics;
+        resolved["aggs"] = aggs;
+        resolved["bucket_seconds"] = bucket_seconds;
+        resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(data.size()), resolved);
+    }
     SendJson(res, resp);
 }
 
@@ -293,7 +333,20 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
     std::string start_time = GetStrParam(req, "start_time");
     std::string end_time = GetStrParam(req, "end_time");
 
+    bool debug = GetStrParam(req, "debug") == "true";
+    auto start = std::chrono::steady_clock::now();
     auto data = db_client_->GetHistogram(run_id, metric, bins, min_val, max_val, is_anomaly, anomaly_type, start_time, end_time);
+    auto end = std::chrono::steady_clock::now();
+    if (debug) {
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        long row_count = data.value("counts", nlohmann::json::array()).size();
+        nlohmann::json resolved;
+        resolved["metric"] = metric;
+        resolved["bins"] = bins;
+        resolved["min"] = min_val;
+        resolved["max"] = max_val;
+        data["debug"] = BuildDebugMeta(duration_ms, row_count, resolved);
+    }
     SendJson(res, data);
 }
 
@@ -354,7 +407,11 @@ void ApiServer::HandleGetTrainStatus(const httplib::Request& req, httplib::Respo
 void ApiServer::HandleListModels(const httplib::Request& req, httplib::Response& res) {
     int limit = GetIntParam(req, "limit", 50);
     int offset = GetIntParam(req, "offset", 0);
-    auto models = db_client_->ListModelRuns(limit, offset);
+    std::string status = GetStrParam(req, "status");
+    std::string dataset_id = GetStrParam(req, "dataset_id");
+    std::string created_from = GetStrParam(req, "created_from");
+    std::string created_to = GetStrParam(req, "created_to");
+    auto models = db_client_->ListModelRuns(limit, offset, status, dataset_id, created_from, created_to);
     nlohmann::json resp;
     resp["items"] = models;
     resp["limit"] = limit;
@@ -460,7 +517,10 @@ void ApiServer::HandleListInferenceRuns(const httplib::Request& req, httplib::Re
     std::string model_run_id = GetStrParam(req, "model_run_id");
     int limit = GetIntParam(req, "limit", 50);
     int offset = GetIntParam(req, "offset", 0);
-    auto runs = db_client_->ListInferenceRuns(dataset_id, model_run_id, limit, offset);
+    std::string status = GetStrParam(req, "status");
+    std::string created_from = GetStrParam(req, "created_from");
+    std::string created_to = GetStrParam(req, "created_to");
+    auto runs = db_client_->ListInferenceRuns(dataset_id, model_run_id, limit, offset, status, created_from, created_to);
     nlohmann::json resp;
     resp["items"] = runs;
     resp["limit"] = limit;
@@ -478,6 +538,22 @@ void ApiServer::HandleGetInferenceRun(const httplib::Request& req, httplib::Resp
     SendJson(res, j);
 }
 
+void ApiServer::HandleListJobs(const httplib::Request& req, httplib::Response& res) {
+    int limit = GetIntParam(req, "limit", 50);
+    int offset = GetIntParam(req, "offset", 0);
+    std::string status = GetStrParam(req, "status");
+    std::string dataset_id = GetStrParam(req, "dataset_id");
+    std::string model_run_id = GetStrParam(req, "model_run_id");
+    std::string created_from = GetStrParam(req, "created_from");
+    std::string created_to = GetStrParam(req, "created_to");
+    auto jobs = db_client_->ListScoreJobs(limit, offset, status, dataset_id, model_run_id, created_from, created_to);
+    nlohmann::json resp;
+    resp["items"] = jobs;
+    resp["limit"] = limit;
+    resp["offset"] = offset;
+    SendJson(res, resp);
+}
+
 void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Response& res) {
     try {
         auto j = nlohmann::json::parse(req.body);
@@ -490,10 +566,44 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
             return;
         }
 
+        auto job = db_client_->GetScoreJob(job_id);
+        if (job.empty()) {
+            SendError(res, "Failed to load job status", 500);
+            return;
+        }
+
+        std::string status = job.value("status", "");
+        long total_rows = job.value("total_rows", 0L);
+        long processed_rows = job.value("processed_rows", 0L);
+        long last_record_id = job.value("last_record_id", 0L);
+
+        if (status == "RUNNING" || status == "COMPLETED") {
+            nlohmann::json resp;
+            resp["job_id"] = job_id;
+            resp["status"] = status;
+            resp["total_rows"] = total_rows;
+            resp["processed_rows"] = processed_rows;
+            resp["last_record_id"] = last_record_id;
+            SendJson(res, resp, 200);
+            return;
+        }
+
         std::thread([this, dataset_id, model_run_id, job_id]() {
             DbClient local_db(db_conn_str_);
-            local_db.UpdateScoreJob(job_id, "RUNNING", 0, 0);
             try {
+                auto job_info = local_db.GetScoreJob(job_id);
+                long total = job_info.value("total_rows", 0L);
+                long processed = job_info.value("processed_rows", 0L);
+                long last_record = job_info.value("last_record_id", 0L);
+
+                pqxx::connection C(db_conn_str_);
+                pqxx::nontransaction N(C);
+                auto count_res = N.exec_params(
+                    "SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1",
+                    dataset_id);
+                total = count_res.empty() ? 0 : count_res[0][0].as<long>();
+                local_db.UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
+
                 auto model_info = local_db.GetModelRun(model_run_id);
                 std::string artifact_path = model_info.value("artifact_path", "");
                 if (artifact_path.empty()) {
@@ -502,16 +612,10 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                 telemetry::anomaly::PcaModel model;
                 model.Load(artifact_path);
 
-                pqxx::connection C(db_conn_str_);
-                pqxx::nontransaction N(C);
-                auto count_res = N.exec_params(
-                    "SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1",
-                    dataset_id);
-                long total_rows = count_res.empty() ? 0 : count_res[0][0].as<long>();
-                long processed = 0;
                 const int batch = 5000;
-                for (long offset = 0; offset < total_rows; offset += batch) {
-                    auto rows = local_db.FetchScoringRows(dataset_id, offset, batch);
+                while (true) {
+                    auto rows = local_db.FetchScoringRowsAfterRecord(dataset_id, last_record, batch);
+                    if (rows.empty()) break;
                     std::vector<std::pair<long, std::pair<double, bool>>> scores;
                     scores.reserve(rows.size());
                     for (const auto& r : rows) {
@@ -526,18 +630,22 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                     }
                     local_db.InsertDatasetScores(dataset_id, model_run_id, scores);
                     processed += static_cast<long>(rows.size());
-                    local_db.UpdateScoreJob(job_id, "RUNNING", total_rows, processed);
-                    if (rows.empty()) break;
+                    last_record = rows.back().record_id;
+                    local_db.UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
                 }
-                local_db.UpdateScoreJob(job_id, "COMPLETED", total_rows, processed);
+                local_db.UpdateScoreJob(job_id, "COMPLETED", total, processed, last_record);
             } catch (const std::exception& e) {
-                local_db.UpdateScoreJob(job_id, "FAILED", 0, 0, e.what());
+                auto job_info = local_db.GetScoreJob(job_id);
+                long total = job_info.value("total_rows", 0L);
+                long processed = job_info.value("processed_rows", 0L);
+                long last_record = job_info.value("last_record_id", 0L);
+                local_db.UpdateScoreJob(job_id, "FAILED", total, processed, last_record, e.what());
             }
         }).detach();
 
         nlohmann::json resp;
         resp["job_id"] = job_id;
-        resp["status"] = "PENDING";
+        resp["status"] = "RUNNING";
         SendJson(res, resp, 202);
     } catch (const std::exception& e) {
         SendError(res, std::string("Error: ") + e.what());
@@ -554,16 +662,37 @@ void ApiServer::HandleGetJobStatus(const httplib::Request& req, httplib::Respons
     SendJson(res, j);
 }
 
+void ApiServer::HandleGetJobProgress(const httplib::Request& req, httplib::Response& res) {
+    std::string job_id = req.matches[1];
+    auto j = db_client_->GetScoreJob(job_id);
+    if (j.empty()) {
+        SendError(res, "Job not found", 404);
+        return;
+    }
+    SendJson(res, j);
+}
+
 void ApiServer::HandleModelEval(const httplib::Request& req, httplib::Response& res) {
     std::string model_run_id = req.matches[1];
     std::string dataset_id = GetStrParam(req, "dataset_id");
     int points = GetIntParam(req, "points", 50);
     int max_samples = GetIntParam(req, "max_samples", 20000);
+    bool debug = GetStrParam(req, "debug") == "true";
     if (dataset_id.empty()) {
         SendError(res, "dataset_id required", 400);
         return;
     }
+    auto start = std::chrono::steady_clock::now();
     auto eval = db_client_->GetEvalMetrics(dataset_id, model_run_id, points, max_samples);
+    auto end = std::chrono::steady_clock::now();
+    if (debug) {
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        long row_count = eval.value("roc", nlohmann::json::array()).size();
+        nlohmann::json resolved;
+        resolved["points"] = points;
+        resolved["max_samples"] = max_samples;
+        eval["debug"] = BuildDebugMeta(duration_ms, row_count, resolved);
+    }
     SendJson(res, eval);
 }
 
@@ -571,6 +700,7 @@ void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httpli
     std::string model_run_id = req.matches[1];
     std::string dataset_id = GetStrParam(req, "dataset_id");
     std::string group_by = GetStrParam(req, "group_by");
+    bool debug = GetStrParam(req, "debug") == "true";
     if (dataset_id.empty() || group_by.empty()) {
         SendError(res, "dataset_id and group_by required", 400);
         return;
@@ -584,9 +714,17 @@ void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httpli
         SendError(res, "Invalid group_by", 400);
         return;
     }
+    auto start = std::chrono::steady_clock::now();
     auto dist = db_client_->GetErrorDistribution(dataset_id, model_run_id, allowed[group_by]);
+    auto end = std::chrono::steady_clock::now();
     nlohmann::json resp;
     resp["items"] = dist;
+    if (debug) {
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        nlohmann::json resolved;
+        resolved["group_by"] = allowed[group_by];
+        resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(dist.size()), resolved);
+    }
     SendJson(res, resp);
 }
 

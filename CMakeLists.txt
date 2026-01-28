@@ -185,6 +185,7 @@ add_executable(unit_tests
     tests/unit/test_alert_manager.cpp
     tests/unit/test_linalg.cpp
     tests/unit/test_pca_trainer.cpp
+    tests/unit/test_api_debug.cpp
     src/generator.cpp
     src/db_client.cpp
     src/server.cpp

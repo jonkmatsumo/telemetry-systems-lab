@@ -79,6 +79,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     _statCard('Hosts', '${summary.distinctCounts['host_id']}'),
                     _statCard('Projects', '${summary.distinctCounts['project_id']}'),
                     _statCard('Regions', '${summary.distinctCounts['region']}'),
+                    _statCard('Ingestion p50 (s)', summary.ingestionLatencyP50.toStringAsFixed(3)),
+                    _statCard('Ingestion p95 (s)', summary.ingestionLatencyP95.toStringAsFixed(3)),
                     _statCard('Time Range', '${summary.minTs} → ${summary.maxTs}'),
                   ],
                 );
@@ -96,7 +98,14 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     child: FutureBuilder<List<TopKEntry>>(
                       future: _topRegionsFuture,
                       builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Text('Error: ${snapshot.error}');
+                        }
                         final items = snapshot.data ?? [];
+                        if (items.isEmpty) return const SizedBox.shrink();
                         return BarChart(values: items.map((e) => e.count.toDouble()).toList());
                       },
                     ),
@@ -109,7 +118,14 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     child: FutureBuilder<List<TopKEntry>>(
                       future: _topAnomalyFuture,
                       builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Text('Error: ${snapshot.error}');
+                        }
                         final items = snapshot.data ?? [];
+                        if (items.isEmpty) return const SizedBox.shrink();
                         return BarChart(values: items.map((e) => e.count.toDouble()).toList());
                       },
                     ),
@@ -122,9 +138,38 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     child: FutureBuilder<HistogramData>(
                       future: _cpuHistFuture,
                       builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Text('Error: ${snapshot.error}');
+                        }
                         final hist = snapshot.data;
                         final values = hist?.counts.map((e) => e.toDouble()).toList() ?? [];
+                        if (values.isEmpty) return const SizedBox.shrink();
                         return BarChart(values: values);
+                      },
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 420,
+                  child: ChartCard(
+                    title: 'Anomaly Rate Trend (1h)',
+                    child: FutureBuilder<DatasetSummary>(
+                      future: _summaryFuture,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Text('Error: ${snapshot.error}');
+                        }
+                        final trend = snapshot.data?.anomalyRateTrend ?? [];
+                        if (trend.isEmpty) return const SizedBox.shrink();
+                        final xs = List<double>.generate(trend.length, (i) => i.toDouble());
+                        final ys = trend.map((e) => e.anomalyRate).toList();
+                        return LineChart(x: xs, y: ys);
                       },
                     ),
                   ),
@@ -140,6 +185,12 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 child: FutureBuilder<List<TimeSeriesPoint>>(
                   future: _cpuTsFuture,
                   builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return Text('Error: ${snapshot.error}');
+                    }
                     final points = snapshot.data ?? [];
                     if (points.isEmpty) return const SizedBox.shrink();
                     final xs = List<double>.generate(points.length, (i) => i.toDouble());

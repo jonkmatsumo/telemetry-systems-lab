@@ -38,13 +38,25 @@ public:
 
     void InsertAlert(const Alert& alert);
 
-    nlohmann::json ListGenerationRuns(int limit, int offset);
+    nlohmann::json ListGenerationRuns(int limit,
+                                      int offset,
+                                      const std::string& status = "",
+                                      const std::string& created_from = "",
+                                      const std::string& created_to = "");
     nlohmann::json GetDatasetDetail(const std::string& run_id);
-    nlohmann::json ListModelRuns(int limit, int offset);
+    nlohmann::json ListModelRuns(int limit,
+                                 int offset,
+                                 const std::string& status = "",
+                                 const std::string& dataset_id = "",
+                                 const std::string& created_from = "",
+                                 const std::string& created_to = "");
     nlohmann::json ListInferenceRuns(const std::string& dataset_id,
                                      const std::string& model_run_id,
                                      int limit,
-                                     int offset);
+                                     int offset,
+                                     const std::string& status = "",
+                                     const std::string& created_from = "",
+                                     const std::string& created_to = "");
     nlohmann::json GetInferenceRun(const std::string& inference_id);
 
     nlohmann::json GetDatasetSummary(const std::string& run_id, int topk);
@@ -78,8 +90,16 @@ public:
                         const std::string& status,
                         long total_rows,
                         long processed_rows,
+                        long last_record_id = 0,
                         const std::string& error = "");
     nlohmann::json GetScoreJob(const std::string& job_id);
+    nlohmann::json ListScoreJobs(int limit,
+                                 int offset,
+                                 const std::string& status = "",
+                                 const std::string& dataset_id = "",
+                                 const std::string& model_run_id = "",
+                                 const std::string& created_from = "",
+                                 const std::string& created_to = "");
 
     struct ScoringRow {
         long record_id = 0;
@@ -90,7 +110,9 @@ public:
         double rx = 0.0;
         double tx = 0.0;
     };
-    std::vector<ScoringRow> FetchScoringRows(const std::string& dataset_id, long offset, int limit);
+    std::vector<ScoringRow> FetchScoringRowsAfterRecord(const std::string& dataset_id,
+                                                        long last_record_id,
+                                                        int limit);
     void InsertDatasetScores(const std::string& dataset_id,
                              const std::string& model_run_id,
                              const std::vector<std::pair<long, std::pair<double, bool>>>& scores);

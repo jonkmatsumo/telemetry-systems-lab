@@ -80,11 +80,12 @@ Note: `docker-compose.yml` builds the runtime image and starts the API server (C
 ## Database Setup / Migration
 
 - **Fresh DB**: `db/init.sql` is applied automatically by `docker-compose.infra.yml`.
-- **Existing DB**: apply `db/migrations/20260127_add_analytics.sql`.
+- **Existing DB**: apply `db/migrations/20260127_add_analytics.sql` and `db/migrations/20260128_add_score_job_progress.sql`.
 
 Example (docker):
 ```bash
 docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260127_add_analytics.sql
+docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260128_add_score_job_progress.sql
 ```
 
 ## Usage
@@ -160,6 +161,7 @@ Measure raw inference throughput:
 ### Dataset-Wide Scoring + Eval
 - `POST /jobs/score_dataset`
 - `GET /jobs/:id`
+- `GET /jobs/:id/progress`
 - `GET /models/:id/eval?dataset_id=...`
 - `GET /models/:id/error_distribution?dataset_id=...&group_by=anomaly_type|region|project_id`
 
