@@ -58,9 +58,10 @@ public:
     }
 
     void UpdateInferenceRunStatus(const std::string& inference_id, 
-                                          const std::string& status, 
-                                          int anomaly_count, 
-                                          const nlohmann::json& details = {}) override {
+                                  const std::string& status, 
+                                  int anomaly_count, 
+                                  const nlohmann::json& details = {},
+                                  double latency_ms = 0.0) override {
         // No-op
     }
 

@@ -33,5 +33,6 @@ public:
     virtual void UpdateInferenceRunStatus(const std::string& inference_id, 
                                           const std::string& status, 
                                           int anomaly_count, 
-                                          const nlohmann::json& details = {}) = 0;
+                                          const nlohmann::json& details = {},
+                                          double latency_ms = 0.0) = 0;
 };
