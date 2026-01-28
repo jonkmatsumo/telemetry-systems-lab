@@ -173,6 +173,10 @@ cd web_ui
 flutter pub get
 flutter run -d chrome
 ```
+Set the API base URL (default: http://localhost:8080):
+```bash
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8080
+```
 
 Tabs:
 - Control (generate/train/infer)
