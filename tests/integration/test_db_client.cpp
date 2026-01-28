@@ -145,3 +145,42 @@ TEST_F(DbClientTest, ListFiltersAndPagination) {
     auto future_filtered = client.ListGenerationRuns(50, 0, "INTEGRATION_TEST", "2999-01-01T00:00:00Z");
     ASSERT_TRUE(future_filtered.empty());
 }
+
+TEST_F(DbClientTest, DatasetSummaryIncludesDerivedKpis) {
+    DbClient client(conn_str);
+
+    std::string run_id = GenerateUUID();
+    telemetry::GenerateRequest req;
+    req.set_tier("INTEGRATION");
+    req.set_start_time_iso("2025-01-02T00:00:00Z");
+    req.set_end_time_iso("2025-01-02T01:00:00Z");
+    req.set_interval_seconds(60);
+    req.set_seed(7);
+    req.set_host_count(1);
+    client.CreateRun(run_id, req, "SUCCEEDED");
+
+    TelemetryRecord rec;
+    rec.run_id = run_id;
+    rec.metric_timestamp = std::chrono::system_clock::now();
+    rec.ingestion_time = rec.metric_timestamp + std::chrono::seconds(2);
+    rec.host_id = "host-1";
+    rec.project_id = "proj-1";
+    rec.region = "us-test";
+    rec.cpu_usage = 50.0;
+    rec.memory_usage = 50.0;
+    rec.disk_utilization = 50.0;
+    rec.network_rx_rate = 10.0;
+    rec.network_tx_rate = 10.0;
+    rec.labels_json = "{}";
+
+    std::vector<TelemetryRecord> batch = {rec, rec, rec};
+    ASSERT_NO_THROW(client.BatchInsertTelemetry(batch));
+
+    auto summary = client.GetDatasetSummary(run_id, 5);
+    ASSERT_TRUE(summary.contains("ingestion_latency_p50"));
+    ASSERT_TRUE(summary.contains("ingestion_latency_p95"));
+    EXPECT_NEAR(summary["ingestion_latency_p50"].get<double>(), 2.0, 0.5);
+    EXPECT_NEAR(summary["ingestion_latency_p95"].get<double>(), 2.0, 0.5);
+    ASSERT_TRUE(summary.contains("anomaly_rate_trend"));
+    EXPECT_TRUE(summary["anomaly_rate_trend"].is_array());
+}

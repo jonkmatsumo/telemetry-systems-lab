@@ -47,6 +47,9 @@ class DatasetSummary {
   final double anomalyRate;
   final Map<String, int> distinctCounts;
   final List<Map<String, dynamic>> anomalyTypeCounts;
+  final double ingestionLatencyP50;
+  final double ingestionLatencyP95;
+  final List<AnomalyRatePoint> anomalyRateTrend;
 
   DatasetSummary({
     required this.rowCount,
@@ -55,6 +58,9 @@ class DatasetSummary {
     required this.anomalyRate,
     required this.distinctCounts,
     required this.anomalyTypeCounts,
+    required this.ingestionLatencyP50,
+    required this.ingestionLatencyP95,
+    required this.anomalyRateTrend,
   });
 
   factory DatasetSummary.fromJson(Map<String, dynamic> json) {
@@ -73,6 +79,27 @@ class DatasetSummary {
       anomalyTypeCounts: (json['anomaly_type_counts'] as List? ?? [])
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList(),
+      ingestionLatencyP50: (json['ingestion_latency_p50'] ?? 0.0).toDouble(),
+      ingestionLatencyP95: (json['ingestion_latency_p95'] ?? 0.0).toDouble(),
+      anomalyRateTrend: (json['anomaly_rate_trend'] as List? ?? [])
+          .map((e) => AnomalyRatePoint.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class AnomalyRatePoint {
+  final String ts;
+  final double anomalyRate;
+  final int total;
+
+  AnomalyRatePoint({required this.ts, required this.anomalyRate, required this.total});
+
+  factory AnomalyRatePoint.fromJson(Map<String, dynamic> json) {
+    return AnomalyRatePoint(
+      ts: json['ts'] ?? '',
+      anomalyRate: (json['anomaly_rate'] ?? 0.0).toDouble(),
+      total: json['total'] ?? 0,
     );
   }
 }

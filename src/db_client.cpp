@@ -473,6 +473,39 @@ nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) 
             j["distinct_counts"]["region"] = res_distinct[0][2].as<long>();
         }
 
+        auto res_latency = W.exec_params(
+            "SELECT "
+            "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (ingestion_time - metric_timestamp))), "
+            "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (ingestion_time - metric_timestamp))) "
+            "FROM host_telemetry_archival WHERE run_id = $1",
+            run_id);
+        if (!res_latency.empty()) {
+            j["ingestion_latency_p50"] = res_latency[0][0].is_null() ? 0.0 : res_latency[0][0].as<double>();
+            j["ingestion_latency_p95"] = res_latency[0][1].is_null() ? 0.0 : res_latency[0][1].as<double>();
+        }
+
+        auto res_trend = W.exec_params(
+            "WITH max_ts AS (SELECT MAX(metric_timestamp) AS max_ts FROM host_telemetry_archival WHERE run_id = $1) "
+            "SELECT date_trunc('hour', h.metric_timestamp) AS bucket, "
+            "COUNT(*) AS total, "
+            "SUM(CASE WHEN h.is_anomaly THEN 1 ELSE 0 END) AS anomalies "
+            "FROM host_telemetry_archival h, max_ts "
+            "WHERE h.run_id = $1 AND h.metric_timestamp >= max_ts.max_ts - INTERVAL '24 hours' "
+            "GROUP BY bucket ORDER BY bucket ASC",
+            run_id);
+        nlohmann::json trend = nlohmann::json::array();
+        for (const auto& row : res_trend) {
+            long total = row[1].is_null() ? 0 : row[1].as<long>();
+            long anomalies = row[2].is_null() ? 0 : row[2].as<long>();
+            double rate = total > 0 ? static_cast<double>(anomalies) / static_cast<double>(total) : 0.0;
+            nlohmann::json entry;
+            entry["ts"] = row[0].is_null() ? "" : row[0].as<std::string>();
+            entry["anomaly_rate"] = rate;
+            entry["total"] = total;
+            trend.push_back(entry);
+        }
+        j["anomaly_rate_trend"] = trend;
+
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get dataset summary {}: {}", run_id, e.what());

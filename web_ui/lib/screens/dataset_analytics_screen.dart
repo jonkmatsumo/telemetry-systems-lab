@@ -79,6 +79,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     _statCard('Hosts', '${summary.distinctCounts['host_id']}'),
                     _statCard('Projects', '${summary.distinctCounts['project_id']}'),
                     _statCard('Regions', '${summary.distinctCounts['region']}'),
+                    _statCard('Ingestion p50 (s)', summary.ingestionLatencyP50.toStringAsFixed(3)),
+                    _statCard('Ingestion p95 (s)', summary.ingestionLatencyP95.toStringAsFixed(3)),
                     _statCard('Time Range', '${summary.minTs} → ${summary.maxTs}'),
                   ],
                 );
@@ -125,6 +127,22 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                         final hist = snapshot.data;
                         final values = hist?.counts.map((e) => e.toDouble()).toList() ?? [];
                         return BarChart(values: values);
+                      },
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 420,
+                  child: ChartCard(
+                    title: 'Anomaly Rate Trend (1h)',
+                    child: FutureBuilder<DatasetSummary>(
+                      future: _summaryFuture,
+                      builder: (context, snapshot) {
+                        final trend = snapshot.data?.anomalyRateTrend ?? [];
+                        if (trend.isEmpty) return const SizedBox.shrink();
+                        final xs = List<double>.generate(trend.length, (i) => i.toDouble());
+                        final ys = trend.map((e) => e.anomalyRate).toList();
+                        return LineChart(x: xs, y: ys);
                       },
                     ),
                   ),
