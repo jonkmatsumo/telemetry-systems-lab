@@ -90,6 +90,7 @@ public:
                         const std::string& status,
                         long total_rows,
                         long processed_rows,
+                        long last_record_id = 0,
                         const std::string& error = "");
     nlohmann::json GetScoreJob(const std::string& job_id);
     nlohmann::json ListScoreJobs(int limit,
@@ -109,7 +110,9 @@ public:
         double rx = 0.0;
         double tx = 0.0;
     };
-    std::vector<ScoringRow> FetchScoringRows(const std::string& dataset_id, long offset, int limit);
+    std::vector<ScoringRow> FetchScoringRowsAfterRecord(const std::string& dataset_id,
+                                                        long last_record_id,
+                                                        int limit);
     void InsertDatasetScores(const std::string& dataset_id,
                              const std::string& model_run_id,
                              const std::vector<std::pair<long, std::pair<double, bool>>>& scores);

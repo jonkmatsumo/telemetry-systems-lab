@@ -128,7 +128,7 @@ TEST_F(DbClientTest, ListFiltersAndPagination) {
 
     std::string job_id = client.CreateScoreJob(run_id, model_run_id);
     ASSERT_FALSE(job_id.empty());
-    ASSERT_NO_THROW(client.UpdateScoreJob(job_id, "COMPLETED", 10, 10));
+    ASSERT_NO_THROW(client.UpdateScoreJob(job_id, "COMPLETED", 10, 10, 0));
 
     auto runs = client.ListGenerationRuns(50, 0, "INTEGRATION_TEST");
     ASSERT_FALSE(runs.empty());
@@ -183,4 +183,52 @@ TEST_F(DbClientTest, DatasetSummaryIncludesDerivedKpis) {
     EXPECT_NEAR(summary["ingestion_latency_p95"].get<double>(), 2.0, 0.5);
     ASSERT_TRUE(summary.contains("anomaly_rate_trend"));
     EXPECT_TRUE(summary["anomaly_rate_trend"].is_array());
+}
+
+TEST_F(DbClientTest, ScoreJobProgressFields) {
+    DbClient client(conn_str);
+
+    std::string run_id = GenerateUUID();
+    telemetry::GenerateRequest req;
+    req.set_tier("INTEGRATION");
+    req.set_start_time_iso("2025-01-03T00:00:00Z");
+    req.set_end_time_iso("2025-01-03T01:00:00Z");
+    req.set_interval_seconds(60);
+    req.set_seed(99);
+    req.set_host_count(1);
+    client.CreateRun(run_id, req, "SUCCEEDED");
+
+    std::string model_run_id = client.CreateModelRun(run_id, "test_model_progress");
+    ASSERT_FALSE(model_run_id.empty());
+
+    std::string job_id = client.CreateScoreJob(run_id, model_run_id);
+    ASSERT_FALSE(job_id.empty());
+
+    ASSERT_NO_THROW(client.UpdateScoreJob(job_id, "RUNNING", 10, 4, 123));
+    auto job = client.GetScoreJob(job_id);
+    ASSERT_TRUE(job.contains("last_record_id"));
+    ASSERT_TRUE(job.contains("updated_at"));
+    EXPECT_EQ(job["last_record_id"].get<long>(), 123);
+}
+
+TEST_F(DbClientTest, CreateScoreJobIsIdempotent) {
+    DbClient client(conn_str);
+
+    std::string run_id = GenerateUUID();
+    telemetry::GenerateRequest req;
+    req.set_tier("INTEGRATION");
+    req.set_start_time_iso("2025-01-04T00:00:00Z");
+    req.set_end_time_iso("2025-01-04T01:00:00Z");
+    req.set_interval_seconds(60);
+    req.set_seed(100);
+    req.set_host_count(1);
+    client.CreateRun(run_id, req, "SUCCEEDED");
+
+    std::string model_run_id = client.CreateModelRun(run_id, "test_model_idempotent");
+    ASSERT_FALSE(model_run_id.empty());
+
+    std::string job_a = client.CreateScoreJob(run_id, model_run_id);
+    std::string job_b = client.CreateScoreJob(run_id, model_run_id);
+    ASSERT_FALSE(job_a.empty());
+    ASSERT_EQ(job_a, job_b);
 }

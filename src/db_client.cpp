@@ -688,6 +688,14 @@ std::string DbClient::CreateScoreJob(const std::string& dataset_id, const std::s
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
+        auto existing = W.exec_params(
+            "SELECT job_id FROM dataset_score_jobs WHERE dataset_id = $1 AND model_run_id = $2 "
+            "ORDER BY created_at DESC LIMIT 1",
+            dataset_id, model_run_id);
+        if (!existing.empty()) {
+            W.commit();
+            return existing[0][0].as<std::string>();
+        }
         auto res = W.exec_params(
             "INSERT INTO dataset_score_jobs (dataset_id, model_run_id, status) "
             "VALUES ($1, $2, 'PENDING') RETURNING job_id",
@@ -704,22 +712,26 @@ void DbClient::UpdateScoreJob(const std::string& job_id,
                               const std::string& status,
                               long total_rows,
                               long processed_rows,
+                              long last_record_id,
                               const std::string& error) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
         if (status == "COMPLETED") {
             W.exec_params(
-                "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, completed_at=NOW() WHERE job_id=$4",
-                status, total_rows, processed_rows, job_id);
+                "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, updated_at=NOW(), completed_at=NOW() "
+                "WHERE job_id=$5",
+                status, total_rows, processed_rows, last_record_id, job_id);
         } else if (!error.empty()) {
             W.exec_params(
-                "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, error=$4 WHERE job_id=$5",
-                status, total_rows, processed_rows, error, job_id);
+                "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, error=$5, updated_at=NOW() "
+                "WHERE job_id=$6",
+                status, total_rows, processed_rows, last_record_id, error, job_id);
         } else {
             W.exec_params(
-                "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3 WHERE job_id=$4",
-                status, total_rows, processed_rows, job_id);
+                "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, updated_at=NOW() "
+                "WHERE job_id=$5",
+                status, total_rows, processed_rows, last_record_id, job_id);
         }
         W.commit();
     } catch (const std::exception& e) {
@@ -733,7 +745,7 @@ nlohmann::json DbClient::GetScoreJob(const std::string& job_id) {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
-            "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, error, created_at, completed_at "
+            "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, last_record_id, error, created_at, updated_at, completed_at "
             "FROM dataset_score_jobs WHERE job_id = $1",
             job_id);
         if (!res.empty()) {
@@ -743,9 +755,11 @@ nlohmann::json DbClient::GetScoreJob(const std::string& job_id) {
             j["status"] = res[0][3].as<std::string>();
             j["total_rows"] = res[0][4].as<long>();
             j["processed_rows"] = res[0][5].as<long>();
-            j["error"] = res[0][6].is_null() ? "" : res[0][6].as<std::string>();
-            j["created_at"] = res[0][7].as<std::string>();
-            j["completed_at"] = res[0][8].is_null() ? "" : res[0][8].as<std::string>();
+            j["last_record_id"] = res[0][6].as<long>();
+            j["error"] = res[0][7].is_null() ? "" : res[0][7].as<std::string>();
+            j["created_at"] = res[0][8].as<std::string>();
+            j["updated_at"] = res[0][9].as<std::string>();
+            j["completed_at"] = res[0][10].is_null() ? "" : res[0][10].as<std::string>();
         }
     } catch (const std::exception& e) {
         spdlog::error("Failed to get score job {}: {}", job_id, e.what());
@@ -765,7 +779,7 @@ nlohmann::json DbClient::ListScoreJobs(int limit,
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
         std::string query =
-            "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, error, created_at, completed_at "
+            "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, last_record_id, error, created_at, updated_at, completed_at "
             "FROM dataset_score_jobs ";
         std::vector<std::string> where;
         if (!status.empty()) where.push_back("status = " + N.quote(status));
@@ -791,9 +805,11 @@ nlohmann::json DbClient::ListScoreJobs(int limit,
             j["status"] = row[3].as<std::string>();
             j["total_rows"] = row[4].as<long>();
             j["processed_rows"] = row[5].as<long>();
-            j["error"] = row[6].is_null() ? "" : row[6].as<std::string>();
-            j["created_at"] = row[7].as<std::string>();
-            j["completed_at"] = row[8].is_null() ? "" : row[8].as<std::string>();
+            j["last_record_id"] = row[6].as<long>();
+            j["error"] = row[7].is_null() ? "" : row[7].as<std::string>();
+            j["created_at"] = row[8].as<std::string>();
+            j["updated_at"] = row[9].as<std::string>();
+            j["completed_at"] = row[10].is_null() ? "" : row[10].as<std::string>();
             out.push_back(j);
         }
     } catch (const std::exception& e) {
@@ -802,15 +818,17 @@ nlohmann::json DbClient::ListScoreJobs(int limit,
     return out;
 }
 
-std::vector<DbClient::ScoringRow> DbClient::FetchScoringRows(const std::string& dataset_id, long offset, int limit) {
+std::vector<DbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const std::string& dataset_id,
+                                                                        long last_record_id,
+                                                                        int limit) {
     std::vector<ScoringRow> rows;
     try {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
             "SELECT record_id, is_anomaly, cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate "
-            "FROM host_telemetry_archival WHERE run_id = $1 ORDER BY record_id ASC LIMIT $2 OFFSET $3",
-            dataset_id, limit, offset);
+            "FROM host_telemetry_archival WHERE run_id = $1 AND record_id > $2 ORDER BY record_id ASC LIMIT $3",
+            dataset_id, last_record_id, limit);
         rows.reserve(res.size());
         for (const auto& row : res) {
             ScoringRow r;

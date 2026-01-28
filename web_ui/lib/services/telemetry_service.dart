@@ -220,6 +220,8 @@ class ScoreJobStatus {
   final String status;
   final int totalRows;
   final int processedRows;
+  final int lastRecordId;
+  final String updatedAt;
   final String error;
 
   ScoreJobStatus({
@@ -227,6 +229,8 @@ class ScoreJobStatus {
     required this.status,
     required this.totalRows,
     required this.processedRows,
+    required this.lastRecordId,
+    required this.updatedAt,
     required this.error,
   });
 
@@ -236,6 +240,8 @@ class ScoreJobStatus {
       status: json['status'] ?? '',
       totalRows: json['total_rows'] ?? 0,
       processedRows: json['processed_rows'] ?? 0,
+      lastRecordId: json['last_record_id'] ?? 0,
+      updatedAt: json['updated_at'] ?? '',
       error: json['error'] ?? '',
     );
   }
@@ -712,6 +718,14 @@ class TelemetryService {
       return ScoreJobStatus.fromJson(jsonDecode(response.body));
     }
     throw Exception('Failed to get job status: ${response.body}');
+  }
+
+  Future<ScoreJobStatus> getJobProgress(String jobId) async {
+    final response = await http.get(Uri.parse('$baseUrl/jobs/$jobId/progress'));
+    if (response.statusCode == 200) {
+      return ScoreJobStatus.fromJson(jsonDecode(response.body));
+    }
+    throw Exception('Failed to get job progress: ${response.body}');
   }
 
   Future<List<ScoreJobStatus>> listScoreJobs(

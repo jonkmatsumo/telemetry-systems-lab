@@ -1,0 +1,11 @@
+BEGIN;
+
+ALTER TABLE IF EXISTS dataset_score_jobs
+  ADD COLUMN IF NOT EXISTS last_record_id BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+UPDATE dataset_score_jobs
+  SET updated_at = NOW()
+  WHERE updated_at IS NULL;
+
+COMMIT;

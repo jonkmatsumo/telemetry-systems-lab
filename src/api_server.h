@@ -39,6 +39,7 @@ private:
     void HandleListJobs(const httplib::Request& req, httplib::Response& res);
     void HandleScoreDatasetJob(const httplib::Request& req, httplib::Response& res);
     void HandleGetJobStatus(const httplib::Request& req, httplib::Response& res);
+    void HandleGetJobProgress(const httplib::Request& req, httplib::Response& res);
     void HandleModelEval(const httplib::Request& req, httplib::Response& res);
     void HandleModelErrorDistribution(const httplib::Request& req, httplib::Response& res);
 

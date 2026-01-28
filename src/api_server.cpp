@@ -92,6 +92,10 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleListJobs(req, res);
     });
 
+    svr_.Get("/jobs/:id/progress", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGetJobProgress(req, res);
+    });
+
     svr_.Get("/jobs/:id", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetJobStatus(req, res);
     });
@@ -562,10 +566,44 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
             return;
         }
 
+        auto job = db_client_->GetScoreJob(job_id);
+        if (job.empty()) {
+            SendError(res, "Failed to load job status", 500);
+            return;
+        }
+
+        std::string status = job.value("status", "");
+        long total_rows = job.value("total_rows", 0L);
+        long processed_rows = job.value("processed_rows", 0L);
+        long last_record_id = job.value("last_record_id", 0L);
+
+        if (status == "RUNNING" || status == "COMPLETED") {
+            nlohmann::json resp;
+            resp["job_id"] = job_id;
+            resp["status"] = status;
+            resp["total_rows"] = total_rows;
+            resp["processed_rows"] = processed_rows;
+            resp["last_record_id"] = last_record_id;
+            SendJson(res, resp, 200);
+            return;
+        }
+
         std::thread([this, dataset_id, model_run_id, job_id]() {
             DbClient local_db(db_conn_str_);
-            local_db.UpdateScoreJob(job_id, "RUNNING", 0, 0);
             try {
+                auto job_info = local_db.GetScoreJob(job_id);
+                long total = job_info.value("total_rows", 0L);
+                long processed = job_info.value("processed_rows", 0L);
+                long last_record = job_info.value("last_record_id", 0L);
+
+                pqxx::connection C(db_conn_str_);
+                pqxx::nontransaction N(C);
+                auto count_res = N.exec_params(
+                    "SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1",
+                    dataset_id);
+                total = count_res.empty() ? 0 : count_res[0][0].as<long>();
+                local_db.UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
+
                 auto model_info = local_db.GetModelRun(model_run_id);
                 std::string artifact_path = model_info.value("artifact_path", "");
                 if (artifact_path.empty()) {
@@ -574,16 +612,10 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                 telemetry::anomaly::PcaModel model;
                 model.Load(artifact_path);
 
-                pqxx::connection C(db_conn_str_);
-                pqxx::nontransaction N(C);
-                auto count_res = N.exec_params(
-                    "SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1",
-                    dataset_id);
-                long total_rows = count_res.empty() ? 0 : count_res[0][0].as<long>();
-                long processed = 0;
                 const int batch = 5000;
-                for (long offset = 0; offset < total_rows; offset += batch) {
-                    auto rows = local_db.FetchScoringRows(dataset_id, offset, batch);
+                while (true) {
+                    auto rows = local_db.FetchScoringRowsAfterRecord(dataset_id, last_record, batch);
+                    if (rows.empty()) break;
                     std::vector<std::pair<long, std::pair<double, bool>>> scores;
                     scores.reserve(rows.size());
                     for (const auto& r : rows) {
@@ -598,18 +630,22 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                     }
                     local_db.InsertDatasetScores(dataset_id, model_run_id, scores);
                     processed += static_cast<long>(rows.size());
-                    local_db.UpdateScoreJob(job_id, "RUNNING", total_rows, processed);
-                    if (rows.empty()) break;
+                    last_record = rows.back().record_id;
+                    local_db.UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
                 }
-                local_db.UpdateScoreJob(job_id, "COMPLETED", total_rows, processed);
+                local_db.UpdateScoreJob(job_id, "COMPLETED", total, processed, last_record);
             } catch (const std::exception& e) {
-                local_db.UpdateScoreJob(job_id, "FAILED", 0, 0, e.what());
+                auto job_info = local_db.GetScoreJob(job_id);
+                long total = job_info.value("total_rows", 0L);
+                long processed = job_info.value("processed_rows", 0L);
+                long last_record = job_info.value("last_record_id", 0L);
+                local_db.UpdateScoreJob(job_id, "FAILED", total, processed, last_record, e.what());
             }
         }).detach();
 
         nlohmann::json resp;
         resp["job_id"] = job_id;
-        resp["status"] = "PENDING";
+        resp["status"] = "RUNNING";
         SendJson(res, resp, 202);
     } catch (const std::exception& e) {
         SendError(res, std::string("Error: ") + e.what());
@@ -617,6 +653,16 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
 }
 
 void ApiServer::HandleGetJobStatus(const httplib::Request& req, httplib::Response& res) {
+    std::string job_id = req.matches[1];
+    auto j = db_client_->GetScoreJob(job_id);
+    if (j.empty()) {
+        SendError(res, "Job not found", 404);
+        return;
+    }
+    SendJson(res, j);
+}
+
+void ApiServer::HandleGetJobProgress(const httplib::Request& req, httplib::Response& res) {
     std::string job_id = req.matches[1];
     auto j = db_client_->GetScoreJob(job_id);
     if (j.empty()) {
