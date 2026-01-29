@@ -577,6 +577,12 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
                                        const std::string& anomaly_type,
                                        const std::string& start_time,
                                        const std::string& end_time) {
+    // Validate all metrics against allowlist to prevent SQL injection
+    for (const auto& metric : metrics) {
+        if (!IsValidMetric(metric)) {
+            throw std::invalid_argument("Invalid metric: " + metric);
+        }
+    }
     nlohmann::json out = nlohmann::json::array();
     try {
         pqxx::connection C(conn_str_);
@@ -641,6 +647,10 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
                                       const std::string& anomaly_type,
                                       const std::string& start_time,
                                       const std::string& end_time) {
+    // Validate metric against allowlist to prevent SQL injection
+    if (!IsValidMetric(metric)) {
+        throw std::invalid_argument("Invalid metric: " + metric);
+    }
     nlohmann::json out;
     out["edges"] = nlohmann::json::array();
     out["counts"] = nlohmann::json::array();
