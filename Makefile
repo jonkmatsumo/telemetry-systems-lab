@@ -34,6 +34,9 @@ build:
 run:
 	docker compose -f $(COMPOSE_INFRA) -f $(COMPOSE_APP) exec telemetry-generator ./build/telemetry-generator
 
+run-api:
+	docker compose -f $(COMPOSE_INFRA) -f $(COMPOSE_APP) exec telemetry-generator ./build/telemetry-api
+
 # Clean everything
 clean:
 	docker compose -f $(COMPOSE_INFRA) -f $(COMPOSE_APP) down -v

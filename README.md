@@ -6,8 +6,8 @@ A full-stack system for synthetic telemetry generation, PCA training, inference,
 
 ```mermaid
 graph TD
-    UI[Flutter Web App] -->|HTTP/JSON| API[HTTP API Service :8080]
-    API -->|gRPC| GEN[Generator Service :50051]
+    UI[Flutter Web App] -->|HTTP/JSON| API[HTTP API Service :8280]
+    API -->|gRPC| GEN[Generator Service :52051]
     API -->|In-process| CPP[Native C++ Trainer]
     API -->|SQL| DB[(Postgres :5432)]
     GEN -->|SQL| DB
@@ -23,9 +23,20 @@ The system is decomposed into five core components:
 
 ## Ports
 
-- HTTP API: `8080`
-- gRPC Generator: `50051`
-- Postgres: `5432` (docker-compose.infra.yml maps host `5434 → 5432`)
+- HTTP API: `8280` (remapped from `8080`)
+- gRPC Generator: `52051` (remapped from `50051`)
+- Postgres: `5434` (host) → `5432` (container)
+
+## Running alongside Text2SQL + Label Lag
+
+This project is configured to avoid port conflicts with Text2SQL and Label Lag.
+
+| Service | Host Port | Internal Port | Conflict Avoidance |
+| :--- | :--- | :--- | :--- |
+| **telemetry-api** | `8280` | `8080` | Avoids Text2SQL `8080`, `8081`, `8082` |
+| **telemetry-generator** | `52051` | `50051` | Avoids Label Lag `50051`, `50052` |
+| **Postgres** | `5434` | `5432` | Avoids Text2SQL `5432`, `5433` |
+| **Flutter Web Dev** | `8300` | N/A | Avoids Text2SQL `3000` |
 
 ## Repo Layout (Key Paths)
 
@@ -99,7 +110,7 @@ This populates the `host_telemetry_archival` table.
 
 API:
 ```bash
-curl -X POST http://localhost:8080/datasets -H 'Content-Type: application/json' -d '{"host_count": 10}'
+curl -X POST http://localhost:8280/datasets -H 'Content-Type: application/json' -d '{"host_count": 10}'
 ```
 
 ### 2. Train Model (API or CLI)
@@ -111,7 +122,7 @@ Outputs `artifacts/pca/default/model.json`.
 
 API:
 ```bash
-curl -X POST http://localhost:8080/train -H 'Content-Type: application/json' -d '{"dataset_id":"<RUN_ID>","name":"pca_v1"}'
+curl -X POST http://localhost:8280/train -H 'Content-Type: application/json' -d '{"dataset_id":"<RUN_ID>","name":"pca_v1"}'
 ```
 
 ### 3. Run Scorer (Inference)
@@ -171,11 +182,11 @@ Run in development:
 ```bash
 cd web_ui
 flutter pub get
-flutter run -d chrome
+flutter run -d chrome --web-port 8300
 ```
-Set the API base URL (default: http://localhost:8080):
+Set the API base URL (default: http://localhost:8280):
 ```bash
-flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8080
+flutter run -d chrome --web-port 8300 --dart-define=API_BASE_URL=http://localhost:8280
 ```
 
 Tabs:

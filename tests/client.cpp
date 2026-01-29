@@ -59,7 +59,7 @@ private:
 };
 
 int main(int argc, char** argv) {
-    TelemetryClient client(grpc::CreateChannel("localhost:50051", grpc::InsecureChannelCredentials()));
+    TelemetryClient client(grpc::CreateChannel("localhost:52051", grpc::InsecureChannelCredentials()));
     std::string run_id = client.Generate("TEST", 5);
     std::cout << "Started Run ID: " << run_id << std::endl;
     

@@ -7,7 +7,7 @@ int main(int argc, char** argv) {
     auto console = spdlog::stdout_color_mt("console");
     spdlog::set_default_logger(console);
 
-    std::string grpc_target = "localhost:50051";
+    std::string grpc_target = "localhost:52051";
     if (const char* env_p = std::getenv("GRPC_GENERATOR_TARGET")) {
         grpc_target = env_p;
     }
@@ -17,7 +17,7 @@ int main(int argc, char** argv) {
         db_conn = env_p;
     }
 
-    int port = 8080;
+    int port = 8280;
     if (const char* env_p = std::getenv("API_PORT")) {
         port = std::stoi(env_p);
     }
