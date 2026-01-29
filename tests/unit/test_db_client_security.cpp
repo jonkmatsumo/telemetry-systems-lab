@@ -37,3 +37,17 @@ TEST(DbClientSecurityTest, RejectsSqlInjectionAttempts) {
     EXPECT_FALSE(DbClient::IsValidMetric(" cpu_usage"));
     EXPECT_FALSE(DbClient::IsValidMetric("cpu_usage "));
 }
+
+TEST(DbClientSecurityTest, AcceptsValidDimensions) {
+    EXPECT_TRUE(DbClient::IsValidDimension("region"));
+    EXPECT_TRUE(DbClient::IsValidDimension("project_id"));
+    EXPECT_TRUE(DbClient::IsValidDimension("host_id"));
+    EXPECT_TRUE(DbClient::IsValidDimension("anomaly_type"));
+    EXPECT_TRUE(DbClient::IsValidDimension("h.region"));
+}
+
+TEST(DbClientSecurityTest, RejectsInvalidDimensions) {
+    EXPECT_FALSE(DbClient::IsValidDimension("invalid_column"));
+    EXPECT_FALSE(DbClient::IsValidDimension("password"));
+    EXPECT_FALSE(DbClient::IsValidDimension("region; DROP TABLE users;"));
+}

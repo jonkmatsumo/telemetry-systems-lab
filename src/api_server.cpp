@@ -247,18 +247,22 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         return;
     }
     bool debug = GetStrParam(req, "debug") == "true";
-    auto start = std::chrono::steady_clock::now();
-    auto data = db_client_->GetTopK(run_id, allowed[column], k, is_anomaly, anomaly_type, start_time, end_time);
-    auto end = std::chrono::steady_clock::now();
-    nlohmann::json resp;
-    resp["items"] = data;
-    if (debug) {
-        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
-        nlohmann::json resolved;
-        resolved["column"] = allowed[column];
-        resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(data.size()), resolved);
+    try {
+        auto start = std::chrono::steady_clock::now();
+        auto data = db_client_->GetTopK(run_id, allowed[column], k, is_anomaly, anomaly_type, start_time, end_time);
+        auto end = std::chrono::steady_clock::now();
+        nlohmann::json resp;
+        resp["items"] = data;
+        if (debug) {
+            double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+            nlohmann::json resolved;
+            resolved["column"] = allowed[column];
+            resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(data.size()), resolved);
+        }
+        SendJson(res, resp);
+    } catch (const std::invalid_argument& e) {
+        SendError(res, e.what(), 400);
     }
-    SendJson(res, resp);
 }
 
 void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Response& res) {
@@ -722,18 +726,22 @@ void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httpli
         SendError(res, "Invalid group_by", 400);
         return;
     }
-    auto start = std::chrono::steady_clock::now();
-    auto dist = db_client_->GetErrorDistribution(dataset_id, model_run_id, allowed[group_by]);
-    auto end = std::chrono::steady_clock::now();
-    nlohmann::json resp;
-    resp["items"] = dist;
-    if (debug) {
-        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
-        nlohmann::json resolved;
-        resolved["group_by"] = allowed[group_by];
-        resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(dist.size()), resolved);
+    try {
+        auto start = std::chrono::steady_clock::now();
+        auto dist = db_client_->GetErrorDistribution(dataset_id, model_run_id, allowed[group_by]);
+        auto end = std::chrono::steady_clock::now();
+        nlohmann::json resp;
+        resp["items"] = dist;
+        if (debug) {
+            double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+            nlohmann::json resolved;
+            resolved["group_by"] = allowed[group_by];
+            resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(dist.size()), resolved);
+        }
+        SendJson(res, resp);
+    } catch (const std::invalid_argument& e) {
+        SendError(res, e.what(), 400);
     }
-    SendJson(res, resp);
 }
 
 void ApiServer::SendJson(httplib::Response& res, const nlohmann::json& j, int status) {
