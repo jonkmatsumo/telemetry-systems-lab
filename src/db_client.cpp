@@ -297,6 +297,7 @@ nlohmann::json DbClient::ListGenerationRuns(int limit,
         }
     } catch (const std::exception& e) {
         spdlog::error("Failed to list generation runs: {}", e.what());
+        throw;
     }
     return out;
 }
@@ -325,6 +326,7 @@ nlohmann::json DbClient::GetDatasetDetail(const std::string& run_id) {
         }
     } catch (const std::exception& e) {
         spdlog::error("Failed to get dataset detail {}: {}", run_id, e.what());
+        throw;
     }
     return j;
 }
@@ -540,6 +542,7 @@ nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) 
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get dataset summary {}: {}", run_id, e.what());
+        throw; // Propagate the exception
     }
     return j;
 }
@@ -582,6 +585,7 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get topk for {}: {}", run_id, e.what());
+        throw;
     }
     return out;
 }
@@ -651,6 +655,7 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get timeseries {}: {}", run_id, e.what());
+        throw;
     }
     return out;
 }
@@ -724,6 +729,7 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get histogram {}: {}", run_id, e.what());
+        throw;
     }
     return out;
 }
@@ -1014,6 +1020,7 @@ nlohmann::json DbClient::GetErrorDistribution(const std::string& dataset_id,
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get error distribution: {}", e.what());
+        throw;
     }
     return out;
 }

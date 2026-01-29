@@ -45,7 +45,11 @@ private:
 
     // Helpers
     void SendJson(httplib::Response& res, const nlohmann::json& j, int status = 200);
-    void SendError(httplib::Response& res, const std::string& msg, int status = 400);
+    void SendError(httplib::Response& res, 
+                   const std::string& msg, 
+                   int status = 400,
+                   const std::string& code = "INTERNAL_ERROR",
+                   const std::string& request_id = "");
     static int GetIntParam(const httplib::Request& req, const std::string& key, int def);
     static double GetDoubleParam(const httplib::Request& req, const std::string& key, double def);
     static std::string GetStrParam(const httplib::Request& req, const std::string& key);

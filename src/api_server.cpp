@@ -14,8 +14,25 @@
 #include "preprocessing.h"
 #include "detector_config.h"
 
+#include <uuid/uuid.h>
+
 namespace telemetry {
 namespace api {
+
+std::string GenerateUuid() {
+    uuid_t out;
+    uuid_generate(out);
+    char str[37];
+    uuid_unparse(out, str);
+    return std::string(str);
+}
+
+std::string GetRequestId(const httplib::Request& req) {
+    if (req.has_header("X-Request-ID")) {
+        return req.get_header_value("X-Request-ID");
+    }
+    return GenerateUuid();
+}
 
 ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_str)
     : grpc_target_(grpc_target), db_conn_str_(db_conn_str)
@@ -168,25 +185,37 @@ void ApiServer::HandleGenerateData(const httplib::Request& req, httplib::Respons
 }
 
 void ApiServer::HandleListDatasets(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
     int limit = GetIntParam(req, "limit", 50);
     int offset = GetIntParam(req, "offset", 0);
     std::string status = GetStrParam(req, "status");
     std::string created_from = GetStrParam(req, "created_from");
     std::string created_to = GetStrParam(req, "created_to");
-    auto runs = db_client_->ListGenerationRuns(limit, offset, status, created_from, created_to);
-    nlohmann::json resp;
-    resp["items"] = runs;
-    resp["limit"] = limit;
-    resp["offset"] = offset;
-    SendJson(res, resp);
+    try {
+        auto runs = db_client_->ListGenerationRuns(limit, offset, status, created_from, created_to);
+        nlohmann::json resp;
+        resp["items"] = runs;
+        resp["limit"] = limit;
+        resp["offset"] = offset;
+        resp["request_id"] = rid;
+        SendJson(res, resp);
+    } catch (const std::exception& e) {
+        SendError(res, e.what(), 500, "DB_ERROR", rid);
+    }
 }
 
 void ApiServer::HandleGetDataset(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
     std::string run_id = req.matches[1];
-    auto detail = db_client_->GetDatasetDetail(run_id);
-    if (!detail.empty()) {
-        SendJson(res, detail);
-        return;
+    try {
+        auto detail = db_client_->GetDatasetDetail(run_id);
+        if (!detail.empty()) {
+            detail["request_id"] = rid;
+            SendJson(res, detail);
+            return;
+        }
+    } catch (const std::exception& e) {
+        spdlog::warn("DB Detail check failed, falling back to gRPC: {}", e.what());
     }
 
     grpc::ClientContext context;
@@ -202,32 +231,40 @@ void ApiServer::HandleGetDataset(const httplib::Request& req, httplib::Response&
         resp["status"] = g_res.status();
         resp["rows_inserted"] = g_res.inserted_rows();
         resp["error"] = g_res.error();
+        resp["request_id"] = rid;
         SendJson(res, resp);
     } else {
-        SendError(res, "gRPC Error: " + status.error_message(), 404);
+        SendError(res, "gRPC Error: " + status.error_message(), 404, "NOT_FOUND", rid);
     }
 }
 
 void ApiServer::HandleDatasetSummary(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
     std::string run_id = req.matches[1];
     int topk = GetIntParam(req, "topk", 5);
     bool debug = GetStrParam(req, "debug") == "true";
-    auto start = std::chrono::steady_clock::now();
-    auto summary = db_client_->GetDatasetSummary(run_id, topk);
-    auto end = std::chrono::steady_clock::now();
-    if (summary.empty()) {
-        SendError(res, "Dataset not found", 404);
-        return;
+    try {
+        auto start = std::chrono::steady_clock::now();
+        auto summary = db_client_->GetDatasetSummary(run_id, topk);
+        auto end = std::chrono::steady_clock::now();
+        if (summary.empty()) {
+            SendError(res, "Dataset not found", 404, "NOT_FOUND", rid);
+            return;
+        }
+        if (debug) {
+            double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+            long row_count = summary.value("row_count", 0L);
+            summary["debug"] = BuildDebugMeta(duration_ms, row_count);
+        }
+        summary["request_id"] = rid;
+        SendJson(res, summary);
+    } catch (const std::exception& e) {
+        SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
-    if (debug) {
-        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
-        long row_count = summary.value("row_count", 0L);
-        summary["debug"] = BuildDebugMeta(duration_ms, row_count);
-    }
-    SendJson(res, summary);
 }
 
 void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
     std::string run_id = req.matches[1];
     std::string column = GetStrParam(req, "column");
     int k = GetIntParam(req, "k", 10);
@@ -243,7 +280,7 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         {"anomaly_type", "anomaly_type"}
     };
     if (allowed.find(column) == allowed.end()) {
-        SendError(res, "Invalid column", 400);
+        SendError(res, "Invalid column", 400, "INVALID_ARGUMENT", rid);
         return;
     }
     bool debug = GetStrParam(req, "debug") == "true";
@@ -253,6 +290,7 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         auto end = std::chrono::steady_clock::now();
         nlohmann::json resp;
         resp["items"] = data;
+        resp["request_id"] = rid;
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
@@ -261,13 +299,17 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         }
         SendJson(res, resp);
     } catch (const std::invalid_argument& e) {
-        SendError(res, e.what(), 400);
+        SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
+    } catch (const std::exception& e) {
+        SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
     std::string run_id = req.matches[1];
     std::string metrics_param = GetStrParam(req, "metrics");
+    // ... (rest of parsing)
     std::string aggs_param = GetStrParam(req, "aggs");
     std::string bucket = GetStrParam(req, "bucket");
     std::string is_anomaly = GetStrParam(req, "is_anomaly");
@@ -282,7 +324,7 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         if (!token.empty()) metrics.push_back(token);
     }
     if (metrics.empty()) {
-        SendError(res, "metrics required", 400);
+        SendError(res, "metrics required", 400, "INVALID_ARGUMENT", rid);
         return;
     }
 
@@ -307,6 +349,7 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         nlohmann::json resp;
         resp["items"] = data;
         resp["bucket_seconds"] = bucket_seconds;
+        resp["request_id"] = rid;
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
@@ -317,15 +360,18 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         }
         SendJson(res, resp);
     } catch (const std::invalid_argument& e) {
-        SendError(res, e.what(), 400);
+        SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
+    } catch (const std::exception& e) {
+        SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
     std::string run_id = req.matches[1];
     std::string metric = GetStrParam(req, "metric");
     if (metric.empty()) {
-        SendError(res, "metric required", 400);
+        SendError(res, "metric required", 400, "INVALID_ARGUMENT", rid);
         return;
     }
     int bins = GetIntParam(req, "bins", 40);
@@ -346,6 +392,7 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         auto start = std::chrono::steady_clock::now();
         auto data = db_client_->GetHistogram(run_id, metric, bins, min_val, max_val, is_anomaly, anomaly_type, start_time, end_time);
         auto end = std::chrono::steady_clock::now();
+        data["request_id"] = rid;
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             long row_count = data.value("counts", nlohmann::json::array()).size();
@@ -358,7 +405,9 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         }
         SendJson(res, data);
     } catch (const std::invalid_argument& e) {
-        SendError(res, e.what(), 400);
+        SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
+    } catch (const std::exception& e) {
+        SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
@@ -749,10 +798,27 @@ void ApiServer::SendJson(httplib::Response& res, const nlohmann::json& j, int st
     res.set_content(j.dump(), "application/json");
 }
 
-void ApiServer::SendError(httplib::Response& res, const std::string& msg, int status) {
+void ApiServer::SendError(httplib::Response& res, 
+                        const std::string& msg, 
+                        int status,
+                        const std::string& code,
+                        const std::string& request_id) {
     nlohmann::json j;
-    j["error"] = msg;
+    j["error"]["message"] = msg;
+    j["error"]["code"] = code;
+    if (!request_id.empty()) {
+        j["error"]["request_id"] = request_id;
+    }
     SendJson(res, j, status);
+}
+
+std::string GetRequestId(const httplib::Request& req) {
+    if (req.has_header("X-Request-ID")) {
+        return req.get_header_value("X-Request-ID");
+    }
+    // Simple fallback if no UUID library used here, though PQXX has it.
+    // For now just return empty or a random-ish string if needed.
+    return ""; 
 }
 
 int ApiServer::GetIntParam(const httplib::Request& req, const std::string& key, int def) {
