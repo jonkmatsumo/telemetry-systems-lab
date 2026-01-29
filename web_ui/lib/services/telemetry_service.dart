@@ -398,7 +398,7 @@ class InferenceResponse {
 }
 
 class TelemetryService {
-  static const String _defaultBaseUrl = 'http://localhost:8080';
+  static const String _defaultBaseUrl = 'http://localhost:8280';
   final String baseUrl;
   final Duration cacheTtl = const Duration(seconds: 30);
   final Map<String, _CacheEntry> _cache = {};
