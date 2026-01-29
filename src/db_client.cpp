@@ -3,9 +3,23 @@
 #include <google/protobuf/util/json_util.h>
 #include <fmt/chrono.h>
 #include <algorithm>
+#include <unordered_set>
 
 
 DbClient::DbClient(const std::string& connection_string) : conn_str_(connection_string) {}
+
+// Static allowlist of valid metric column names from host_telemetry_archival schema.
+// This prevents SQL injection via metric parameter in analytics queries.
+bool DbClient::IsValidMetric(const std::string& metric) {
+    static const std::unordered_set<std::string> kAllowedMetrics = {
+        "cpu_usage",
+        "memory_usage",
+        "disk_utilization",
+        "network_rx_rate",
+        "network_tx_rate"
+    };
+    return kAllowedMetrics.count(metric) > 0;
+}
 
 void DbClient::CreateRun(const std::string& run_id, 
                         const telemetry::GenerateRequest& config, 
