@@ -296,21 +296,25 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
     else if (bucket == "1d") bucket_seconds = 86400;
 
     bool debug = GetStrParam(req, "debug") == "true";
-    auto start = std::chrono::steady_clock::now();
-    auto data = db_client_->GetTimeSeries(run_id, metrics, aggs, bucket_seconds, is_anomaly, anomaly_type, start_time, end_time);
-    auto end = std::chrono::steady_clock::now();
-    nlohmann::json resp;
-    resp["items"] = data;
-    resp["bucket_seconds"] = bucket_seconds;
-    if (debug) {
-        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
-        nlohmann::json resolved;
-        resolved["metrics"] = metrics;
-        resolved["aggs"] = aggs;
-        resolved["bucket_seconds"] = bucket_seconds;
-        resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(data.size()), resolved);
+    try {
+        auto start = std::chrono::steady_clock::now();
+        auto data = db_client_->GetTimeSeries(run_id, metrics, aggs, bucket_seconds, is_anomaly, anomaly_type, start_time, end_time);
+        auto end = std::chrono::steady_clock::now();
+        nlohmann::json resp;
+        resp["items"] = data;
+        resp["bucket_seconds"] = bucket_seconds;
+        if (debug) {
+            double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+            nlohmann::json resolved;
+            resolved["metrics"] = metrics;
+            resolved["aggs"] = aggs;
+            resolved["bucket_seconds"] = bucket_seconds;
+            resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(data.size()), resolved);
+        }
+        SendJson(res, resp);
+    } catch (const std::invalid_argument& e) {
+        SendError(res, e.what(), 400);
     }
-    SendJson(res, resp);
 }
 
 void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Response& res) {
@@ -334,20 +338,24 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
     std::string end_time = GetStrParam(req, "end_time");
 
     bool debug = GetStrParam(req, "debug") == "true";
-    auto start = std::chrono::steady_clock::now();
-    auto data = db_client_->GetHistogram(run_id, metric, bins, min_val, max_val, is_anomaly, anomaly_type, start_time, end_time);
-    auto end = std::chrono::steady_clock::now();
-    if (debug) {
-        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
-        long row_count = data.value("counts", nlohmann::json::array()).size();
-        nlohmann::json resolved;
-        resolved["metric"] = metric;
-        resolved["bins"] = bins;
-        resolved["min"] = min_val;
-        resolved["max"] = max_val;
-        data["debug"] = BuildDebugMeta(duration_ms, row_count, resolved);
+    try {
+        auto start = std::chrono::steady_clock::now();
+        auto data = db_client_->GetHistogram(run_id, metric, bins, min_val, max_val, is_anomaly, anomaly_type, start_time, end_time);
+        auto end = std::chrono::steady_clock::now();
+        if (debug) {
+            double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+            long row_count = data.value("counts", nlohmann::json::array()).size();
+            nlohmann::json resolved;
+            resolved["metric"] = metric;
+            resolved["bins"] = bins;
+            resolved["min"] = min_val;
+            resolved["max"] = max_val;
+            data["debug"] = BuildDebugMeta(duration_ms, row_count, resolved);
+        }
+        SendJson(res, data);
+    } catch (const std::invalid_argument& e) {
+        SendError(res, e.what(), 400);
     }
-    SendJson(res, data);
 }
 
 void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response& res) {
