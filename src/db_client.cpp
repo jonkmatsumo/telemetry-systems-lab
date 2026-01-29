@@ -177,6 +177,7 @@ std::string DbClient::CreateModelRun(const std::string& dataset_id, const std::s
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
         spdlog::error("Failed to create model run: {}", e.what());
+        throw;
     }
     return "";
 }
@@ -236,6 +237,7 @@ std::string DbClient::CreateInferenceRun(const std::string& model_run_id) {
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
         spdlog::error("Failed to create inference run: {}", e.what());
+        throw;
     }
     return "";
 }
@@ -754,6 +756,7 @@ std::string DbClient::CreateScoreJob(const std::string& dataset_id, const std::s
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
         spdlog::error("Failed to create score job: {}", e.what());
+        throw;
     }
     return "";
 }

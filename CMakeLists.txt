@@ -126,6 +126,7 @@ add_executable(telemetry-api
     src/detectors/detector_a.cpp
     src/detectors/pca_model.cpp
     src/alert_manager.cpp
+    src/job_manager.cpp
 )
 target_include_directories(telemetry-api PRIVATE src)
 target_link_libraries(telemetry-api
@@ -241,3 +242,16 @@ target_link_libraries(db_integration_tests
     PkgConfig::PQXX
     PkgConfig::UUID
 )
+
+# Integration Test (API Health)
+add_executable(api_health_tests
+    tests/integration/test_api_health.cpp
+)
+target_link_libraries(api_health_tests
+    GTest::GTest
+    GTest::Main
+    nlohmann_json::nlohmann_json
+)
+if(HTTPLIB_FOUND)
+    target_link_libraries(api_health_tests PkgConfig::HTTPLIB)
+endif()

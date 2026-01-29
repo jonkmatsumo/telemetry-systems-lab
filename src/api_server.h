@@ -8,6 +8,7 @@
 #include <grpcpp/grpcpp.h>
 #include "telemetry.grpc.pb.h"
 #include "db_client.h"
+#include "job_manager.h"
 
 namespace telemetry {
 namespace api {
@@ -57,6 +58,7 @@ private:
     httplib::Server svr_;
     std::unique_ptr<telemetry::TelemetryService::Stub> stub_;
     std::unique_ptr<DbClient> db_client_;
+    std::unique_ptr<JobManager> job_manager_;
     
     std::string grpc_target_;
     std::string db_conn_str_;

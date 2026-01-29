@@ -1,0 +1,50 @@
+#include <gtest/gtest.h>
+#include <httplib.h>
+#include <nlohmann/json.hpp>
+#include <string>
+
+// This test assumes the API server is running on localhost:8080
+// or as configured by API_URL env var.
+class ApiHealthTest : public ::testing::Test {
+protected:
+    std::string api_url;
+    
+    void SetUp() override {
+        const char* env_p = std::getenv("API_URL");
+        if (env_p) {
+            api_url = env_p;
+        } else {
+            api_url = "http://localhost:8080";
+        }
+    }
+};
+
+TEST_F(ApiHealthTest, HealthzReturns200) {
+    httplib::Client cli(api_url.c_str());
+    auto res = cli.Get("/healthz");
+    if (res) {
+        EXPECT_EQ(res->status, 200);
+        auto j = nlohmann::json::parse(res->body);
+        EXPECT_EQ(j["status"], "OK");
+    } else {
+        // Skip if server not running
+        GTEST_SKIP() << "API server not running at " << api_url;
+    }
+}
+
+TEST_F(ApiHealthTest, ReadyzReturns200Or503) {
+    httplib::Client cli(api_url.c_str());
+    auto res = cli.Get("/readyz");
+    if (res) {
+        EXPECT_TRUE(res->status == 200 || res->status == 503);
+        auto j = nlohmann::json::parse(res->body);
+        if (res->status == 200) {
+            EXPECT_EQ(j["status"], "READY");
+        } else {
+            EXPECT_EQ(j["status"], "UNREADY");
+        }
+    } else {
+        // Skip if server not running
+        GTEST_SKIP() << "API server not running at " << api_url;
+    }
+}
