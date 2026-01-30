@@ -36,6 +36,21 @@ services:
     networks:
       - telemetry_net
 
+  web-ui:
+    build:
+      context: .
+      target: dev-web
+    container_name: telemetry_web_ui_dev
+    # Note: flutter run requires an interactive terminal usually, 
+    # but we can use web-server mode for headless serving.
+    command: [ "sh", "-c", "cd web_ui && flutter run -d web-server --web-port 8300 --web-hostname 0.0.0.0 --dart-define=API_BASE_URL=http://localhost:8280" ]
+    ports:
+      - "8300:8300"
+    volumes:
+      - ./web_ui:/home/flutteruser/web_ui
+    networks:
+      - telemetry_net
+
 networks:
   telemetry_net:
     external: true
