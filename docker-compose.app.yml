@@ -4,7 +4,7 @@ services:
       context: .
       target: dev
     container_name: telemetry_generator_dev
-    command: [ "tail", "-f", "/dev/null" ]
+    command: [ "sh", "-c", "cmake -B build -S . && make -C build -j$$(nproc) all && ./build/telemetry-generator" ]
     environment:
       DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:5432/telemetry"
     volumes:
@@ -21,10 +21,11 @@ services:
       context: .
       target: dev
     container_name: telemetry_api_dev
-    command: [ "tail", "-f", "/dev/null" ]
+    command: [ "sh", "-c", "while [ ! -f ./build/telemetry-api ]; do echo 'Waiting for build...'; sleep 2; done; ./build/telemetry-api" ]
     environment:
       DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:5432/telemetry"
       GRPC_GENERATOR_TARGET: "telemetry-generator:50051"
+      API_PORT: 8080
     ports:
       - "8280:8080"
     volumes:
@@ -53,7 +54,7 @@ services:
 
 networks:
   telemetry_net:
-    external: true
+    driver: bridge
 
 volumes:
   build_cache:

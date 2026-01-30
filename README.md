@@ -79,14 +79,21 @@ make infra-up
 make dev-up
 ```
 
-Inside the dev container:
+The dev environment (`make dev-up`) automatically:
+1.  Compiles the C++ project (handled by `telemetry-generator` container).
+2.  Starts the `telemetry-generator` service.
+3.  Starts the `telemetry-api` service (once built).
+4.  Starts the `web-ui` (Flutter).
+
+You can access the Web UI at http://localhost:8300.
+
+To manually rebuild (e.g., after code changes) without restarting containers:
 ```bash
 make build
-./build/telemetry-generator   # gRPC generator
-./build/telemetry-api         # HTTP API
+# The running services should be restarted to pick up changes, or use the binaries manually.
+# Currently, the services run the binary once. To restart:
+docker restart telemetry_generator_dev telemetry_api_dev
 ```
-
-Note: `docker-compose.yml` builds the runtime image and starts the API server (CMD is `telemetry-api`). If you need both API and generator in Docker, run the generator separately or run both binaries in the dev container.
 
 ## Database Setup / Migration
 
