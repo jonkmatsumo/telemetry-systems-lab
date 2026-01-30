@@ -259,3 +259,31 @@ TEST_F(DbClientTest, ReconcileStaleJobs) {
     EXPECT_EQ(job["status"], "FAILED");
     EXPECT_EQ(job["error"], "System restart/recovery");
 }
+
+TEST_F(DbClientTest, PersistsRequestId) {
+    DbClient client(conn_str);
+    std::string run_id = GenerateUUID();
+    std::string req_id = "test-request-123";
+    
+    telemetry::GenerateRequest req;
+    req.set_tier("PERSISTENCE");
+    req.set_start_time_iso("2025-01-01T00:00:00Z");
+    req.set_end_time_iso("2025-01-01T01:00:00Z");
+    req.set_interval_seconds(60);
+    req.set_host_count(1);
+    
+    // 1. Generation Run
+    client.CreateRun(run_id, req, "PENDING", req_id);
+    auto detail = client.GetDatasetDetail(run_id);
+    EXPECT_EQ(detail["request_id"], req_id);
+
+    // 2. Model Run
+    std::string model_run_id = client.CreateModelRun(run_id, "test_persistence", req_id);
+    auto model = client.GetModelRun(model_run_id);
+    EXPECT_EQ(model["request_id"], req_id);
+
+    // 3. Score Job
+    std::string job_id = client.CreateScoreJob(run_id, model_run_id, req_id);
+    auto job = client.GetScoreJob(job_id);
+    EXPECT_EQ(job["request_id"], req_id);
+}
