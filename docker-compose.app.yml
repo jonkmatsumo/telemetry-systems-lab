@@ -53,7 +53,7 @@ services:
 
 networks:
   telemetry_net:
-    external: true
+    driver: bridge
 
 volumes:
   build_cache:
