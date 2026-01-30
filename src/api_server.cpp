@@ -183,6 +183,7 @@ void ApiServer::HandleGenerateData(const httplib::Request& req, httplib::Respons
         telemetry::GenerateRequest g_req;
         g_req.set_host_count(host_count);
         g_req.set_tier("USER_UI");
+        g_req.set_request_id(rid);
         if (!run_id.empty()) {
             // NOTE: Proto doesn't support setting run_id yet. 
             // We ignore it for now or could update proto later.
@@ -441,7 +442,7 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         std::string name = j.value("name", "pca_default");
 
         // 1. Create DB entry
-        std::string model_run_id = db_client_->CreateModelRun(dataset_id, name);
+        std::string model_run_id = db_client_->CreateModelRun(dataset_id, name, rid);
         if (model_run_id.empty()) {
             SendError(res, "Failed to create model run in DB", 500, "DB_ERROR", rid);
             return;
@@ -684,7 +685,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
         std::string dataset_id = j.at("dataset_id");
         std::string model_run_id = j.at("model_run_id");
 
-        std::string job_id = db_client_->CreateScoreJob(dataset_id, model_run_id);
+        std::string job_id = db_client_->CreateScoreJob(dataset_id, model_run_id, rid);
         if (job_id.empty()) {
             SendError(res, "Failed to create job", 500, "DB_ERROR", rid);
             return;

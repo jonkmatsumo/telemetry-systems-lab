@@ -183,9 +183,9 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
 
 
 void Generator::Run() {
-    spdlog::info("Starting generation run {}", run_id_);
+    spdlog::info("Starting generation run {} (req_id: {})", run_id_, config_.request_id());
     try {
-        db_->CreateRun(run_id_, config_, "RUNNING");
+        db_->CreateRun(run_id_, config_, "RUNNING", config_.request_id());
         
         InitializeHosts();
         

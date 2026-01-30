@@ -24,7 +24,8 @@ public:
 
     void CreateRun(const std::string& run_id, 
                    const telemetry::GenerateRequest& config, 
-                   const std::string& status) override;
+                   const std::string& status,
+                   const std::string& request_id = "") override;
                    
     void UpdateRunStatus(const std::string& run_id, 
                          const std::string& status, 
@@ -35,7 +36,9 @@ public:
     
     telemetry::RunStatus GetRunStatus(const std::string& run_id) override;
 
-    std::string CreateModelRun(const std::string& dataset_id, const std::string& name) override;
+    std::string CreateModelRun(const std::string& dataset_id, 
+                               const std::string& name,
+                               const std::string& request_id = "") override;
     void UpdateModelRunStatus(const std::string& model_run_id, 
                                       const std::string& status, 
                                       const std::string& artifact_path = "", 
@@ -98,7 +101,9 @@ public:
                                 const std::string& start_time,
                                 const std::string& end_time);
 
-    std::string CreateScoreJob(const std::string& dataset_id, const std::string& model_run_id);
+    std::string CreateScoreJob(const std::string& dataset_id, 
+                               const std::string& model_run_id,
+                               const std::string& request_id = "");
     void UpdateScoreJob(const std::string& job_id,
                         const std::string& status,
                         long total_rows,

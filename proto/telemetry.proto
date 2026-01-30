@@ -24,6 +24,7 @@ message GenerateRequest {
   AnomalyConfig anomaly_config = 7;
   TimingConfig timing_config = 8;
   int64 seed = 9;
+  string request_id = 10;
 }
 
 message GenerateResponse {
@@ -39,6 +40,7 @@ message RunStatus {
   string status = 2; // PENDING, RUNNING, SUCCEEDED, FAILED
   int64 inserted_rows = 3;
   string error = 4;
+  string request_id = 5;
 }
 
 message AnomalyConfig {

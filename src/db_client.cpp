@@ -66,7 +66,8 @@ void DbClient::ReconcileStaleJobs() {
 
 void DbClient::CreateRun(const std::string& run_id, 
                         const telemetry::GenerateRequest& config, 
-                        const std::string& status) {
+                        const std::string& status,
+                        const std::string& request_id) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
@@ -74,16 +75,13 @@ void DbClient::CreateRun(const std::string& run_id,
         std::string config_json;
         google::protobuf::util::MessageToJsonString(config, &config_json);
 
-        W.exec_params("INSERT INTO generation_runs (run_id, tier, host_count, start_time, end_time, interval_seconds, seed, status, config) "
-                      "VALUES ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6, $7, $8, $9::jsonb)",
-                      run_id, config.tier(), config.host_count(), 
-                      config.start_time_iso(), config.end_time_iso(),
-                      config.interval_seconds(), config.seed(),
-                      status, config_json);
+        W.exec_params("INSERT INTO generation_runs (run_id, tier, host_count, start_time, end_time, interval_seconds, seed, status, config, request_id) "
+                     "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                     run_id, config.tier(), config.host_count(), config.start_time_iso(), config.end_time_iso(), 
+                     config.interval_seconds(), config.seed(), status, config_json, request_id);
         W.commit();
-        spdlog::info("Created run {} in DB", run_id);
     } catch (const std::exception& e) {
-        spdlog::error("Failed to create run in DB: {}", e.what());
+        spdlog::error("Failed to create run: {}", e.what());
     }
 }
 
@@ -176,16 +174,12 @@ telemetry::RunStatus DbClient::GetRunStatus(const std::string& run_id) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
-        auto res = N.exec_params("SELECT status, inserted_rows, error FROM generation_runs WHERE run_id = $1", run_id);
-        
+        auto res = N.exec_params("SELECT status, inserted_rows, error, request_id FROM generation_runs WHERE run_id = $1", run_id);
         if (!res.empty()) {
             status.set_status(res[0][0].as<std::string>());
             status.set_inserted_rows(res[0][1].as<long>());
-            if (!res[0][2].is_null()) {
-                status.set_error(res[0][2].as<std::string>());
-            }
-        } else {
-            status.set_status("NOT_FOUND");
+            status.set_error(res[0][2].is_null() ? "" : res[0][2].as<std::string>());
+            status.set_request_id(res[0][3].is_null() ? "" : res[0][3].as<std::string>());
         }
     } catch (const std::exception& e) {
         spdlog::error("DB Error in GetRunStatus for {}: {}", run_id, e.what());
@@ -195,13 +189,15 @@ telemetry::RunStatus DbClient::GetRunStatus(const std::string& run_id) {
     return status;
 }
 
-std::string DbClient::CreateModelRun(const std::string& dataset_id, const std::string& name) {
+std::string DbClient::CreateModelRun(const std::string& dataset_id, 
+                                     const std::string& name,
+                                     const std::string& request_id) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status) "
-                                 "VALUES ($1, $2, 'PENDING') RETURNING model_run_id",
-                                 dataset_id, name);
+        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id) "
+                                 "VALUES ($1, $2, 'PENDING', $3) RETURNING model_run_id",
+                                 dataset_id, name, request_id);
         W.commit();
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
@@ -232,23 +228,42 @@ void DbClient::UpdateModelRunStatus(const std::string& model_run_id,
 }
 
 nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
+
     nlohmann::json j;
+
     try {
+
         pqxx::connection C(conn_str_);
+
         pqxx::nontransaction N(C);
-        auto res = N.exec_params("SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at "
-                                 "FROM model_runs WHERE model_run_id = $1", model_run_id);
-        
+
+        auto res = N.exec_params("SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id "
+
+                                 "FROM model_runs WHERE model_run_id = 
+", model_run_id);
+
         if (!res.empty()) {
+
             j["model_run_id"] = res[0][0].as<std::string>();
+
             j["dataset_id"] = res[0][1].as<std::string>();
+
             j["name"] = res[0][2].as<std::string>();
+
             j["status"] = res[0][3].as<std::string>();
+
             j["artifact_path"] = res[0][4].is_null() ? "" : res[0][4].as<std::string>();
+
             j["error"] = res[0][5].is_null() ? "" : res[0][5].as<std::string>();
+
             j["created_at"] = res[0][6].as<std::string>();
+
             j["completed_at"] = res[0][7].is_null() ? "" : res[0][7].as<std::string>();
+
+            j["request_id"] = res[0][8].is_null() ? "" : res[0][8].as<std::string>();
+
         }
+
     } catch (const std::exception& e) {
         spdlog::error("DB Error in GetModelRun for {}: {}", model_run_id, e.what());
     }
@@ -339,7 +354,7 @@ nlohmann::json DbClient::GetDatasetDetail(const std::string& run_id) {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
-            "SELECT run_id, status, inserted_rows, created_at, start_time, end_time, interval_seconds, host_count, tier, error, config "
+            "SELECT run_id, status, inserted_rows, created_at, start_time, end_time, interval_seconds, host_count, tier, error, request_id "
             "FROM generation_runs WHERE run_id = $1",
             run_id);
         if (!res.empty()) {
@@ -353,7 +368,7 @@ nlohmann::json DbClient::GetDatasetDetail(const std::string& run_id) {
             j["host_count"] = res[0][7].as<int>();
             j["tier"] = res[0][8].as<std::string>();
             j["error"] = res[0][9].is_null() ? "" : res[0][9].as<std::string>();
-            j["config"] = res[0][10].is_null() ? nlohmann::json::object() : nlohmann::json::parse(res[0][10].c_str());
+            j["request_id"] = res[0][10].is_null() ? "" : res[0][10].as<std::string>();
         }
     } catch (const std::exception& e) {
         spdlog::error("Failed to get dataset detail {}: {}", run_id, e.what());
@@ -771,22 +786,24 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
     return out;
 }
 
-std::string DbClient::CreateScoreJob(const std::string& dataset_id, const std::string& model_run_id) {
+std::string DbClient::CreateScoreJob(const std::string& dataset_id, 
+                                    const std::string& model_run_id,
+                                    const std::string& request_id) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
+        
+        // Check if job already exists
         auto existing = W.exec_params(
             "SELECT job_id FROM dataset_score_jobs WHERE dataset_id = $1 AND model_run_id = $2 "
-            "ORDER BY created_at DESC LIMIT 1",
+            "AND status IN ('PENDING', 'RUNNING')",
             dataset_id, model_run_id);
-        if (!existing.empty()) {
-            W.commit();
-            return existing[0][0].as<std::string>();
-        }
+        if (!existing.empty()) return existing[0][0].as<std::string>();
+
         auto res = W.exec_params(
-            "INSERT INTO dataset_score_jobs (dataset_id, model_run_id, status) "
-            "VALUES ($1, $2, 'PENDING') RETURNING job_id",
-            dataset_id, model_run_id);
+            "INSERT INTO dataset_score_jobs (dataset_id, model_run_id, status, request_id) "
+            "VALUES ($1, $2, 'PENDING', $3) RETURNING job_id",
+            dataset_id, model_run_id, request_id);
         W.commit();
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
@@ -833,7 +850,7 @@ nlohmann::json DbClient::GetScoreJob(const std::string& job_id) {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
-            "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, last_record_id, error, created_at, updated_at, completed_at "
+            "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, last_record_id, error, created_at, updated_at, completed_at, request_id "
             "FROM dataset_score_jobs WHERE job_id = $1",
             job_id);
         if (!res.empty()) {
@@ -848,6 +865,7 @@ nlohmann::json DbClient::GetScoreJob(const std::string& job_id) {
             j["created_at"] = res[0][8].as<std::string>();
             j["updated_at"] = res[0][9].as<std::string>();
             j["completed_at"] = res[0][10].is_null() ? "" : res[0][10].as<std::string>();
+            j["request_id"] = res[0][11].is_null() ? "" : res[0][11].as<std::string>();
         }
     } catch (const std::exception& e) {
         spdlog::error("Failed to get score job {}: {}", job_id, e.what());
