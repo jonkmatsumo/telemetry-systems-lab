@@ -400,12 +400,14 @@ class InferenceResponse {
 class TelemetryService {
   static const String _defaultBaseUrl = 'http://localhost:8280';
   final String baseUrl;
+  final http.Client _client;
   final Duration cacheTtl = const Duration(seconds: 30);
   final Map<String, _CacheEntry> _cache = {};
 
-  TelemetryService({String? baseUrl})
+  TelemetryService({String? baseUrl, http.Client? client})
       : baseUrl = baseUrl ??
-            const String.fromEnvironment('API_BASE_URL', defaultValue: _defaultBaseUrl);
+            const String.fromEnvironment('API_BASE_URL', defaultValue: _defaultBaseUrl),
+        _client = client ?? http.Client();
 
   String _cacheKey(String path, [Map<String, String>? params]) {
     if (params == null || params.isEmpty) return path;
@@ -444,6 +446,8 @@ class TelemetryService {
           throw Exception('$msg (Code: $code, RequestID: $rid)');
         }
       }
+    } on FormatException {
+      // Fall through to default message
     } catch (e) {
       if (e is Exception) rethrow;
     }
@@ -451,7 +455,7 @@ class TelemetryService {
   }
 
   Future<String> generateDataset(int hostCount) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$baseUrl/datasets'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'host_count': hostCount}),
@@ -464,7 +468,7 @@ class TelemetryService {
   }
 
   Future<DatasetStatus> getDatasetStatus(String id) async {
-    final response = await http.get(Uri.parse('$baseUrl/datasets/$id'));
+    final response = await _client.get(Uri.parse('$baseUrl/datasets/$id'));
     if (response.statusCode == 200) {
       return DatasetStatus.fromJson(jsonDecode(response.body));
     }
@@ -473,7 +477,7 @@ class TelemetryService {
   }
 
   Future<String> trainModel(String datasetId, {String name = 'pca_default'}) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$baseUrl/train'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'dataset_id': datasetId, 'name': name}),
@@ -486,7 +490,7 @@ class TelemetryService {
   }
 
   Future<ModelStatus> getModelStatus(String id) async {
-    final response = await http.get(Uri.parse('$baseUrl/train/$id'));
+    final response = await _client.get(Uri.parse('$baseUrl/train/$id'));
     if (response.statusCode == 200) {
       return ModelStatus.fromJson(jsonDecode(response.body));
     }
@@ -495,7 +499,7 @@ class TelemetryService {
   }
 
   Future<InferenceResponse> runInference(String modelId, List<Map<String, dynamic>> samples) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$baseUrl/inference'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'model_run_id': modelId, 'samples': samples}),
@@ -503,7 +507,8 @@ class TelemetryService {
     if (response.statusCode == 200) {
       return InferenceResponse.fromJson(jsonDecode(response.body));
     }
-    throw Exception('Failed to run inference: ${response.body}');
+    _handleError(response, 'Failed to run inference');
+    throw Exception('Unreachable');
   }
 
   Future<List<DatasetRun>> listDatasets(
@@ -519,7 +524,7 @@ class TelemetryService {
     final key = _cacheKey('/datasets', params);
     final cached = _readCache<List<DatasetRun>>(key);
     if (cached != null) return cached;
-    final response = await http.get(_buildUri('/datasets', params));
+    final response = await _client.get(_buildUri('/datasets', params));
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
           .map((e) => DatasetRun.fromJson(e as Map<String, dynamic>))
@@ -535,7 +540,7 @@ class TelemetryService {
     final key = _cacheKey('/datasets/$runId');
     final cached = _readCache<Map<String, dynamic>>(key);
     if (cached != null) return cached;
-    final response = await http.get(Uri.parse('$baseUrl/datasets/$runId'));
+    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId'));
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       _writeCache(key, data);
@@ -550,7 +555,7 @@ class TelemetryService {
     final key = _cacheKey('/datasets/$runId/summary', params);
     final cached = _readCache<DatasetSummary>(key);
     if (cached != null) return cached;
-    final response = await http.get(_buildUri('/datasets/$runId/summary', params));
+    final response = await _client.get(_buildUri('/datasets/$runId/summary', params));
     if (response.statusCode == 200) {
       final summary = DatasetSummary.fromJson(jsonDecode(response.body));
       _writeCache(key, summary);
@@ -577,7 +582,7 @@ class TelemetryService {
     final key = _cacheKey('/datasets/$runId/topk', params);
     final cached = _readCache<List<TopKEntry>>(key);
     if (cached != null) return cached;
-    final response = await http.get(_buildUri('/datasets/$runId/topk', params));
+    final response = await _client.get(_buildUri('/datasets/$runId/topk', params));
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
           .map((e) => TopKEntry.fromJson(e as Map<String, dynamic>))
@@ -585,7 +590,8 @@ class TelemetryService {
       _writeCache(key, items);
       return items;
     }
-    throw Exception('Failed to get topk: ${response.body}');
+    _handleError(response, 'Failed to get topk');
+    throw Exception('Unreachable');
   }
 
   Future<List<TimeSeriesPoint>> getTimeSeries(String runId,
@@ -608,7 +614,7 @@ class TelemetryService {
     final key = _cacheKey('/datasets/$runId/timeseries', params);
     final cached = _readCache<List<TimeSeriesPoint>>(key);
     if (cached != null) return cached;
-    final response = await http.get(_buildUri('/datasets/$runId/timeseries', params));
+    final response = await _client.get(_buildUri('/datasets/$runId/timeseries', params));
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
           .map((e) => TimeSeriesPoint.fromJson(e as Map<String, dynamic>))
@@ -616,7 +622,8 @@ class TelemetryService {
       _writeCache(key, items);
       return items;
     }
-    throw Exception('Failed to get timeseries: ${response.body}');
+    _handleError(response, 'Failed to get timeseries');
+    throw Exception('Unreachable');
   }
 
   Future<HistogramData> getHistogram(String runId,
@@ -643,13 +650,14 @@ class TelemetryService {
     final key = _cacheKey('/datasets/$runId/histogram', params);
     final cached = _readCache<HistogramData>(key);
     if (cached != null) return cached;
-    final response = await http.get(_buildUri('/datasets/$runId/histogram', params));
+    final response = await _client.get(_buildUri('/datasets/$runId/histogram', params));
     if (response.statusCode == 200) {
       final data = HistogramData.fromJson(jsonDecode(response.body));
       _writeCache(key, data);
       return data;
     }
-    throw Exception('Failed to get histogram: ${response.body}');
+    _handleError(response, 'Failed to get histogram');
+    throw Exception('Unreachable');
   }
 
   Future<List<ModelRunSummary>> listModels(
@@ -667,7 +675,7 @@ class TelemetryService {
     final key = _cacheKey('/models', params);
     final cached = _readCache<List<ModelRunSummary>>(key);
     if (cached != null) return cached;
-    final response = await http.get(_buildUri('/models', params));
+    final response = await _client.get(_buildUri('/models', params));
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
           .map((e) => ModelRunSummary.fromJson(e as Map<String, dynamic>))
@@ -675,20 +683,22 @@ class TelemetryService {
       _writeCache(key, items);
       return items;
     }
-    throw Exception('Failed to list models: ${response.body}');
+    _handleError(response, 'Failed to list models');
+    throw Exception('Unreachable');
   }
 
   Future<Map<String, dynamic>> getModelDetail(String modelRunId) async {
     final key = _cacheKey('/models/$modelRunId');
     final cached = _readCache<Map<String, dynamic>>(key);
     if (cached != null) return cached;
-    final response = await http.get(Uri.parse('$baseUrl/models/$modelRunId'));
+    final response = await _client.get(Uri.parse('$baseUrl/models/$modelRunId'));
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       _writeCache(key, data);
       return data;
     }
-    throw Exception('Failed to get model detail: ${response.body}');
+    _handleError(response, 'Failed to get model detail');
+    throw Exception('Unreachable');
   }
 
   Future<List<InferenceRunSummary>> listInferenceRuns(
@@ -711,7 +721,7 @@ class TelemetryService {
     final key = _cacheKey('/inference_runs', params);
     final cached = _readCache<List<InferenceRunSummary>>(key);
     if (cached != null) return cached;
-    final response = await http.get(_buildUri('/inference_runs', params));
+    final response = await _client.get(_buildUri('/inference_runs', params));
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
           .map((e) => InferenceRunSummary.fromJson(e as Map<String, dynamic>))
@@ -719,19 +729,21 @@ class TelemetryService {
       _writeCache(key, items);
       return items;
     }
-    throw Exception('Failed to list inference runs: ${response.body}');
+    _handleError(response, 'Failed to list inference runs');
+    throw Exception('Unreachable');
   }
 
   Future<Map<String, dynamic>> getInferenceRun(String inferenceId) async {
-    final response = await http.get(Uri.parse('$baseUrl/inference_runs/$inferenceId'));
+    final response = await _client.get(Uri.parse('$baseUrl/inference_runs/$inferenceId'));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
-    throw Exception('Failed to get inference run: ${response.body}');
+    _handleError(response, 'Failed to get inference run');
+    throw Exception('Unreachable');
   }
 
   Future<String> startScoreJob(String datasetId, String modelRunId) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$baseUrl/jobs/score_dataset'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'dataset_id': datasetId, 'model_run_id': modelRunId}),
@@ -739,23 +751,26 @@ class TelemetryService {
     if (response.statusCode == 200 || response.statusCode == 202) {
       return jsonDecode(response.body)['job_id'];
     }
-    throw Exception('Failed to start score job: ${response.body}');
+    _handleError(response, 'Failed to start score job');
+    throw Exception('Unreachable');
   }
 
   Future<ScoreJobStatus> getJobStatus(String jobId) async {
-    final response = await http.get(Uri.parse('$baseUrl/jobs/$jobId'));
+    final response = await _client.get(Uri.parse('$baseUrl/jobs/$jobId'));
     if (response.statusCode == 200) {
       return ScoreJobStatus.fromJson(jsonDecode(response.body));
     }
-    throw Exception('Failed to get job status: ${response.body}');
+    _handleError(response, 'Failed to get job status');
+    throw Exception('Unreachable');
   }
 
   Future<ScoreJobStatus> getJobProgress(String jobId) async {
-    final response = await http.get(Uri.parse('$baseUrl/jobs/$jobId/progress'));
+    final response = await _client.get(Uri.parse('$baseUrl/jobs/$jobId/progress'));
     if (response.statusCode == 200) {
       return ScoreJobStatus.fromJson(jsonDecode(response.body));
     }
-    throw Exception('Failed to get job progress: ${response.body}');
+    _handleError(response, 'Failed to get job progress');
+    throw Exception('Unreachable');
   }
 
   Future<List<ScoreJobStatus>> listScoreJobs(
@@ -778,7 +793,7 @@ class TelemetryService {
     final key = _cacheKey('/jobs', params);
     final cached = _readCache<List<ScoreJobStatus>>(key);
     if (cached != null) return cached;
-    final response = await http.get(_buildUri('/jobs', params));
+    final response = await _client.get(_buildUri('/jobs', params));
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
           .map((e) => ScoreJobStatus.fromJson(e as Map<String, dynamic>))
@@ -786,7 +801,8 @@ class TelemetryService {
       _writeCache(key, items);
       return items;
     }
-    throw Exception('Failed to list score jobs: ${response.body}');
+    _handleError(response, 'Failed to list score jobs');
+    throw Exception('Unreachable');
   }
 
   Future<EvalMetrics> getModelEval(String modelRunId, String datasetId,
@@ -796,11 +812,12 @@ class TelemetryService {
       'points': '$points',
       'max_samples': '$maxSamples',
     };
-    final response = await http.get(_buildUri('/models/$modelRunId/eval', params));
+    final response = await _client.get(_buildUri('/models/$modelRunId/eval', params));
     if (response.statusCode == 200) {
       return EvalMetrics.fromJson(jsonDecode(response.body));
     }
-    throw Exception('Failed to get eval metrics: ${response.body}');
+    _handleError(response, 'Failed to get eval metrics');
+    throw Exception('Unreachable');
   }
 
   Future<List<ErrorDistributionEntry>> getErrorDistribution(
@@ -810,13 +827,14 @@ class TelemetryService {
       'dataset_id': datasetId,
       'group_by': groupBy,
     };
-    final response = await http.get(_buildUri('/models/$modelRunId/error_distribution', params));
+    final response = await _client.get(_buildUri('/models/$modelRunId/error_distribution', params));
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
           .map((e) => ErrorDistributionEntry.fromJson(e as Map<String, dynamic>))
           .toList();
       return items;
     }
-    throw Exception('Failed to get error distribution: ${response.body}');
+    _handleError(response, 'Failed to get error distribution');
+    throw Exception('Unreachable');
   }
 }
