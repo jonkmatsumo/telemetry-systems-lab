@@ -4,7 +4,10 @@ COMPOSE_INFRA = docker-compose.infra.yml
 COMPOSE_APP = docker-compose.app.yml
 COMPOSE_BASE = docker-compose.yml
 
-.PHONY: infra-up infra-down dev-up dev-shell run-bin clean
+.PHONY: up infra-up infra-down dev-up dev-shell api-shell build clean run run-api
+
+# Unified startup (Infra + Dev App Containers)
+up: dev-up
 
 # Start Infrastructure (Postgres)
 infra-up:
@@ -13,29 +16,31 @@ infra-up:
 infra-down:
 	docker compose -f $(COMPOSE_INFRA) down
 
-# Start Dev Environment (Infra + App Container)
-dev-up: infra-up
+# Start Dev Environment (Infra + App Containers)
+dev-up:
 	docker compose -f $(COMPOSE_INFRA) -f $(COMPOSE_APP) up -d --build
 
-# Shell into Dev Container
+# Shell access
 dev-shell:
 	docker compose -f $(COMPOSE_INFRA) -f $(COMPOSE_APP) exec telemetry-generator bash
+
+api-shell:
+	docker compose -f $(COMPOSE_INFRA) -f $(COMPOSE_APP) exec telemetry-api bash
 
 # OS Detection
 NPROC := $(shell sysctl -n hw.logicalcpu 2>/dev/null || nproc)
 
-# Helper to build inside container
+# Helper to build all C++ targets inside container
 build:
 	docker compose -f $(COMPOSE_INFRA) -f $(COMPOSE_APP) exec telemetry-generator cmake -B build -S .
 	docker compose -f $(COMPOSE_INFRA) -f $(COMPOSE_APP) exec telemetry-generator make -C build -j$(NPROC)
 
-
-# Helper to run binary inside container
+# Helper to run binaries inside container
 run:
 	docker compose -f $(COMPOSE_INFRA) -f $(COMPOSE_APP) exec telemetry-generator ./build/telemetry-generator
 
 run-api:
-	docker compose -f $(COMPOSE_INFRA) -f $(COMPOSE_APP) exec telemetry-generator ./build/telemetry-api
+	docker compose -f $(COMPOSE_INFRA) -f $(COMPOSE_APP) exec telemetry-api ./build/telemetry-api
 
 # Clean everything
 clean:
