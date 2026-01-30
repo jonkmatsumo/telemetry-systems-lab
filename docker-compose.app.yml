@@ -1,16 +1,44 @@
 services:
   telemetry-generator:
     build:
+      context: .
       target: dev
-    # Command keeps container alive for interactive shell usage
+    container_name: telemetry_generator_dev
     command: [ "tail", "-f", "/dev/null" ]
+    environment:
+      DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:5432/telemetry"
     volumes:
       - ./src:/app/src
       - ./proto:/app/proto
       - ./tests:/app/tests
       - ./CMakeLists.txt:/app/CMakeLists.txt
-      # Persist the build directory so object files aren't lost on restart
       - build_cache:/app/build
+    networks:
+      - telemetry_net
+
+  telemetry-api:
+    build:
+      context: .
+      target: dev
+    container_name: telemetry_api_dev
+    command: [ "tail", "-f", "/dev/null" ]
+    environment:
+      DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:5432/telemetry"
+      GRPC_GENERATOR_TARGET: "telemetry-generator:50051"
+    ports:
+      - "8280:8080"
+    volumes:
+      - ./src:/app/src
+      - ./proto:/app/proto
+      - ./tests:/app/tests
+      - ./CMakeLists.txt:/app/CMakeLists.txt
+      - build_cache:/app/build
+    networks:
+      - telemetry_net
+
+networks:
+  telemetry_net:
+    external: true
 
 volumes:
   build_cache:
