@@ -474,7 +474,12 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         resp["request_id"] = rid;
         SendJson(res, resp, 202);
     } catch (const std::exception& e) {
-        SendError(res, std::string("Error: ") + e.what(), 400, "BAD_REQUEST", rid);
+        std::string err = e.what();
+        if (err.find("Job queue full") != std::string::npos) {
+            SendError(res, err, 503, "RESOURCE_EXHAUSTED", rid);
+        } else {
+            SendError(res, std::string("Error: ") + err, 400, "BAD_REQUEST", rid);
+        }
     }
 }
 
@@ -767,7 +772,12 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
         resp["request_id"] = rid;
         SendJson(res, resp, 202);
     } catch (const std::exception& e) {
-        SendError(res, std::string("Error: ") + e.what(), 400, "BAD_REQUEST", rid);
+        std::string err = e.what();
+        if (err.find("Job queue full") != std::string::npos) {
+            SendError(res, err, 503, "RESOURCE_EXHAUSTED", rid);
+        } else {
+            SendError(res, std::string("Error: ") + err, 400, "BAD_REQUEST", rid);
+        }
     }
 }
 

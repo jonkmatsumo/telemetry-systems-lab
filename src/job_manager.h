@@ -44,11 +44,17 @@ public:
     // Clean up completed jobs
     void Stop();
 
+    // Set maximum concurrent jobs (default: 4)
+    void SetMaxConcurrentJobs(size_t max_jobs);
+
 private:
     std::mutex mutex_;
     std::map<std::string, JobInfo> jobs_;
     std::vector<std::thread> threads_;
     std::atomic<bool> stopping_{false};
+    
+    size_t max_jobs_ = 4;
+    size_t current_jobs_ = 0;
 };
 
 } // namespace api
