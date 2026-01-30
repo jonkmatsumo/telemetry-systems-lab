@@ -13,6 +13,7 @@
 #include "detectors/detector_a.h"
 #include "preprocessing.h"
 #include "detector_config.h"
+#include "metrics.h"
 
 #include <uuid/uuid.h>
 
@@ -143,6 +144,11 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
             res.status = 503;
             res.set_content("{\"status\":\"UNREADY\", \"reason\":\"DB_CONNECTION_FAILED\"}", "application/json");
         }
+    });
+
+    svr_.Get("/metrics", [](const httplib::Request&, httplib::Response& res) {
+        res.status = 200;
+        res.set_content(telemetry::metrics::MetricsRegistry::Instance().ToPrometheus(), "text/plain");
     });
 
     // Serve Static Web UI
@@ -896,6 +902,7 @@ void ApiServer::SendError(httplib::Response& res,
                         int status,
                         const std::string& code,
                         const std::string& request_id) {
+    telemetry::metrics::MetricsRegistry::Instance().Increment("http_errors_total", {{"status", std::to_string(status)}, {"code", code}});
     nlohmann::json j;
     j["error"]["message"] = msg;
     j["error"]["code"] = code;

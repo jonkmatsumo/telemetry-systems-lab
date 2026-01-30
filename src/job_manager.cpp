@@ -1,4 +1,5 @@
 #include "job_manager.h"
+#include "metrics.h"
 #include <spdlog/spdlog.h>
 
 namespace telemetry {
@@ -19,6 +20,7 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (current_jobs_ >= max_jobs_) {
+        telemetry::metrics::MetricsRegistry::Instance().Increment("job_rejected_total", {{"reason", "resource_exhausted"}});
         throw std::runtime_error("Job queue full: max concurrent jobs reached");
     }
 
@@ -28,6 +30,7 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
     info.status = JobStatus::RUNNING;
     jobs_[job_id] = info;
     current_jobs_++;
+    telemetry::metrics::MetricsRegistry::Instance().SetGauge("job_active_count", static_cast<double>(current_jobs_));
 
     threads_.emplace_back([this, job_id, request_id, work]() {
         try {
@@ -38,6 +41,8 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
                 jobs_[job_id].status = JobStatus::COMPLETED;
             }
             current_jobs_--;
+            telemetry::metrics::MetricsRegistry::Instance().SetGauge("job_active_count", static_cast<double>(current_jobs_));
+            telemetry::metrics::MetricsRegistry::Instance().Increment("job_completed_total", {});
         } catch (const std::exception& e) {
             spdlog::error("Job {} (req_id: {}) failed: {}", job_id, request_id, e.what());
             std::lock_guard<std::mutex> lock(mutex_);
@@ -46,6 +51,8 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
                 jobs_[job_id].error = e.what();
             }
             current_jobs_--;
+            telemetry::metrics::MetricsRegistry::Instance().SetGauge("job_active_count", static_cast<double>(current_jobs_));
+            telemetry::metrics::MetricsRegistry::Instance().Increment("job_failed_total", {{"error", "exception"}});
         }
     });
 }
