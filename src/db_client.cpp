@@ -157,10 +157,10 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
         
-        auto stream = pqxx::stream_to::raw_table(W, "host_telemetry_archival",
-            "ingestion_time, metric_timestamp, host_id, project_id, region, "
-            "cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate, "
-            "labels, run_id, is_anomaly, anomaly_type");
+        pqxx::stream_to stream{W, "host_telemetry_archival", std::vector<std::string>{
+            "ingestion_time", "metric_timestamp", "host_id", "project_id", "region",
+            "cpu_usage", "memory_usage", "disk_utilization", "network_rx_rate", "network_tx_rate",
+            "labels", "run_id", "is_anomaly", "anomaly_type"}};
 
         auto to_iso = [](std::chrono::system_clock::time_point tp) {
             return fmt::format("{:%Y-%m-%d %H:%M:%S%z}", tp);
@@ -1003,8 +1003,8 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        auto stream = pqxx::stream_to::raw_table(W, "dataset_scores",
-            "dataset_id, model_run_id, record_id, reconstruction_error, predicted_is_anomaly");
+        pqxx::stream_to stream{W, "dataset_scores", std::vector<std::string>{
+            "dataset_id", "model_run_id", "record_id", "reconstruction_error", "predicted_is_anomaly"}};
         for (const auto& entry : scores) {
             stream << std::make_tuple(dataset_id, model_run_id, entry.first, entry.second.first, entry.second.second);
         }
