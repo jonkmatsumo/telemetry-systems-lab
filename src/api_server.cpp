@@ -443,7 +443,7 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         // 1. Create DB entry
         std::string model_run_id = db_client_->CreateModelRun(dataset_id, name);
         if (model_run_id.empty()) {
-            SendError(res, "Failed to create model run in DB", 500);
+            SendError(res, "Failed to create model run in DB", 500, "DB_ERROR", rid);
             return;
         }
 
@@ -485,10 +485,11 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
 }
 
 void ApiServer::HandleGetTrainStatus(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
     std::string model_run_id = req.matches[1];
     auto j = db_client_->GetModelRun(model_run_id);
     if (j.empty()) {
-        SendError(res, "Model run not found", 404);
+        SendError(res, "Model run not found", 404, "NOT_FOUND", rid);
     } else {
         SendJson(res, j);
     }
@@ -685,13 +686,13 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
 
         std::string job_id = db_client_->CreateScoreJob(dataset_id, model_run_id);
         if (job_id.empty()) {
-            SendError(res, "Failed to create job", 500);
+            SendError(res, "Failed to create job", 500, "DB_ERROR", rid);
             return;
         }
 
         auto job = db_client_->GetScoreJob(job_id);
         if (job.empty()) {
-            SendError(res, "Failed to load job status", 500);
+            SendError(res, "Failed to load job status", 500, "DB_ERROR", rid);
             return;
         }
 
