@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "job_manager.h"
 #include <thread>
+#include <mutex>
+#include <condition_variable>
 #include <chrono>
 
 using namespace telemetry::api;
