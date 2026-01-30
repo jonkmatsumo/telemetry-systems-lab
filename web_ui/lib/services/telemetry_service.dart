@@ -432,6 +432,24 @@ class TelemetryService {
     return Uri.parse('$baseUrl$path').replace(queryParameters: params);
   }
 
+  void _handleError(http.Response response, String defaultMessage) {
+    try {
+      final body = jsonDecode(response.body);
+      if (body is Map && body.containsKey('error')) {
+        final err = body['error'];
+        if (err is Map) {
+          final msg = err['message'] ?? defaultMessage;
+          final code = err['code'] ?? 'UNKNOWN';
+          final rid = err['request_id'] ?? 'N/A';
+          throw Exception('$msg (Code: $code, RequestID: $rid)');
+        }
+      }
+    } catch (e) {
+      if (e is Exception) rethrow;
+    }
+    throw Exception('$defaultMessage: ${response.body}');
+  }
+
   Future<String> generateDataset(int hostCount) async {
     final response = await http.post(
       Uri.parse('$baseUrl/datasets'),
@@ -441,7 +459,8 @@ class TelemetryService {
     if (response.statusCode == 200 || response.statusCode == 201 || response.statusCode == 202) {
       return jsonDecode(response.body)['run_id'];
     }
-    throw Exception('Failed to generate dataset: ${response.body}');
+    _handleError(response, 'Failed to generate dataset');
+    throw Exception('Unreachable'); // satisfy compiler
   }
 
   Future<DatasetStatus> getDatasetStatus(String id) async {
@@ -449,7 +468,8 @@ class TelemetryService {
     if (response.statusCode == 200) {
       return DatasetStatus.fromJson(jsonDecode(response.body));
     }
-    throw Exception('Failed to get dataset status: ${response.body}');
+    _handleError(response, 'Failed to get dataset status');
+    throw Exception('Unreachable');
   }
 
   Future<String> trainModel(String datasetId, {String name = 'pca_default'}) async {
@@ -461,7 +481,8 @@ class TelemetryService {
     if (response.statusCode == 202 || response.statusCode == 200) {
       return jsonDecode(response.body)['model_run_id'];
     }
-    throw Exception('Failed to train model: ${response.body}');
+    _handleError(response, 'Failed to train model');
+    throw Exception('Unreachable');
   }
 
   Future<ModelStatus> getModelStatus(String id) async {
@@ -469,7 +490,8 @@ class TelemetryService {
     if (response.statusCode == 200) {
       return ModelStatus.fromJson(jsonDecode(response.body));
     }
-    throw Exception('Failed to get model status: ${response.body}');
+    _handleError(response, 'Failed to get model status');
+    throw Exception('Unreachable');
   }
 
   Future<InferenceResponse> runInference(String modelId, List<Map<String, dynamic>> samples) async {
@@ -505,7 +527,8 @@ class TelemetryService {
       _writeCache(key, items);
       return items;
     }
-    throw Exception('Failed to list datasets: ${response.body}');
+    _handleError(response, 'Failed to list datasets');
+    throw Exception('Unreachable');
   }
 
   Future<Map<String, dynamic>> getDatasetDetail(String runId) async {
@@ -518,7 +541,8 @@ class TelemetryService {
       _writeCache(key, data);
       return data;
     }
-    throw Exception('Failed to get dataset detail: ${response.body}');
+    _handleError(response, 'Failed to get dataset detail');
+    throw Exception('Unreachable');
   }
 
   Future<DatasetSummary> getDatasetSummary(String runId, {int topk = 5}) async {
@@ -532,7 +556,8 @@ class TelemetryService {
       _writeCache(key, summary);
       return summary;
     }
-    throw Exception('Failed to get dataset summary: ${response.body}');
+    _handleError(response, 'Failed to get dataset summary');
+    throw Exception('Unreachable');
   }
 
   Future<List<TopKEntry>> getTopK(String runId, String column,

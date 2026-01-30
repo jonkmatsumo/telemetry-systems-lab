@@ -8,6 +8,7 @@
 #include <grpcpp/grpcpp.h>
 #include "telemetry.grpc.pb.h"
 #include "db_client.h"
+#include "job_manager.h"
 
 namespace telemetry {
 namespace api {
@@ -45,7 +46,11 @@ private:
 
     // Helpers
     void SendJson(httplib::Response& res, const nlohmann::json& j, int status = 200);
-    void SendError(httplib::Response& res, const std::string& msg, int status = 400);
+    void SendError(httplib::Response& res, 
+                   const std::string& msg, 
+                   int status = 400,
+                   const std::string& code = "INTERNAL_ERROR",
+                   const std::string& request_id = "");
     static int GetIntParam(const httplib::Request& req, const std::string& key, int def);
     static double GetDoubleParam(const httplib::Request& req, const std::string& key, double def);
     static std::string GetStrParam(const httplib::Request& req, const std::string& key);
@@ -53,6 +58,7 @@ private:
     httplib::Server svr_;
     std::unique_ptr<telemetry::TelemetryService::Stub> stub_;
     std::unique_ptr<DbClient> db_client_;
+    std::unique_ptr<JobManager> job_manager_;
     
     std::string grpc_target_;
     std::string db_conn_str_;

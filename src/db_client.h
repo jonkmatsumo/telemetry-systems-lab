@@ -9,6 +9,13 @@ public:
     DbClient(const std::string& connection_string);
     ~DbClient() override = default;
 
+    // Validates that a metric name is a known telemetry column.
+    // Returns true only for columns that exist in host_telemetry_archival schema.
+    static bool IsValidMetric(const std::string& metric);
+
+    // Validates that a dimension name is an allowed grouping/filtering column.
+    static bool IsValidDimension(const std::string& dim);
+
     void CreateRun(const std::string& run_id, 
                    const telemetry::GenerateRequest& config, 
                    const std::string& status) override;

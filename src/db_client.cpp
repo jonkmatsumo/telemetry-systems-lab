@@ -3,9 +3,37 @@
 #include <google/protobuf/util/json_util.h>
 #include <fmt/chrono.h>
 #include <algorithm>
+#include <unordered_set>
 
 
 DbClient::DbClient(const std::string& connection_string) : conn_str_(connection_string) {}
+
+// Static allowlist of valid metric column names from host_telemetry_archival schema.
+// This prevents SQL injection via metric parameter in analytics queries.
+bool DbClient::IsValidMetric(const std::string& metric) {
+    static const std::unordered_set<std::string> kAllowedMetrics = {
+        "cpu_usage",
+        "memory_usage",
+        "disk_utilization",
+        "network_rx_rate",
+        "network_tx_rate"
+    };
+    return kAllowedMetrics.count(metric) > 0;
+}
+
+bool DbClient::IsValidDimension(const std::string& dim) {
+    static const std::unordered_set<std::string> kAllowedDimensions = {
+        "region",
+        "project_id",
+        "host_id",
+        "anomaly_type",
+        "h.region",
+        "h.project_id",
+        "h.host_id",
+        "h.anomaly_type"
+    };
+    return kAllowedDimensions.count(dim) > 0;
+}
 
 void DbClient::CreateRun(const std::string& run_id, 
                         const telemetry::GenerateRequest& config, 
@@ -57,12 +85,10 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
         
-        std::vector<std::string> columns = {
-            "ingestion_time", "metric_timestamp", "host_id", "project_id", "region",
+        pqxx::stream_to stream{W, "host_telemetry_archival",
+            std::vector<std::string>{"ingestion_time", "metric_timestamp", "host_id", "project_id", "region",
             "cpu_usage", "memory_usage", "disk_utilization", "network_rx_rate", "network_tx_rate",
-            "labels", "run_id", "is_anomaly", "anomaly_type"
-        };
-        pqxx::stream_to stream(W, "host_telemetry_archival", columns);
+            "labels", "run_id", "is_anomaly", "anomaly_type"}};
 
         auto to_iso = [](std::chrono::system_clock::time_point tp) {
             return fmt::format("{:%Y-%m-%d %H:%M:%S%z}", tp);
@@ -151,6 +177,7 @@ std::string DbClient::CreateModelRun(const std::string& dataset_id, const std::s
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
         spdlog::error("Failed to create model run: {}", e.what());
+        throw;
     }
     return "";
 }
@@ -210,6 +237,7 @@ std::string DbClient::CreateInferenceRun(const std::string& model_run_id) {
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
         spdlog::error("Failed to create inference run: {}", e.what());
+        throw;
     }
     return "";
 }
@@ -271,6 +299,7 @@ nlohmann::json DbClient::ListGenerationRuns(int limit,
         }
     } catch (const std::exception& e) {
         spdlog::error("Failed to list generation runs: {}", e.what());
+        throw;
     }
     return out;
 }
@@ -299,6 +328,7 @@ nlohmann::json DbClient::GetDatasetDetail(const std::string& run_id) {
         }
     } catch (const std::exception& e) {
         spdlog::error("Failed to get dataset detail {}: {}", run_id, e.what());
+        throw;
     }
     return j;
 }
@@ -514,6 +544,7 @@ nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) 
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get dataset summary {}: {}", run_id, e.what());
+        throw; // Propagate the exception
     }
     return j;
 }
@@ -525,6 +556,9 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
                                  const std::string& anomaly_type,
                                  const std::string& start_time,
                                  const std::string& end_time) {
+    if (!IsValidDimension(column)) {
+        throw std::invalid_argument("Invalid column: " + column);
+    }
     nlohmann::json out = nlohmann::json::array();
     try {
         pqxx::connection C(conn_str_);
@@ -553,6 +587,7 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get topk for {}: {}", run_id, e.what());
+        throw;
     }
     return out;
 }
@@ -565,6 +600,12 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
                                        const std::string& anomaly_type,
                                        const std::string& start_time,
                                        const std::string& end_time) {
+    // Validate all metrics against allowlist to prevent SQL injection
+    for (const auto& metric : metrics) {
+        if (!IsValidMetric(metric)) {
+            throw std::invalid_argument("Invalid metric: " + metric);
+        }
+    }
     nlohmann::json out = nlohmann::json::array();
     try {
         pqxx::connection C(conn_str_);
@@ -616,6 +657,7 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get timeseries {}: {}", run_id, e.what());
+        throw;
     }
     return out;
 }
@@ -629,6 +671,10 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
                                       const std::string& anomaly_type,
                                       const std::string& start_time,
                                       const std::string& end_time) {
+    // Validate metric against allowlist to prevent SQL injection
+    if (!IsValidMetric(metric)) {
+        throw std::invalid_argument("Invalid metric: " + metric);
+    }
     nlohmann::json out;
     out["edges"] = nlohmann::json::array();
     out["counts"] = nlohmann::json::array();
@@ -685,6 +731,7 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get histogram {}: {}", run_id, e.what());
+        throw;
     }
     return out;
 }
@@ -709,6 +756,7 @@ std::string DbClient::CreateScoreJob(const std::string& dataset_id, const std::s
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
         spdlog::error("Failed to create score job: {}", e.what());
+        throw;
     }
     return "";
 }
@@ -859,10 +907,8 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        std::vector<std::string> columns = {
-            "dataset_id", "model_run_id", "record_id", "reconstruction_error", "predicted_is_anomaly"
-        };
-        pqxx::stream_to stream(W, "dataset_scores", columns);
+        pqxx::stream_to stream{W, "dataset_scores",
+            std::vector<std::string>{"dataset_id", "model_run_id", "record_id", "reconstruction_error", "predicted_is_anomaly"}};
         for (const auto& entry : scores) {
             stream << std::make_tuple(dataset_id, model_run_id, entry.first, entry.second.first, entry.second.second);
         }
@@ -948,6 +994,9 @@ nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
 nlohmann::json DbClient::GetErrorDistribution(const std::string& dataset_id,
                                               const std::string& model_run_id,
                                               const std::string& group_by) {
+    if (!IsValidDimension(group_by)) {
+        throw std::invalid_argument("Invalid group_by: " + group_by);
+    }
     nlohmann::json out = nlohmann::json::array();
     try {
         pqxx::connection C(conn_str_);
@@ -974,6 +1023,7 @@ nlohmann::json DbClient::GetErrorDistribution(const std::string& dataset_id,
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get error distribution: {}", e.what());
+        throw;
     }
     return out;
 }
