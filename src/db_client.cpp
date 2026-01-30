@@ -64,6 +64,18 @@ void DbClient::ReconcileStaleJobs() {
     }
 }
 
+void DbClient::RunRetentionCleanup(int retention_days) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        W.exec_params("CALL cleanup_old_telemetry($1)", retention_days);
+        W.commit();
+        spdlog::info("Retention cleanup completed for data older than {} days.", retention_days);
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to run retention cleanup: {}", e.what());
+    }
+}
+
 void DbClient::CreateRun(const std::string& run_id, 
                         const telemetry::GenerateRequest& config, 
                         const std::string& status,

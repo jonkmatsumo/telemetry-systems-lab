@@ -21,9 +21,9 @@ CREATE TABLE IF NOT EXISTS generation_runs (
 );
 
 -- Table: host_telemetry_archival
--- Main time-series storage
+-- Main time-series storage, partitioned by ingestion_time for lifecycle management
 CREATE TABLE IF NOT EXISTS host_telemetry_archival (
-    record_id BIGSERIAL PRIMARY KEY,
+    record_id BIGSERIAL,
     ingestion_time TIMESTAMPTZ NOT NULL,
     metric_timestamp TIMESTAMPTZ NOT NULL,
     host_id TEXT NOT NULL,
@@ -37,8 +37,22 @@ CREATE TABLE IF NOT EXISTS host_telemetry_archival (
     labels JSONB NOT NULL,
     run_id UUID NOT NULL REFERENCES generation_runs(run_id),
     is_anomaly BOOLEAN NOT NULL DEFAULT FALSE,
-    anomaly_type TEXT NULL
-);
+    anomaly_type TEXT NULL,
+    PRIMARY KEY (ingestion_time, record_id)
+) PARTITION BY RANGE (ingestion_time);
+
+-- Default partition for catching data outside specific ranges
+CREATE TABLE IF NOT EXISTS host_telemetry_archival_default 
+    PARTITION OF host_telemetry_archival DEFAULT;
+
+-- Initial partitions (e.g. for Jan 2026)
+CREATE TABLE IF NOT EXISTS host_telemetry_archival_2026_01 
+    PARTITION OF host_telemetry_archival 
+    FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
+
+CREATE TABLE IF NOT EXISTS host_telemetry_archival_2026_02 
+    PARTITION OF host_telemetry_archival 
+    FOR VALUES FROM ('2026-02-01') TO ('2026-03-01');
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_telemetry_run_id ON host_telemetry_archival(run_id);
