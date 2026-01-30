@@ -1,16 +1,59 @@
 services:
   telemetry-generator:
     build:
+      context: .
       target: dev
-    # Command keeps container alive for interactive shell usage
+    container_name: telemetry_generator_dev
     command: [ "tail", "-f", "/dev/null" ]
+    environment:
+      DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:5432/telemetry"
     volumes:
       - ./src:/app/src
       - ./proto:/app/proto
       - ./tests:/app/tests
       - ./CMakeLists.txt:/app/CMakeLists.txt
-      # Persist the build directory so object files aren't lost on restart
       - build_cache:/app/build
+    networks:
+      - telemetry_net
+
+  telemetry-api:
+    build:
+      context: .
+      target: dev
+    container_name: telemetry_api_dev
+    command: [ "tail", "-f", "/dev/null" ]
+    environment:
+      DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:5432/telemetry"
+      GRPC_GENERATOR_TARGET: "telemetry-generator:50051"
+    ports:
+      - "8280:8080"
+    volumes:
+      - ./src:/app/src
+      - ./proto:/app/proto
+      - ./tests:/app/tests
+      - ./CMakeLists.txt:/app/CMakeLists.txt
+      - build_cache:/app/build
+    networks:
+      - telemetry_net
+
+  web-ui:
+    build:
+      context: .
+      target: dev-web
+    container_name: telemetry_web_ui_dev
+    # Note: flutter run requires an interactive terminal usually, 
+    # but we can use web-server mode for headless serving.
+    command: [ "sh", "-c", "cd web_ui && flutter run -d web-server --web-port 8300 --web-hostname 0.0.0.0 --dart-define=API_BASE_URL=http://localhost:8280" ]
+    ports:
+      - "8300:8300"
+    volumes:
+      - ./web_ui:/home/flutteruser/web_ui
+    networks:
+      - telemetry_net
+
+networks:
+  telemetry_net:
+    external: true
 
 volumes:
   build_cache:
