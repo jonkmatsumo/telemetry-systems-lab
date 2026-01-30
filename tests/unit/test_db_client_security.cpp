@@ -51,3 +51,18 @@ TEST(DbClientSecurityTest, RejectsInvalidDimensions) {
     EXPECT_FALSE(DbClient::IsValidDimension("password"));
     EXPECT_FALSE(DbClient::IsValidDimension("region; DROP TABLE users;"));
 }
+
+TEST(DbClientSecurityTest, AcceptsValidAggregations) {
+    EXPECT_TRUE(DbClient::IsValidAggregation("mean"));
+    EXPECT_TRUE(DbClient::IsValidAggregation("min"));
+    EXPECT_TRUE(DbClient::IsValidAggregation("max"));
+    EXPECT_TRUE(DbClient::IsValidAggregation("p50"));
+    EXPECT_TRUE(DbClient::IsValidAggregation("p95"));
+}
+
+TEST(DbClientSecurityTest, RejectsInvalidAggregations) {
+    EXPECT_FALSE(DbClient::IsValidAggregation("stddev"));
+    EXPECT_FALSE(DbClient::IsValidAggregation("sum")); // Not in current allowlist
+    EXPECT_FALSE(DbClient::IsValidAggregation("mean; DROP TABLE users;"));
+    EXPECT_FALSE(DbClient::IsValidAggregation(""));
+}

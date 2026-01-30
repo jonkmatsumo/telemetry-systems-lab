@@ -250,9 +250,7 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
         pqxx::nontransaction N(C);
 
         auto res = N.exec_params("SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id "
-
-                                 "FROM model_runs WHERE model_run_id = 
-", model_run_id);
+                                 "FROM model_runs WHERE model_run_id = $1", model_run_id);
 
         if (!res.empty()) {
 
