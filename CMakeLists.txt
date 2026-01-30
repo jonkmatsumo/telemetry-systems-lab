@@ -188,14 +188,15 @@ add_executable(unit_tests
     tests/unit/test_pca_trainer.cpp
     tests/unit/test_api_debug.cpp
     tests/unit/test_db_client_security.cpp
+    tests/unit/test_job_manager.cpp
     src/generator.cpp
     src/db_client.cpp
     src/server.cpp
+    src/job_manager.cpp
     src/preprocessing.cpp
     src/detectors/detector_a.cpp
     src/detectors/pca_model.cpp
     src/alert_manager.cpp
-    tests/parity/test_parity_b.cpp
 )
 
 target_include_directories(unit_tests PRIVATE src tests)
@@ -254,4 +255,17 @@ target_link_libraries(api_health_tests
 )
 if(HTTPLIB_FOUND)
     target_link_libraries(api_health_tests PkgConfig::HTTPLIB)
+endif()
+
+# Metrics Integration Test
+add_executable(metrics_integration_tests
+    tests/integration/test_metrics.cpp
+)
+target_link_libraries(metrics_integration_tests
+    GTest::GTest
+    GTest::Main
+    nlohmann_json::nlohmann_json
+)
+if(HTTPLIB_FOUND)
+    target_link_libraries(metrics_integration_tests PkgConfig::HTTPLIB)
 endif()

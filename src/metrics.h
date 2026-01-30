@@ -17,22 +17,24 @@ public:
         return instance;
     }
 
-    // Counters
-    void Increment(const std::string& name, long value = 1) {
+    // Counters with labels
+    void Increment(const std::string& name, const std::map<std::string, std::string>& labels, long value = 1) {
         std::lock_guard<std::mutex> lock(mutex_);
-        counters_[name] += value;
+        std::string key = SerializeKey(name, labels);
+        counters_[key] += value;
     }
 
-    long GetCounter(const std::string& name) {
+    // Gauges (for queue depth etc)
+    void SetGauge(const std::string& name, double value) {
         std::lock_guard<std::mutex> lock(mutex_);
-        return counters_[name];
+        gauges_[name] = value;
     }
 
-    // Histograms (Simplified as sum/count for now to avoid buckets complexity in minimal MVP)
-    // Or just store raw observations? Let's just track count/sum/min/max.
-    void RecordLatency(const std::string& name, double ms) {
+    // Histograms
+    void RecordLatency(const std::string& name, const std::map<std::string, std::string>& labels, double ms) {
         std::lock_guard<std::mutex> lock(mutex_);
-        auto& h = histograms_[name];
+        std::string key = SerializeKey(name, labels);
+        auto& h = histograms_[key];
         h.count++;
         h.sum += ms;
         if (ms < h.min) h.min = ms;
@@ -46,24 +48,20 @@ public:
         double max = 0.0;
     };
 
-    HistogramStats GetHistogram(const std::string& name) {
+    // To Prometheus text format
+    std::string ToPrometheus() {
         std::lock_guard<std::mutex> lock(mutex_);
-        return histograms_[name];
-    }
-
-    // Dump to string (for logs)
-    std::string Dump() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        std::string out = "\n--- Metrics Dump ---\n";
+        std::string out;
         for (const auto& kv : counters_) {
-            out += "COUNTER " + kv.first + ": " + std::to_string(kv.second) + "\n";
+            out += kv.first + " " + std::to_string(kv.second) + "\n";
+        }
+        for (const auto& kv : gauges_) {
+            out += kv.first + " " + std::to_string(kv.second) + "\n";
         }
         for (const auto& kv : histograms_) {
-            double avg = kv.second.count > 0 ? kv.second.sum / kv.second.count : 0.0;
-            out += "HISTOGRAM " + kv.first + ": count=" + std::to_string(kv.second.count) 
-                + " avg=" + std::to_string(avg) + " max=" + std::to_string(kv.second.max) + "\n";
+            out += kv.first + "_count " + std::to_string(kv.second.count) + "\n";
+            out += kv.first + "_sum " + std::to_string(kv.second.sum) + "\n";
         }
-        out += "--------------------\n";
         return out;
     }
 
@@ -71,7 +69,21 @@ private:
     MetricsRegistry() = default;
     std::mutex mutex_;
     std::map<std::string, long> counters_;
+    std::map<std::string, double> gauges_;
     std::map<std::string, HistogramStats> histograms_;
+
+    std::string SerializeKey(const std::string& name, const std::map<std::string, std::string>& labels) {
+        if (labels.empty()) return name;
+        std::string key = name + "{";
+        bool first = true;
+        for (const auto& lp : labels) {
+            if (!first) key += ",";
+            key += lp.first + "=\"" + lp.second + "\"";
+            first = false;
+        }
+        key += "}";
+        return key;
+    }
 };
 
 } // namespace metrics

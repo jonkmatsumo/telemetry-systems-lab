@@ -1,4 +1,5 @@
 #include "job_manager.h"
+#include "metrics.h"
 #include <spdlog/spdlog.h>
 
 namespace telemetry {
@@ -10,31 +11,81 @@ JobManager::~JobManager() {
     Stop();
 }
 
-void JobManager::StartJob(const std::string& job_id, std::function<void()> work) {
+void JobManager::SetMaxConcurrentJobs(size_t max_jobs) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    max_jobs_ = max_jobs;
+}
+
+void JobManager::CleanupFinishedThreads() {
+    for (auto it = threads_.begin(); it != threads_.end(); ) {
+        if (jobs_.count(it->first) && jobs_[it->first].status != JobStatus::RUNNING) {
+            if (it->second.joinable()) {
+                it->second.join();
+            }
+            stop_flags_.erase(it->first);
+            it = threads_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void JobManager::StartJob(const std::string& job_id, const std::string& request_id, std::function<void(const std::atomic<bool>*)> work) {
     std::lock_guard<std::mutex> lock(mutex_);
     
+    CleanupFinishedThreads();
+
+    if (current_jobs_ >= max_jobs_) {
+        telemetry::metrics::MetricsRegistry::Instance().Increment("job_rejected_total", {{"reason", "resource_exhausted"}});
+        throw std::runtime_error("Job queue full: max concurrent jobs reached");
+    }
+
+    auto stop_flag = std::make_shared<std::atomic<bool>>(false);
+    stop_flags_[job_id] = stop_flag;
+
     JobInfo info;
     info.job_id = job_id;
+    info.request_id = request_id;
     info.status = JobStatus::RUNNING;
     jobs_[job_id] = info;
+    current_jobs_++;
+    telemetry::metrics::MetricsRegistry::Instance().SetGauge("job_active_count", static_cast<double>(current_jobs_));
 
-    threads_.emplace_back([this, job_id, work]() {
+    threads_[job_id] = std::thread([this, job_id, request_id, work, stop_flag]() {
         try {
-            work();
+            work(stop_flag.get());
             
             std::lock_guard<std::mutex> lock(mutex_);
             if (jobs_.count(job_id)) {
-                jobs_[job_id].status = JobStatus::COMPLETED;
+                if (stop_flag->load()) {
+                    jobs_[job_id].status = JobStatus::CANCELLED;
+                } else {
+                    jobs_[job_id].status = JobStatus::COMPLETED;
+                }
             }
+            current_jobs_--;
+            telemetry::metrics::MetricsRegistry::Instance().SetGauge("job_active_count", static_cast<double>(current_jobs_));
+            telemetry::metrics::MetricsRegistry::Instance().Increment("job_completed_total", {});
         } catch (const std::exception& e) {
-            spdlog::error("Job {} failed: {}", job_id, e.what());
+            spdlog::error("Job {} (req_id: {}) failed: {}", job_id, request_id, e.what());
             std::lock_guard<std::mutex> lock(mutex_);
             if (jobs_.count(job_id)) {
                 jobs_[job_id].status = JobStatus::FAILED;
                 jobs_[job_id].error = e.what();
             }
+            current_jobs_--;
+            telemetry::metrics::MetricsRegistry::Instance().SetGauge("job_active_count", static_cast<double>(current_jobs_));
+            telemetry::metrics::MetricsRegistry::Instance().Increment("job_failed_total", {{"error", "exception"}});
         }
     });
+}
+
+void JobManager::CancelJob(const std::string& job_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stop_flags_.count(job_id)) {
+        stop_flags_[job_id]->store(true);
+        spdlog::info("Requested stop for job {}", job_id);
+    }
 }
 
 JobStatus JobManager::GetStatus(const std::string& job_id) {
@@ -58,12 +109,20 @@ void JobManager::Stop() {
     if (stopping_.exchange(true)) return;
     
     spdlog::info("Stopping JobManager, waiting for {} threads...", threads_.size());
-    for (auto& t : threads_) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto& [id, flag] : stop_flags_) {
+            flag->store(true);
+        }
+    }
+
+    for (auto& [id, t] : threads_) {
         if (t.joinable()) {
             t.join();
         }
     }
     threads_.clear();
+    stop_flags_.clear();
 }
 
 } // namespace api

@@ -45,7 +45,7 @@ private:
     void HandleModelErrorDistribution(const httplib::Request& req, httplib::Response& res);
 
     // Helpers
-    void SendJson(httplib::Response& res, const nlohmann::json& j, int status = 200);
+    void SendJson(httplib::Response& res, nlohmann::json j, int status = 200, const std::string& request_id = "");
     void SendError(httplib::Response& res, 
                    const std::string& msg, 
                    int status = 400,

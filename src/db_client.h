@@ -16,9 +16,22 @@ public:
     // Validates that a dimension name is an allowed grouping/filtering column.
     static bool IsValidDimension(const std::string& dim);
 
+    // Validates that an aggregation function is allowed.
+    static bool IsValidAggregation(const std::string& agg);
+
+    // Marks any 'RUNNING' jobs as 'FAILED' (called on startup).
+    void ReconcileStaleJobs();
+
+    // Runs the retention cleanup procedure.
+    void RunRetentionCleanup(int retention_days);
+
+    // Ensures a partition exists for the given timestamp.
+    void EnsurePartition(std::chrono::system_clock::time_point tp);
+
     void CreateRun(const std::string& run_id, 
                    const telemetry::GenerateRequest& config, 
-                   const std::string& status) override;
+                   const std::string& status,
+                   const std::string& request_id = "") override;
                    
     void UpdateRunStatus(const std::string& run_id, 
                          const std::string& status, 
@@ -29,7 +42,9 @@ public:
     
     telemetry::RunStatus GetRunStatus(const std::string& run_id) override;
 
-    std::string CreateModelRun(const std::string& dataset_id, const std::string& name) override;
+    std::string CreateModelRun(const std::string& dataset_id, 
+                               const std::string& name,
+                               const std::string& request_id = "") override;
     void UpdateModelRunStatus(const std::string& model_run_id, 
                                       const std::string& status, 
                                       const std::string& artifact_path = "", 
@@ -92,7 +107,9 @@ public:
                                 const std::string& start_time,
                                 const std::string& end_time);
 
-    std::string CreateScoreJob(const std::string& dataset_id, const std::string& model_run_id);
+    std::string CreateScoreJob(const std::string& dataset_id, 
+                               const std::string& model_run_id,
+                               const std::string& request_id = "");
     void UpdateScoreJob(const std::string& job_id,
                         const std::string& status,
                         long total_rows,

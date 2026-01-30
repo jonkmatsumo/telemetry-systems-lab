@@ -7,7 +7,8 @@ class MockDbClient : public IDbClient {
 public:
     void CreateRun(const std::string& run_id, 
                    const telemetry::GenerateRequest& config, 
-                   const std::string& status) override {
+                   const std::string& status,
+                   const std::string& request_id = "") override {
         // No-op or record call
     }
                    
@@ -34,7 +35,9 @@ public:
         return status;
     }
 
-    std::string CreateModelRun(const std::string& dataset_id, const std::string& name) override {
+    std::string CreateModelRun(const std::string& dataset_id, 
+                               const std::string& name,
+                               const std::string& request_id = "") override {
         return "mock-model-run-id";
     }
 
