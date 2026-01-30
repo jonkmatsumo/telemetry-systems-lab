@@ -216,8 +216,7 @@ void ApiServer::HandleGenerateData(const httplib::Request& req, httplib::Respons
             nlohmann::json resp;
             resp["run_id"] = g_res.run_id();
             resp["status"] = "PENDING";
-            resp["request_id"] = rid;
-            SendJson(res, resp, 202);
+            SendJson(res, resp, 202, rid);
         } else {
             SendError(res, "gRPC Error: " + status.error_message(), 500, "GRPC_ERROR", rid);
         }
@@ -239,8 +238,7 @@ void ApiServer::HandleListDatasets(const httplib::Request& req, httplib::Respons
         resp["items"] = runs;
         resp["limit"] = limit;
         resp["offset"] = offset;
-        resp["request_id"] = rid;
-        SendJson(res, resp);
+        SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
@@ -252,8 +250,7 @@ void ApiServer::HandleGetDataset(const httplib::Request& req, httplib::Response&
     try {
         auto detail = db_client_->GetDatasetDetail(run_id);
         if (!detail.empty()) {
-            detail["request_id"] = rid;
-            SendJson(res, detail);
+            SendJson(res, detail, 200, rid);
             return;
         }
     } catch (const std::exception& e) {
@@ -273,8 +270,7 @@ void ApiServer::HandleGetDataset(const httplib::Request& req, httplib::Response&
         resp["status"] = g_res.status();
         resp["rows_inserted"] = g_res.inserted_rows();
         resp["error"] = g_res.error();
-        resp["request_id"] = rid;
-        SendJson(res, resp);
+        SendJson(res, resp, 200, rid);
     } else {
         SendError(res, "gRPC Error: " + status.error_message(), 404, "NOT_FOUND", rid);
     }
@@ -298,8 +294,7 @@ void ApiServer::HandleDatasetSummary(const httplib::Request& req, httplib::Respo
             long row_count = summary.value("row_count", 0L);
             summary["debug"] = BuildDebugMeta(duration_ms, row_count);
         }
-        summary["request_id"] = rid;
-        SendJson(res, summary);
+        SendJson(res, summary, 200, rid);
     } catch (const std::exception& e) {
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
@@ -332,14 +327,13 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         auto end = std::chrono::steady_clock::now();
         nlohmann::json resp;
         resp["items"] = data;
-        resp["request_id"] = rid;
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
             resolved["column"] = allowed[column];
             resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(data.size()), resolved);
         }
-        SendJson(res, resp);
+        SendJson(res, resp, 200, rid);
     } catch (const std::invalid_argument& e) {
         SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
     } catch (const std::exception& e) {
@@ -391,7 +385,6 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         nlohmann::json resp;
         resp["items"] = data;
         resp["bucket_seconds"] = bucket_seconds;
-        resp["request_id"] = rid;
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
@@ -400,7 +393,7 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
             resolved["bucket_seconds"] = bucket_seconds;
             resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(data.size()), resolved);
         }
-        SendJson(res, resp);
+        SendJson(res, resp, 200, rid);
     } catch (const std::invalid_argument& e) {
         SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
     } catch (const std::exception& e) {
@@ -434,7 +427,6 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         auto start = std::chrono::steady_clock::now();
         auto data = db_client_->GetHistogram(run_id, metric, bins, min_val, max_val, is_anomaly, anomaly_type, start_time, end_time);
         auto end = std::chrono::steady_clock::now();
-        data["request_id"] = rid;
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             long row_count = data.value("counts", nlohmann::json::array()).size();
@@ -445,7 +437,7 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
             resolved["max"] = max_val;
             data["debug"] = BuildDebugMeta(duration_ms, row_count, resolved);
         }
-        SendJson(res, data);
+        SendJson(res, data, 200, rid);
     } catch (const std::invalid_argument& e) {
         SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
     } catch (const std::exception& e) {
@@ -492,8 +484,7 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         nlohmann::json resp;
         resp["model_run_id"] = model_run_id;
         resp["status"] = "PENDING";
-        resp["request_id"] = rid;
-        SendJson(res, resp, 202);
+        SendJson(res, resp, 202, rid);
     } catch (const std::exception& e) {
         std::string err = e.what();
         if (err.find("Job queue full") != std::string::npos) {
@@ -511,7 +502,7 @@ void ApiServer::HandleGetTrainStatus(const httplib::Request& req, httplib::Respo
     if (j.empty()) {
         SendError(res, "Model run not found", 404, "NOT_FOUND", rid);
     } else {
-        SendJson(res, j);
+        SendJson(res, j, 200, rid);
     }
 }
 
@@ -529,8 +520,7 @@ void ApiServer::HandleListModels(const httplib::Request& req, httplib::Response&
         resp["items"] = models;
         resp["limit"] = limit;
         resp["offset"] = offset;
-        resp["request_id"] = rid;
-        SendJson(res, resp);
+        SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
@@ -560,8 +550,7 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
                 j["artifact_error"] = e.what();
             }
         }
-        j["request_id"] = rid;
-        SendJson(res, j);
+        SendJson(res, j, 200, rid);
     } catch (const std::exception& e) {
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
@@ -629,8 +618,7 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
         resp["model_run_id"] = model_run_id;
         resp["inference_id"] = inference_id;
         resp["anomaly_count"] = anomaly_count;
-        resp["request_id"] = rid;
-        SendJson(res, resp);
+        SendJson(res, resp, 200, rid);
 
     } catch (const std::exception& e) {
         SendError(res, std::string("Error: ") + e.what(), 400, "BAD_REQUEST", rid);
@@ -652,8 +640,7 @@ void ApiServer::HandleListInferenceRuns(const httplib::Request& req, httplib::Re
         resp["items"] = runs;
         resp["limit"] = limit;
         resp["offset"] = offset;
-        resp["request_id"] = rid;
-        SendJson(res, resp);
+        SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
@@ -668,8 +655,7 @@ void ApiServer::HandleGetInferenceRun(const httplib::Request& req, httplib::Resp
             SendError(res, "Inference run not found", 404, "NOT_FOUND", rid);
             return;
         }
-        j["request_id"] = rid;
-        SendJson(res, j);
+        SendJson(res, j, 200, rid);
     } catch (const std::exception& e) {
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
@@ -690,8 +676,7 @@ void ApiServer::HandleListJobs(const httplib::Request& req, httplib::Response& r
         resp["items"] = jobs;
         resp["limit"] = limit;
         resp["offset"] = offset;
-        resp["request_id"] = rid;
-        SendJson(res, resp);
+        SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
@@ -728,7 +713,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
             resp["total_rows"] = total_rows;
             resp["processed_rows"] = processed_rows;
             resp["last_record_id"] = last_record_id;
-            SendJson(res, resp, 200);
+            SendJson(res, resp, 200, rid);
             return;
         }
 
@@ -797,8 +782,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
         nlohmann::json resp;
         resp["job_id"] = job_id;
         resp["status"] = "RUNNING";
-        resp["request_id"] = rid;
-        SendJson(res, resp, 202);
+        SendJson(res, resp, 202, rid);
     } catch (const std::exception& e) {
         std::string err = e.what();
         if (err.find("Job queue full") != std::string::npos) {
@@ -818,8 +802,7 @@ void ApiServer::HandleGetJobStatus(const httplib::Request& req, httplib::Respons
             SendError(res, "Job not found", 404, "NOT_FOUND", rid);
             return;
         }
-        j["request_id"] = rid;
-        SendJson(res, j);
+        SendJson(res, j, 200, rid);
     } catch (const std::exception& e) {
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
@@ -834,8 +817,7 @@ void ApiServer::HandleGetJobProgress(const httplib::Request& req, httplib::Respo
             SendError(res, "Job not found", 404, "NOT_FOUND", rid);
             return;
         }
-        j["request_id"] = rid;
-        SendJson(res, j);
+        SendJson(res, j, 200, rid);
     } catch (const std::exception& e) {
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
@@ -864,8 +846,7 @@ void ApiServer::HandleModelEval(const httplib::Request& req, httplib::Response& 
             resolved["max_samples"] = max_samples;
             eval["debug"] = BuildDebugMeta(duration_ms, row_count, resolved);
         }
-        eval["request_id"] = rid;
-        SendJson(res, eval);
+        SendJson(res, eval, 200, rid);
     } catch (const std::exception& e) {
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
@@ -896,14 +877,13 @@ void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httpli
         auto end = std::chrono::steady_clock::now();
         nlohmann::json resp;
         resp["items"] = dist;
-        resp["request_id"] = rid;
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
             resolved["group_by"] = allowed[group_by];
             resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(dist.size()), resolved);
         }
-        SendJson(res, resp);
+        SendJson(res, resp, 200, rid);
     } catch (const std::invalid_argument& e) {
         SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
     } catch (const std::exception& e) {
@@ -911,7 +891,10 @@ void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httpli
     }
 }
 
-void ApiServer::SendJson(httplib::Response& res, const nlohmann::json& j, int status) {
+void ApiServer::SendJson(httplib::Response& res, nlohmann::json j, int status, const std::string& request_id) {
+    if (!request_id.empty() && !j.contains("request_id")) {
+        j["request_id"] = request_id;
+    }
     res.status = status;
     res.set_content(j.dump(), "application/json");
 }
@@ -928,7 +911,7 @@ void ApiServer::SendError(httplib::Response& res,
     if (!request_id.empty()) {
         j["error"]["request_id"] = request_id;
     }
-    SendJson(res, j, status);
+    SendJson(res, j, status, request_id);
 }
 
 int ApiServer::GetIntParam(const httplib::Request& req, const std::string& key, int def) {
