@@ -35,6 +35,24 @@ bool DbClient::IsValidDimension(const std::string& dim) {
     return kAllowedDimensions.count(dim) > 0;
 }
 
+void DbClient::ReconcileStaleJobs() {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        
+        // Use exec() instead of exec0() to avoid potential issues if libpqxx version varies, though exec0 is standard.
+        // Actually exec0 returns void, exec returns result.
+        W.exec("UPDATE dataset_score_jobs SET status='FAILED', error='System restart/recovery' WHERE status='RUNNING'");
+        W.exec("UPDATE model_runs SET status='FAILED', error='System restart/recovery' WHERE status='RUNNING'");
+        W.exec("UPDATE generation_runs SET status='FAILED', error='System restart/recovery' WHERE status='RUNNING'");
+        
+        W.commit();
+        spdlog::info("Reconciled stale RUNNING jobs to FAILED.");
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to reconcile stale jobs: {}", e.what());
+    }
+}
+
 void DbClient::CreateRun(const std::string& run_id, 
                         const telemetry::GenerateRequest& config, 
                         const std::string& status) {

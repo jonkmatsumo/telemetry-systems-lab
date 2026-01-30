@@ -232,3 +232,30 @@ TEST_F(DbClientTest, CreateScoreJobIsIdempotent) {
     ASSERT_FALSE(job_a.empty());
     ASSERT_EQ(job_a, job_b);
 }
+
+TEST_F(DbClientTest, ReconcileStaleJobs) {
+    DbClient client(conn_str);
+    std::string run_id = GenerateUUID();
+    
+    // Create a job that is RUNNING
+    telemetry::GenerateRequest req;
+    req.set_tier("INTEGRATION");
+    req.set_start_time_iso("2025-01-05T00:00:00Z");
+    req.set_end_time_iso("2025-01-05T01:00:00Z");
+    req.set_interval_seconds(60);
+    req.set_seed(101);
+    req.set_host_count(1);
+    client.CreateRun(run_id, req, "SUCCEEDED");
+
+    std::string model_run_id = client.CreateModelRun(run_id, "test_model_reconcile");
+    std::string job_id = client.CreateScoreJob(run_id, model_run_id);
+    client.UpdateScoreJob(job_id, "RUNNING", 100, 50, 50);
+
+    // Call Reconcile
+    client.ReconcileStaleJobs();
+
+    // Verify it is FAILED
+    auto job = client.GetScoreJob(job_id);
+    EXPECT_EQ(job["status"], "FAILED");
+    EXPECT_EQ(job["error"], "System restart/recovery");
+}

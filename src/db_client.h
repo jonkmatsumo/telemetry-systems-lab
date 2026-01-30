@@ -16,6 +16,9 @@ public:
     // Validates that a dimension name is an allowed grouping/filtering column.
     static bool IsValidDimension(const std::string& dim);
 
+    // Marks any 'RUNNING' jobs as 'FAILED' (called on startup).
+    void ReconcileStaleJobs();
+
     void CreateRun(const std::string& run_id, 
                    const telemetry::GenerateRequest& config, 
                    const std::string& status) override;

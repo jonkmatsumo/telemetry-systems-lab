@@ -43,6 +43,7 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
 
     // Initialize DB Client
     db_client_ = std::make_unique<DbClient>(db_conn_str);
+    db_client_->ReconcileStaleJobs();
 
     // Initialize Job Manager
     job_manager_ = std::make_unique<JobManager>();
