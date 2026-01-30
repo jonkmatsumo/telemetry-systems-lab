@@ -256,3 +256,16 @@ target_link_libraries(api_health_tests
 if(HTTPLIB_FOUND)
     target_link_libraries(api_health_tests PkgConfig::HTTPLIB)
 endif()
+
+# Metrics Integration Test
+add_executable(metrics_integration_tests
+    tests/integration/test_metrics.cpp
+)
+target_link_libraries(metrics_integration_tests
+    GTest::GTest
+    GTest::Main
+    nlohmann_json::nlohmann_json
+)
+if(HTTPLIB_FOUND)
+    target_link_libraries(metrics_integration_tests PkgConfig::HTTPLIB)
+endif()
