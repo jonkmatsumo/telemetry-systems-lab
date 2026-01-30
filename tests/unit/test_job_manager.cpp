@@ -43,6 +43,9 @@ TEST_F(JobManagerTest, EnforcesConcurrencyLimit) {
         proceed = true;
     }
     cv.notify_one();
+    
+    // Ensure jobs finish before locals (mtx, cv) are destroyed
+    manager.Stop();
 }
 
 TEST_F(JobManagerTest, AllowsJobAfterCompletion) {
