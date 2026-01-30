@@ -76,6 +76,39 @@ void DbClient::RunRetentionCleanup(int retention_days) {
     }
 }
 
+void DbClient::EnsurePartition(std::chrono::system_clock::time_point tp) {
+    try {
+        auto t_time = std::chrono::system_clock::to_time_t(tp);
+        std::tm tm = *std::gmtime(&t_time);
+        
+        std::string part_name = fmt::format("host_telemetry_archival_{:04d}_{:02d}", tm.tm_year + 1900, tm.tm_mon + 1);
+        std::string start_date = fmt::format("{:04d}-{:02d}-01", tm.tm_year + 1900, tm.tm_mon + 1);
+        
+        // Calculate end date (next month)
+        int end_year = tm.tm_year + 1900;
+        int end_mon = tm.tm_mon + 2;
+        if (end_mon > 12) {
+            end_mon = 1;
+            end_year++;
+        }
+        std::string end_date = fmt::format("{:04d}-{:02d}-01", end_year, end_mon);
+
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        
+        std::string query = fmt::format(
+            "CREATE TABLE IF NOT EXISTS {} PARTITION OF host_telemetry_archival "
+            "FOR VALUES FROM ('{}') TO ('{}')",
+            part_name, start_date, end_date);
+            
+        W.exec(query);
+        W.commit();
+        spdlog::info("Ensured partition {} exists for range [{}, {}).", part_name, start_date, end_date);
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to ensure partition: {}", e.what());
+    }
+}
+
 void DbClient::CreateRun(const std::string& run_id, 
                         const telemetry::GenerateRequest& config, 
                         const std::string& status,
