@@ -25,6 +25,7 @@ services:
     environment:
       DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:5432/telemetry"
       GRPC_GENERATOR_TARGET: "telemetry-generator:50051"
+      API_PORT: 8080
     ports:
       - "8280:8080"
     volumes:
