@@ -4,10 +4,14 @@ COMPOSE_INFRA = docker-compose.infra.yml
 COMPOSE_APP = docker-compose.app.yml
 COMPOSE_BASE = docker-compose.yml
 
-.PHONY: up infra-up infra-down dev-up dev-shell api-shell build clean run run-api
+.PHONY: up infra-up infra-down down dev-up dev-shell api-shell build clean run run-api
 
 # Unified startup (Infra + Dev App Containers)
 up: dev-up
+
+# Stop all containers
+down:
+	docker compose -f $(COMPOSE_INFRA) -f $(COMPOSE_APP) down
 
 # Start Infrastructure (Postgres)
 infra-up:
