@@ -122,6 +122,14 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleGetJobStatus(req, res);
     });
 
+    svr_.Delete("/jobs/:id", [this](const httplib::Request& req, httplib::Response& res) {
+        std::string rid = GetRequestId(req);
+        std::string job_id = req.matches[1];
+        job_manager_->CancelJob(job_id);
+        res.status = 200;
+        res.set_content("{\"status\":\"CANCEL_REQUESTED\", \"job_id\":\"" + job_id + "\", \"request_id\":\"" + rid + "\"}", "application/json");
+    });
+
     svr_.Get("/models/:id/eval", [this](const httplib::Request& req, httplib::Response& res) {
         HandleModelEval(req, res);
     });
@@ -455,7 +463,7 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         }
 
         // 2. Spawn training via JobManager
-        job_manager_->StartJob("train-" + model_run_id, rid, [this, model_run_id, dataset_id, rid]() {
+        job_manager_->StartJob("train-" + model_run_id, rid, [this, model_run_id, dataset_id, rid](const std::atomic<bool>* stop_flag) {
             spdlog::info("Training started for model {} (req_id: {})", model_run_id, rid);
             db_client_->UpdateModelRunStatus(model_run_id, "RUNNING");
 
@@ -719,7 +727,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
             return;
         }
 
-        job_manager_->StartJob("score-" + job_id, rid, [this, dataset_id, model_run_id, job_id]() {
+        job_manager_->StartJob("score-" + job_id, rid, [this, dataset_id, model_run_id, job_id](const std::atomic<bool>* stop_flag) {
             DbClient local_db(db_conn_str_);
             try {
                 auto job_info = local_db.GetScoreJob(job_id);
@@ -744,7 +752,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                 model.Load(artifact_path);
 
                 const int batch = 5000;
-                while (true) {
+                while (!stop_flag->load()) {
                     auto rows = local_db.FetchScoringRowsAfterRecord(dataset_id, last_record, batch);
                     if (rows.empty()) break;
                     std::vector<std::pair<long, std::pair<double, bool>>> scores;
@@ -764,7 +772,13 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                     last_record = rows.back().record_id;
                     local_db.UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
                 }
-                local_db.UpdateScoreJob(job_id, "COMPLETED", total, processed, last_record);
+                
+                if (stop_flag->load()) {
+                    spdlog::info("Job {} cancelled by request.", job_id);
+                    local_db.UpdateScoreJob(job_id, "CANCELLED", total, processed, last_record);
+                } else {
+                    local_db.UpdateScoreJob(job_id, "COMPLETED", total, processed, last_record);
+                }
             } catch (const std::exception& e) {
                 auto job_info = local_db.GetScoreJob(job_id);
                 long total = job_info.value("total_rows", 0L);
