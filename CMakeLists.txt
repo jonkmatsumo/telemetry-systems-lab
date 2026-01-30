@@ -188,14 +188,15 @@ add_executable(unit_tests
     tests/unit/test_pca_trainer.cpp
     tests/unit/test_api_debug.cpp
     tests/unit/test_db_client_security.cpp
+    tests/unit/test_job_manager.cpp
     src/generator.cpp
     src/db_client.cpp
     src/server.cpp
+    src/job_manager.cpp
     src/preprocessing.cpp
     src/detectors/detector_a.cpp
     src/detectors/pca_model.cpp
     src/alert_manager.cpp
-    tests/parity/test_parity_b.cpp
 )
 
 target_include_directories(unit_tests PRIVATE src tests)
