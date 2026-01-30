@@ -63,23 +63,23 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleListDatasets(req, res);
     });
 
-    svr_.Get("/datasets/:id", [this](const httplib::Request& req, httplib::Response& res) {
+    svr_.Get("/datasets/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetDataset(req, res);
     });
 
-    svr_.Get("/datasets/:id/summary", [this](const httplib::Request& req, httplib::Response& res) {
+    svr_.Get("/datasets/([a-zA-Z0-9-]+)/summary", [this](const httplib::Request& req, httplib::Response& res) {
         HandleDatasetSummary(req, res);
     });
 
-    svr_.Get("/datasets/:id/topk", [this](const httplib::Request& req, httplib::Response& res) {
+    svr_.Get("/datasets/([a-zA-Z0-9-]+)/topk", [this](const httplib::Request& req, httplib::Response& res) {
         HandleDatasetTopK(req, res);
     });
 
-    svr_.Get("/datasets/:id/timeseries", [this](const httplib::Request& req, httplib::Response& res) {
+    svr_.Get("/datasets/([a-zA-Z0-9-]+)/timeseries", [this](const httplib::Request& req, httplib::Response& res) {
         HandleDatasetTimeSeries(req, res);
     });
 
-    svr_.Get("/datasets/:id/histogram", [this](const httplib::Request& req, httplib::Response& res) {
+    svr_.Get("/datasets/([a-zA-Z0-9-]+)/histogram", [this](const httplib::Request& req, httplib::Response& res) {
         HandleDatasetHistogram(req, res);
     });
 
@@ -87,7 +87,7 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleTrainModel(req, res);
     });
 
-    svr_.Get("/train/:id", [this](const httplib::Request& req, httplib::Response& res) {
+    svr_.Get("/train/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetTrainStatus(req, res);
     });
 
@@ -95,7 +95,7 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleListModels(req, res);
     });
 
-    svr_.Get("/models/:id", [this](const httplib::Request& req, httplib::Response& res) {
+    svr_.Get("/models/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetModelDetail(req, res);
     });
 
@@ -107,7 +107,7 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleListInferenceRuns(req, res);
     });
 
-    svr_.Get("/inference_runs/:id", [this](const httplib::Request& req, httplib::Response& res) {
+    svr_.Get("/inference_runs/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetInferenceRun(req, res);
     });
 
@@ -119,15 +119,15 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleListJobs(req, res);
     });
 
-    svr_.Get("/jobs/:id/progress", [this](const httplib::Request& req, httplib::Response& res) {
+    svr_.Get("/jobs/([a-zA-Z0-9-]+)/progress", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetJobProgress(req, res);
     });
 
-    svr_.Get("/jobs/:id", [this](const httplib::Request& req, httplib::Response& res) {
+    svr_.Get("/jobs/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetJobStatus(req, res);
     });
 
-    svr_.Delete("/jobs/:id", [this](const httplib::Request& req, httplib::Response& res) {
+    svr_.Delete("/jobs/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
         std::string rid = GetRequestId(req);
         std::string job_id = req.matches[1];
         job_manager_->CancelJob(job_id);
@@ -135,11 +135,11 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         res.set_content("{\"status\":\"CANCEL_REQUESTED\", \"job_id\":\"" + job_id + "\", \"request_id\":\"" + rid + "\"}", "application/json");
     });
 
-    svr_.Get("/models/:id/eval", [this](const httplib::Request& req, httplib::Response& res) {
+    svr_.Get("/models/([a-zA-Z0-9-]+)/eval", [this](const httplib::Request& req, httplib::Response& res) {
         HandleModelEval(req, res);
     });
 
-    svr_.Get("/models/:id/error_distribution", [this](const httplib::Request& req, httplib::Response& res) {
+    svr_.Get("/models/([a-zA-Z0-9-]+)/error_distribution", [this](const httplib::Request& req, httplib::Response& res) {
         HandleModelErrorDistribution(req, res);
     });
 
