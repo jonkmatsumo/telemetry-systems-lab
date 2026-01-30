@@ -20,6 +20,13 @@ RUN cd web_ui && flutter pub get
 COPY --chown=flutteruser:flutteruser web_ui/ web_ui/
 RUN cd web_ui && flutter build web --release
 
+# Stage 1b: Flutter Dev Environment
+FROM web-builder AS dev-web
+USER root
+RUN apt-get update && apt-get install -y procps && rm -rf /var/lib/apt/lists/*
+USER flutteruser
+CMD ["tail", "-f", "/dev/null"]
+
 # Stage 2: C++ Dependencies
 FROM ubuntu:22.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive
