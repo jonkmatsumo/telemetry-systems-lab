@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
     for (int i = 0; i < 100; ++i) {
         auto current_time = start_time + std::chrono::seconds(i);
         
-        telemetry::metrics::MetricsRegistry::Instance().Increment("telemetry_records_total", 2);
+        telemetry::metrics::MetricsRegistry::Instance().Increment("telemetry_records_total", {});
 
         // Simulate multiple hosts
         std::vector<std::string> hosts = {"host-1", "host-2"};
@@ -143,14 +143,14 @@ int main(int argc, char** argv) {
             auto& detector = detectors_a.at(r.host_id);
             AnomalyScore score = detector.Update(vec);
             auto t_a_end = std::chrono::high_resolution_clock::now();
-            telemetry::metrics::MetricsRegistry::Instance().RecordLatency("detector_a_latency_ms", std::chrono::duration<double, std::milli>(t_a_end - t_a_start).count());
+            telemetry::metrics::MetricsRegistry::Instance().RecordLatency("detector_a_latency_ms", {}, std::chrono::duration<double, std::milli>(t_a_end - t_a_start).count());
 
             if (score.is_anomaly) {
                 flag_a = true;
                 score_a = score.max_z_score;
                 details_a = score.details;
                 spdlog::info("[DETECTOR A] Host: {} Step: {} Z: {:.2f} Details: {}", r.host_id, i, score_a, details_a);
-                telemetry::metrics::MetricsRegistry::Instance().Increment("detector_a_anomalies_total");
+                telemetry::metrics::MetricsRegistry::Instance().Increment("detector_a_anomalies_total", {});
             }
             
             // 4. Detect B (Gated)
@@ -175,18 +175,18 @@ int main(int argc, char** argv) {
             }
 
             if (run_b) {
-                telemetry::metrics::MetricsRegistry::Instance().Increment("detector_b_evaluations_total");
+                telemetry::metrics::MetricsRegistry::Instance().Increment("detector_b_evaluations_total", {});
                 auto t_b_start = std::chrono::high_resolution_clock::now();
                 PcaScore pca_res = pca_model.Score(vec);
                 auto t_b_end = std::chrono::high_resolution_clock::now();
-                telemetry::metrics::MetricsRegistry::Instance().RecordLatency("detector_b_latency_ms", std::chrono::duration<double, std::milli>(t_b_end - t_b_start).count());
+                telemetry::metrics::MetricsRegistry::Instance().RecordLatency("detector_b_latency_ms", {}, std::chrono::duration<double, std::milli>(t_b_end - t_b_start).count());
 
                 if (pca_res.is_anomaly) {
                     flag_b = true;
                     score_b = pca_res.reconstruction_error;
                     details_b = pca_res.details;
                     spdlog::info("[DETECTOR B] Host: {} Step: {} ReconErr: {:.2f} Details: {}", r.host_id, i, score_b, details_b);
-                    telemetry::metrics::MetricsRegistry::Instance().Increment("detector_b_anomalies_total");
+                    telemetry::metrics::MetricsRegistry::Instance().Increment("detector_b_anomalies_total", {});
                 }
             } else {
                 // Not evaluated
@@ -207,14 +207,14 @@ int main(int argc, char** argv) {
             );
 
             for (const auto& alert : alerts) {
-                telemetry::metrics::MetricsRegistry::Instance().Increment("alerts_total");
+                telemetry::metrics::MetricsRegistry::Instance().Increment("alerts_total", {});
                 spdlog::error(">>> [ALERT GENERATED] Host: {} Severity: {} Source: {} Score: {:.2f}", 
                     alert.host_id, alert.severity, alert.source, alert.score);
             }
         } // End host loop
     } // End time loop
     
-    spdlog::info(telemetry::metrics::MetricsRegistry::Instance().Dump());
+    spdlog::info("Metrics Summary:\n{}", telemetry::metrics::MetricsRegistry::Instance().ToPrometheus());
 
     spdlog::info("Scorer simulation complete.");
     return 0;
