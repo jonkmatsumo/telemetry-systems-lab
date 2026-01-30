@@ -19,7 +19,7 @@ TEST_F(JobManagerTest, EnforcesConcurrencyLimit) {
     bool ready = false;
     bool proceed = false;
 
-    manager.StartJob("job1", [&]() {
+    manager.StartJob("job1", "req1", [&]() {
         std::unique_lock<std::mutex> lock(mtx);
         ready = true;
         cv.notify_one();
@@ -34,7 +34,7 @@ TEST_F(JobManagerTest, EnforcesConcurrencyLimit) {
 
     // Try to start job2, should fail
     EXPECT_THROW({
-        manager.StartJob("job2", []() {});
+        manager.StartJob("job2", "req2", []() {});
     }, std::runtime_error);
 
     // Release job1
@@ -48,7 +48,7 @@ TEST_F(JobManagerTest, EnforcesConcurrencyLimit) {
 TEST_F(JobManagerTest, AllowsJobAfterCompletion) {
     manager.SetMaxConcurrentJobs(1);
 
-    manager.StartJob("job1", []() {
+    manager.StartJob("job1", "req1", []() {
         // Quick job
     });
 
@@ -62,6 +62,6 @@ TEST_F(JobManagerTest, AllowsJobAfterCompletion) {
 
     // Should succeed now
     EXPECT_NO_THROW({
-        manager.StartJob("job2", []() {});
+        manager.StartJob("job2", "req2", []() {});
     });
 }

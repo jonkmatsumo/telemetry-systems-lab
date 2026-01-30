@@ -22,6 +22,7 @@ enum class JobStatus {
 
 struct JobInfo {
     std::string job_id;
+    std::string request_id;
     JobStatus status;
     std::string error;
     // Add more metadata if needed
@@ -33,7 +34,7 @@ public:
     ~JobManager();
 
     // Start a new background job
-    void StartJob(const std::string& job_id, std::function<void()> work);
+    void StartJob(const std::string& job_id, const std::string& request_id, std::function<void()> work);
 
     // Get status of a job
     JobStatus GetStatus(const std::string& job_id);

@@ -447,8 +447,8 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         }
 
         // 2. Spawn training via JobManager
-        job_manager_->StartJob("train-" + model_run_id, [this, model_run_id, dataset_id]() {
-            spdlog::info("Training started for model {}", model_run_id);
+        job_manager_->StartJob("train-" + model_run_id, rid, [this, model_run_id, dataset_id, rid]() {
+            spdlog::info("Training started for model {} (req_id: {})", model_run_id, rid);
             db_client_->UpdateModelRunStatus(model_run_id, "RUNNING");
 
             std::string output_dir = "artifacts/pca/" + model_run_id;
@@ -710,7 +710,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
             return;
         }
 
-        job_manager_->StartJob("score-" + job_id, [this, dataset_id, model_run_id, job_id]() {
+        job_manager_->StartJob("score-" + job_id, rid, [this, dataset_id, model_run_id, job_id]() {
             DbClient local_db(db_conn_str_);
             try {
                 auto job_info = local_db.GetScoreJob(job_id);
