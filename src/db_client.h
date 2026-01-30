@@ -16,6 +16,9 @@ public:
     // Validates that a dimension name is an allowed grouping/filtering column.
     static bool IsValidDimension(const std::string& dim);
 
+    // Validates that an aggregation function is allowed.
+    static bool IsValidAggregation(const std::string& agg);
+
     // Marks any 'RUNNING' jobs as 'FAILED' (called on startup).
     void ReconcileStaleJobs();
 

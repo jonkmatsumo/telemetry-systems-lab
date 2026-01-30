@@ -35,6 +35,17 @@ bool DbClient::IsValidDimension(const std::string& dim) {
     return kAllowedDimensions.count(dim) > 0;
 }
 
+bool DbClient::IsValidAggregation(const std::string& agg) {
+    static const std::unordered_set<std::string> kAllowedAggs = {
+        "mean",
+        "min",
+        "max",
+        "p50",
+        "p95"
+    };
+    return kAllowedAggs.count(agg) > 0;
+}
+
 void DbClient::ReconcileStaleJobs() {
     try {
         pqxx::connection C(conn_str_);
@@ -622,6 +633,12 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
     for (const auto& metric : metrics) {
         if (!IsValidMetric(metric)) {
             throw std::invalid_argument("Invalid metric: " + metric);
+        }
+    }
+    // Validate all aggregations against allowlist
+    for (const auto& agg : aggs) {
+        if (!IsValidAggregation(agg)) {
+            throw std::invalid_argument("Invalid aggregation: " + agg);
         }
     }
     nlohmann::json out = nlohmann::json::array();
