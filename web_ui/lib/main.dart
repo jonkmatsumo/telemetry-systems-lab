@@ -38,50 +38,83 @@ class TadsApp extends StatelessWidget {
   }
 }
 
-class DashboardShell extends StatelessWidget {
+class DashboardShell extends StatefulWidget {
   const DashboardShell({super.key});
 
   @override
+  State<DashboardShell> createState() => _DashboardShellState();
+}
+
+class _DashboardShellState extends State<DashboardShell> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    final appState = context.read<AppState>();
+    _tabController = TabController(length: 5, vsync: this, initialIndex: appState.currentTabIndex);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        appState.setTabIndex(_tabController.index);
+      }
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final appState = context.watch<AppState>();
+    if (_tabController.index != appState.currentTabIndex) {
+      _tabController.animateTo(appState.currentTabIndex);
+    }
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 5,
-      child: Scaffold(
-        body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
-            ),
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
           ),
-          child: SafeArea(
-            child: Column(
-              children: [
-                const SizedBox(height: 16),
-                const TabBar(
-                  isScrollable: true,
-                  tabs: [
-                    Tab(text: 'Control'),
-                    Tab(text: 'Runs'),
-                    Tab(text: 'Dataset Analytics'),
-                    Tab(text: 'Models'),
-                    Tab(text: 'Inference History'),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              const SizedBox(height: 16),
+              TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                tabs: const [
+                  Tab(text: 'Control'),
+                  Tab(text: 'Runs'),
+                  Tab(text: 'Dataset Analytics'),
+                  Tab(text: 'Models'),
+                  Tab(text: 'Inference History'),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: const [
+                    ControlPanel(),
+                    RunsScreen(),
+                    DatasetAnalyticsScreen(),
+                    ModelsScreen(),
+                    InferenceHistoryScreen(),
                   ],
                 ),
-                const SizedBox(height: 8),
-                const Expanded(
-                  child: TabBarView(
-                    children: [
-                      ControlPanel(),
-                      RunsScreen(),
-                      DatasetAnalyticsScreen(),
-                      ModelsScreen(),
-                      InferenceHistoryScreen(),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

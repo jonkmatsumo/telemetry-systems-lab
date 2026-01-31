@@ -9,6 +9,13 @@ class AppState extends ChangeNotifier {
   bool? isAnomaly;
   String? anomalyType;
 
+  int currentTabIndex = 0;
+
+  void setTabIndex(int index) {
+    currentTabIndex = index;
+    notifyListeners();
+  }
+
   DatasetStatus? currentDataset;
   ModelStatus? currentModel;
 

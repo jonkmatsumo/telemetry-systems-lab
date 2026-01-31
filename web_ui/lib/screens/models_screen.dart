@@ -124,7 +124,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
                           final model = models[index];
                           return ListTile(
                             title: Text(model.name),
-                            subtitle: Text('${model.status} • ${model.modelRunId}'),
+                            subtitle: Text('${model.status} • dataset: ${model.datasetId.substring(0, 8)}...'),
                             trailing: Text(model.createdAt, style: const TextStyle(fontSize: 11, color: Colors.white54)),
                             onTap: () => _selectModel(model),
                           );
@@ -186,6 +186,19 @@ class _ModelsScreenState extends State<ModelsScreen> {
               ElevatedButton(
                 onPressed: () => _loadEval(datasetId, modelRunId),
                 child: const Text('Load Eval Metrics'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () {
+                  final appState = context.read<AppState>();
+                  appState.setModel(modelRunId);
+                  appState.setTabIndex(0); // Go to Control
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF38BDF8),
+                  foregroundColor: const Color(0xFF0F172A),
+                ),
+                icon: const Icon(Icons.play_arrow),
+                label: const Text('Inference Preview'),
               ),
             ],
           ),

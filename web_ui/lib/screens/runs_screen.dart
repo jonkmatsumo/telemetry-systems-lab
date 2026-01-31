@@ -113,9 +113,10 @@ class _RunsScreenState extends State<RunsScreen> {
   }
 
   Widget _buildDetail(Map<String, dynamic> detail) {
+    final runId = detail['run_id'] ?? '';
     return ListView(
       children: [
-        _kv('Run ID', detail['run_id'] ?? ''),
+        _kv('Run ID', runId),
         _kv('Status', detail['status'] ?? ''),
         _kv('Inserted Rows', '${detail['inserted_rows'] ?? 0}'),
         _kv('Tier', detail['tier'] ?? ''),
@@ -125,6 +126,35 @@ class _RunsScreenState extends State<RunsScreen> {
         _kv('End Time', detail['end_time'] ?? ''),
         _kv('Created', detail['created_at'] ?? ''),
         if ((detail['error'] ?? '').toString().isNotEmpty) _kv('Error', detail['error']),
+        const SizedBox(height: 24),
+        ElevatedButton.icon(
+          onPressed: () {
+            final appState = context.read<AppState>();
+            appState.setDataset(runId);
+            appState.setTabIndex(0); // Go to Control
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF38BDF8),
+            foregroundColor: const Color(0xFF0F172A),
+            padding: const EdgeInsets.symmetric(vertical: 16),
+          ),
+          icon: const Icon(Icons.psychology),
+          label: const Text('Train Model on this Dataset',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: () {
+            final appState = context.read<AppState>();
+            appState.setDataset(runId);
+            appState.setTabIndex(2); // Go to Analytics
+          },
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+          ),
+          icon: const Icon(Icons.analytics),
+          label: const Text('View Analytics'),
+        ),
       ],
     );
   }
