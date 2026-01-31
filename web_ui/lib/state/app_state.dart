@@ -19,6 +19,13 @@ class AppState extends ChangeNotifier {
   DatasetStatus? currentDataset;
   ModelStatus? currentModel;
 
+  List<ScoreJobStatus> activeJobs = [];
+
+  void updateJobs(List<ScoreJobStatus> jobs) {
+    activeJobs = jobs;
+    notifyListeners();
+  }
+
   final Map<String, String> _datasetMetrics = {};
 
   String getSelectedMetric(String datasetId) => _datasetMetrics[datasetId] ?? 'cpu_usage';
