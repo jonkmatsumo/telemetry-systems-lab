@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
 import '../widgets/charts.dart';
+import '../widgets/inline_alert.dart';
 
 class ModelsScreen extends StatefulWidget {
   const ModelsScreen({super.key});
@@ -173,6 +174,11 @@ class _ModelsScreenState extends State<ModelsScreen> {
         _kv('Artifact Path', detail['artifact_path'] ?? ''),
         _kv('Threshold', '${thresholds['reconstruction_error'] ?? ''}'),
         _kv('Components', '$nComponents'),
+        if (detail['error'] != null && detail['error'].toString().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 16),
+            child: InlineAlert(title: 'Training Error', message: detail['error'].toString()),
+          ),
         const SizedBox(height: 12),
         if (datasetId != null)
           Wrap(
@@ -205,8 +211,18 @@ class _ModelsScreenState extends State<ModelsScreen> {
         if (_jobStatus != null)
           Padding(
             padding: const EdgeInsets.only(top: 12),
-            child: Text(
-              'Scoring job: ${_jobStatus!.status} (${_jobStatus!.processedRows}/${_jobStatus!.totalRows}) ${_jobStatus!.error}',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Scoring job: ${_jobStatus!.status} (${_jobStatus!.processedRows}/${_jobStatus!.totalRows})',
+                ),
+                if (_jobStatus!.error.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: InlineAlert(title: 'Scoring Error', message: _jobStatus!.error),
+                  ),
+              ],
             ),
           ),
         if (_jobStatus != null)
