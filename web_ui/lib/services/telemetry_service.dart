@@ -560,6 +560,16 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
+  Future<List<Map<String, dynamic>>> getDatasetSamples(String runId, {int limit = 20}) async {
+    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/samples?limit=$limit'));
+    if (response.statusCode == 200) {
+      final List items = jsonDecode(response.body)['items'];
+      return items.map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m)).toList();
+    }
+    _handleError(response, 'Failed to get dataset samples');
+    throw Exception('Unreachable');
+  }
+
   Future<DatasetSummary> getDatasetSummary(String runId, {int topk = 5}) async {
     final params = {'topk': '$topk'};
     final key = _cacheKey('/datasets/$runId/summary', params);

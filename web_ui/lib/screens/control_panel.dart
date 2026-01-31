@@ -21,6 +21,9 @@ class _ControlPanelState extends State<ControlPanel> {
   Timer? _pollingTimer;
   bool _pollingInFlight = false;
 
+  List<Map<String, dynamic>> _datasetSamples = [];
+  bool _loadingSamples = false;
+
   List<DatasetRun> _availableDatasets = [];
   List<ModelRunSummary> _availableModels = [];
   bool _fetchingResources = false;
@@ -74,6 +77,21 @@ class _ControlPanelState extends State<ControlPanel> {
     _syncWithAppState();
   }
 
+  Future<void> _fetchSamples() async {
+    final appState = context.read<AppState>();
+    if (appState.datasetId == null) return;
+    setState(() => _loadingSamples = true);
+    final service = context.read<TelemetryService>();
+    try {
+      final samples = await service.getDatasetSamples(appState.datasetId!);
+      setState(() => _datasetSamples = samples);
+    } catch (e) {
+      _showError('Failed to fetch samples: $e');
+    } finally {
+      setState(() => _loadingSamples = false);
+    }
+  }
+
   void _syncWithAppState() async {
     final appState = context.read<AppState>();
     final service = context.read<TelemetryService>();
@@ -82,7 +100,10 @@ class _ControlPanelState extends State<ControlPanel> {
       try {
         final status = await service.getDatasetStatus(appState.datasetId!);
         appState.setDataset(status.runId, status: status);
+        _fetchSamples();
       } catch (_) {}
+    } else if (appState.datasetId != null && _datasetSamples.isEmpty && !_loadingSamples) {
+      _fetchSamples();
     }
     if (appState.modelRunId != null && appState.currentModel == null) {
       try {
@@ -208,6 +229,23 @@ class _ControlPanelState extends State<ControlPanel> {
         }
       ];
       final res = await service.runInference(appState.modelRunId!, samples);
+      setState(() {
+        _inferenceResults = res;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() => _loading = false);
+      _showError(e.toString());
+    }
+  }
+
+  void _inferWithSample(Map<String, dynamic> sample) async {
+    final appState = context.read<AppState>();
+    if (appState.modelRunId == null) return;
+    setState(() => _loading = true);
+    final service = context.read<TelemetryService>();
+    try {
+      final res = await service.runInference(appState.modelRunId!, [sample]);
       setState(() {
         _inferenceResults = res;
         _loading = false;
@@ -438,7 +476,43 @@ class _ControlPanelState extends State<ControlPanel> {
                           style: const TextStyle(color: Colors.amberAccent, fontSize: 13),
                         ),
                       ),
-                    _buildButton('Test Anomaly Detection', _infer, enabled: !_loading && canInfer),
+                    if (canInfer && _datasetSamples.isNotEmpty) ...[
+                      const Text('Use real sample from dataset',
+                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14)),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF020617),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<int>(
+                            isExpanded: true,
+                            hint: const Text('Pick a record'),
+                            dropdownColor: const Color(0xFF020617),
+                            items: _datasetSamples.asMap().entries.map((entry) {
+                              final idx = entry.key;
+                              final s = entry.value;
+                              return DropdownMenuItem(
+                                value: idx,
+                                child: Text('Host ${s['host_id'].substring(0, 8)}... @ ${s['timestamp'].substring(11, 19)}',
+                                    style: const TextStyle(fontSize: 13)),
+                              );
+                            }).toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                _inferWithSample(_datasetSamples[val]);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text('— OR —', style: TextStyle(color: Colors.white24, fontSize: 10)),
+                      const SizedBox(height: 16),
+                    ],
+                    _buildButton('Test Anomaly Detection (Static)', _infer, enabled: !_loading && canInfer),
                     if (_inferenceResults != null) _buildInferenceResults(),
                   ],
                 ),

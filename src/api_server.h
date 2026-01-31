@@ -30,6 +30,7 @@ private:
     void HandleDatasetTopK(const httplib::Request& req, httplib::Response& res);
     void HandleDatasetTimeSeries(const httplib::Request& req, httplib::Response& res);
     void HandleDatasetHistogram(const httplib::Request& req, httplib::Response& res);
+    void HandleGetDatasetSamples(const httplib::Request& req, httplib::Response& res);
     void HandleTrainModel(const httplib::Request& req, httplib::Response& res);
     void HandleGetTrainStatus(const httplib::Request& req, httplib::Response& res);
     void HandleListModels(const httplib::Request& req, httplib::Response& res);
