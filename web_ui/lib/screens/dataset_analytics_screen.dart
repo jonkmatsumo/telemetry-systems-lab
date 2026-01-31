@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
 import '../widgets/charts.dart';
+import '../widgets/inline_alert.dart';
 
 class DatasetAnalyticsScreen extends StatefulWidget {
   const DatasetAnalyticsScreen({super.key});
@@ -20,6 +21,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
   List<Map<String, String>> _availableMetrics = [];
   bool _loadingSchema = false;
+  String? _loadError;
 
   @override
   void initState() {
@@ -28,7 +30,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   }
 
   Future<void> _fetchSchema() async {
-    setState(() => _loadingSchema = true);
+    setState(() {
+      _loadingSchema = true;
+      _loadError = null;
+    });
     try {
       final schema = await context.read<TelemetryService>().getMetricsSchema();
       setState(() => _availableMetrics = schema);
@@ -50,12 +55,22 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
   void _load(String datasetId, String metric) {
     final service = context.read<TelemetryService>();
-    _summaryFuture = service.getDatasetSummary(datasetId);
+    _loadError = null;
+    _summaryFuture = service.getDatasetSummary(datasetId).catchError((e) {
+      setState(() => _loadError = 'Failed to load summary: $e');
+      throw e;
+    });
     _topRegionsFuture = service.getTopK(datasetId, 'region', k: 10);
     _topAnomalyFuture = service.getTopK(datasetId, 'anomaly_type', k: 10, isAnomaly: 'true');
-    _metricHistFuture = service.getHistogram(datasetId, metric: metric, bins: 30);
+    _metricHistFuture = service.getHistogram(datasetId, metric: metric, bins: 30).catchError((e) {
+      setState(() => _loadError = 'Metric "$metric" is not supported for this dataset.');
+      throw e;
+    });
     _metricTsFuture =
-        service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: '1h');
+        service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: '1h').catchError((e) {
+      setState(() => _loadError = 'Metric "$metric" is not supported for this dataset.');
+      throw e;
+    });
   }
 
   @override
@@ -91,24 +106,27 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       children: [
                         const Text('Metric: ', style: TextStyle(color: Colors.white60)),
                         const SizedBox(width: 8),
-                        DropdownButton<String>(
-                          value: selectedMetric,
-                          dropdownColor: const Color(0xFF1E293B),
-                          items: _availableMetrics.map((m) {
-                            return DropdownMenuItem(
-                              value: m['key'],
-                              child: Text(m['label']!),
-                            );
-                          }).toList(),
-                          onChanged: (val) {
-                            if (val != null) {
-                              appState.setSelectedMetric(datasetId, val);
-                              setState(() {
-                                _load(datasetId, val);
-                              });
-                            }
-                          },
-                        ),
+                        if (_loadingSchema)
+                          const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        else
+                          DropdownButton<String>(
+                            value: _availableMetrics.any((m) => m['key'] == selectedMetric) ? selectedMetric : (_availableMetrics.isNotEmpty ? _availableMetrics.first['key'] : null),
+                            dropdownColor: const Color(0xFF1E293B),
+                            items: _availableMetrics.map((m) {
+                              return DropdownMenuItem(
+                                value: m['key'],
+                                child: Text(m['label']!),
+                              );
+                            }).toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                appState.setSelectedMetric(datasetId, val);
+                                setState(() {
+                                  _load(datasetId, val);
+                                });
+                              }
+                            },
+                          ),
                       ],
                     ),
                   ],
@@ -123,6 +141,17 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 ),
               ],
             ),
+            if (_loadError != null) ...[
+              const SizedBox(height: 16),
+              InlineAlert(
+                message: _loadError!,
+                onRetry: () {
+                  setState(() {
+                    _load(datasetId, selectedMetric);
+                  });
+                },
+              ),
+            ],
             const SizedBox(height: 16),
             FutureBuilder<DatasetSummary>(
               future: _summaryFuture,
