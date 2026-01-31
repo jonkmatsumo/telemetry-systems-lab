@@ -49,6 +49,7 @@ class DashboardShell extends StatefulWidget {
 class _DashboardShellState extends State<DashboardShell> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   Timer? _jobPoller;
+  bool _drawerOpen = false;
 
   @override
   void initState() {
@@ -64,13 +65,20 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
   }
 
   void _startJobPolling() {
+    _jobPoller?.cancel();
     _jobPoller = Timer.periodic(const Duration(seconds: 5), (timer) async {
       final service = context.read<TelemetryService>();
       final appState = context.read<AppState>();
-      try {
-        final jobs = await service.listScoreJobs(limit: 10);
-        appState.updateJobs(jobs);
-      } catch (_) {}
+      
+      final hasRunningJobs = appState.activeJobs.any((j) => j.status == 'RUNNING' || j.status == 'PENDING');
+      
+      // Only poll if drawer is open OR there are active jobs
+      if (_drawerOpen || hasRunningJobs) {
+        try {
+          final jobs = await service.listScoreJobs(limit: 10);
+          appState.updateJobs(jobs);
+        } catch (_) {}
+      }
     });
   }
 
@@ -127,6 +135,10 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
           const SizedBox(width: 16),
         ],
       ),
+      onEndDrawerChanged: (isOpen) {
+        setState(() => _drawerOpen = isOpen);
+        if (isOpen) _startJobPolling(); // Ensure fresh data when opening
+      },
       endDrawer: _buildJobsDrawer(appState),
       body: Container(
         decoration: const BoxDecoration(
@@ -176,11 +188,22 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
       backgroundColor: const Color(0xFF1E293B),
       child: Column(
         children: [
-          const DrawerHeader(
-            decoration: BoxDecoration(color: Color(0xFF0F172A)),
-            child: Center(
-              child: Text('Scoring Jobs',
-                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+          DrawerHeader(
+            decoration: const BoxDecoration(color: Color(0xFF0F172A)),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text('Scoring Jobs',
+                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                if (appState.activeJobs.any((j) => j.status == 'COMPLETED' || j.status == 'FAILED'))
+                  TextButton.icon(
+                    onPressed: appState.clearCompletedJobs,
+                    icon: const Icon(Icons.clear_all, size: 16),
+                    label: const Text('Clear Completed'),
+                    style: TextButton.styleFrom(foregroundColor: Colors.white60),
+                  ),
+              ],
             ),
           ),
           Expanded(
@@ -212,7 +235,32 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
                                 style: const TextStyle(fontSize: 11, color: Colors.white54)),
                             if (job.error.isNotEmpty)
                               Text(job.error, style: const TextStyle(color: Colors.red, fontSize: 11)),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                TextButton(
+                                  onPressed: () {
+                                    appState.setDataset(job.datasetId);
+                                    appState.setTabIndex(1); // Runs
+                                    Navigator.pop(context);
+                                  },
+                                  child: const Text('Dataset', style: TextStyle(fontSize: 12)),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    appState.setModel(job.modelRunId);
+                                    appState.setTabIndex(3); // Models
+                                    Navigator.pop(context);
+                                  },
+                                  child: const Text('Model', style: TextStyle(fontSize: 12)),
+                                ),
+                              ],
+                            ),
                           ],
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.close, size: 16),
+                          onPressed: () => appState.clearJob(job.jobId),
                         ),
                       );
                     },

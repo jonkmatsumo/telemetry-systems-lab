@@ -20,9 +20,25 @@ class AppState extends ChangeNotifier {
   ModelStatus? currentModel;
 
   List<ScoreJobStatus> activeJobs = [];
+  final Set<String> _clearedJobIds = {};
 
   void updateJobs(List<ScoreJobStatus> jobs) {
-    activeJobs = jobs;
+    activeJobs = jobs.where((j) => !_clearedJobIds.contains(j.jobId)).toList();
+    notifyListeners();
+  }
+
+  void clearJob(String jobId) {
+    _clearedJobIds.add(jobId);
+    activeJobs.removeWhere((j) => j.jobId == jobId);
+    notifyListeners();
+  }
+
+  void clearCompletedJobs() {
+    final completed = activeJobs.where((j) => j.status == 'COMPLETED' || j.status == 'FAILED' || j.status == 'CANCELLED');
+    for (final j in completed) {
+      _clearedJobIds.add(j.jobId);
+    }
+    activeJobs.removeWhere((j) => j.status == 'COMPLETED' || j.status == 'FAILED' || j.status == 'CANCELLED');
     notifyListeners();
   }
 
