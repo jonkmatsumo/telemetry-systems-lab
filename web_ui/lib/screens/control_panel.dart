@@ -21,6 +21,34 @@ class _ControlPanelState extends State<ControlPanel> {
   Timer? _pollingTimer;
   bool _pollingInFlight = false;
 
+  List<DatasetRun> _availableDatasets = [];
+  List<ModelRunSummary> _availableModels = [];
+  bool _fetchingResources = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchResources();
+  }
+
+  Future<void> _fetchResources() async {
+    if (_fetchingResources) return;
+    setState(() => _fetchingResources = true);
+    final service = context.read<TelemetryService>();
+    try {
+      final datasets = await service.listDatasets(limit: 100);
+      final models = await service.listModels(limit: 100);
+      setState(() {
+        _availableDatasets = datasets;
+        _availableModels = models;
+      });
+    } catch (e) {
+      _showError('Failed to fetch resources: $e');
+    } finally {
+      setState(() => _fetchingResources = false);
+    }
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -89,6 +117,7 @@ class _ControlPanelState extends State<ControlPanel> {
   Future<void> _refreshStatus() async {
     final service = context.read<TelemetryService>();
     final appState = context.read<AppState>();
+    _fetchResources();
     try {
       if (appState.datasetId != null) {
         final status = await service.getDatasetStatus(appState.datasetId!);
@@ -111,6 +140,7 @@ class _ControlPanelState extends State<ControlPanel> {
       final runId = await service.generateDataset(count);
       context.read<AppState>().setDataset(runId);
       _startPolling(runId, 'dataset');
+      _fetchResources(); // Refresh list after starting generation
     } catch (e) {
       setState(() => _loading = false);
       _showError(e.toString());
@@ -129,6 +159,7 @@ class _ControlPanelState extends State<ControlPanel> {
       );
       appState.setModel(modelId);
       _startPolling(modelId, 'model');
+      _fetchResources(); // Refresh list after starting training
     } catch (e) {
       setState(() => _loading = false);
       _showError(e.toString());
@@ -174,6 +205,87 @@ class _ControlPanelState extends State<ControlPanel> {
     );
   }
 
+  Widget _buildDatasetSelector(AppState appState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Or Select Existing Dataset',
+            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF020617),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: _availableDatasets.any((d) => d.runId == appState.datasetId)
+                  ? appState.datasetId
+                  : null,
+              hint: const Text('Choose a dataset'),
+              dropdownColor: const Color(0xFF020617),
+              items: _availableDatasets.map((d) {
+                return DropdownMenuItem(
+                  value: d.runId,
+                  child: Text('${d.runId.substring(0, 8)}... (${d.status})',
+                      style: const TextStyle(fontSize: 14)),
+                );
+              }).toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  appState.setDataset(val);
+                  _syncWithAppState();
+                }
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModelSelector(AppState appState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Or Select Existing Model',
+            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF020617),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: _availableModels.any((m) => m.modelRunId == appState.modelRunId)
+                  ? appState.modelRunId
+                  : null,
+              hint: const Text('Choose a model'),
+              dropdownColor: const Color(0xFF020617),
+              items: _availableModels.map((m) {
+                return DropdownMenuItem(
+                  value: m.modelRunId,
+                  child: Text('${m.name} (${m.status})', style: const TextStyle(fontSize: 14)),
+                );
+              }).toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  appState.setModel(val);
+                  _syncWithAppState();
+                }
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
@@ -197,6 +309,15 @@ class _ControlPanelState extends State<ControlPanel> {
                 icon: const Icon(Icons.refresh),
                 label: const Text('Refresh Status'),
               ),
+              if (_fetchingResources)
+                const Padding(
+                  padding: EdgeInsets.only(left: 16),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 32),
@@ -211,6 +332,10 @@ class _ControlPanelState extends State<ControlPanel> {
                     _buildTextField('Host Count', _hostCountController),
                     const SizedBox(height: 16),
                     _buildButton('Generate Dataset', _generate, enabled: !_loading),
+                    const SizedBox(height: 16),
+                    const Divider(color: Colors.white24),
+                    const SizedBox(height: 16),
+                    _buildDatasetSelector(appState),
                     if (currentDataset != null) _buildDatasetStatus(currentDataset),
                   ],
                 ),
@@ -233,6 +358,10 @@ class _ControlPanelState extends State<ControlPanel> {
                     _buildTextField('Model Name', _modelNameController),
                     const SizedBox(height: 16),
                     _buildButton('Start Training', _train, enabled: !_loading && canTrain),
+                    const SizedBox(height: 16),
+                    const Divider(color: Colors.white24),
+                    const SizedBox(height: 16),
+                    _buildModelSelector(appState),
                     if (currentModel != null) _buildModelStatus(currentModel),
                   ],
                 ),
