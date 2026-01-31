@@ -15,26 +15,39 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   Future<DatasetSummary>? _summaryFuture;
   Future<List<TopKEntry>>? _topRegionsFuture;
   Future<List<TopKEntry>>? _topAnomalyFuture;
-  Future<HistogramData>? _cpuHistFuture;
-  Future<List<TimeSeriesPoint>>? _cpuTsFuture;
+  Future<HistogramData>? _metricHistFuture;
+  Future<List<TimeSeriesPoint>>? _metricTsFuture;
 
-  void _load(String datasetId) {
+  final List<Map<String, String>> _availableMetrics = [
+    {'key': 'cpu_usage', 'label': 'CPU Usage'},
+    {'key': 'memory_usage', 'label': 'Memory Usage'},
+    {'key': 'disk_utilization', 'label': 'Disk Utilization'},
+    {'key': 'network_rx_rate', 'label': 'Network RX Rate'},
+    {'key': 'network_tx_rate', 'label': 'Network TX Rate'},
+  ];
+
+  void _load(String datasetId, String metric) {
     final service = context.read<TelemetryService>();
     _summaryFuture = service.getDatasetSummary(datasetId);
     _topRegionsFuture = service.getTopK(datasetId, 'region', k: 10);
     _topAnomalyFuture = service.getTopK(datasetId, 'anomaly_type', k: 10, isAnomaly: 'true');
-    _cpuHistFuture = service.getHistogram(datasetId, metric: 'cpu_usage', bins: 30);
-    _cpuTsFuture = service.getTimeSeries(datasetId, metrics: ['cpu_usage'], aggs: ['mean'], bucket: '1h');
+    _metricHistFuture = service.getHistogram(datasetId, metric: metric, bins: 30);
+    _metricTsFuture =
+        service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: '1h');
   }
 
   @override
   Widget build(BuildContext context) {
-    final datasetId = context.watch<AppState>().datasetId;
+    final appState = context.watch<AppState>();
+    final datasetId = appState.datasetId;
     if (datasetId == null) {
       return const Center(child: Text('Select a dataset run to view analytics.'));
     }
+
+    final selectedMetric = appState.getSelectedMetric(datasetId);
+
     if (_summaryFuture == null) {
-      _load(datasetId);
+      _load(datasetId, selectedMetric);
     }
 
     return Padding(
@@ -46,12 +59,42 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Dataset Analytics — $datasetId',
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Dataset Analytics — $datasetId',
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Text('Metric: ', style: TextStyle(color: Colors.white60)),
+                        const SizedBox(width: 8),
+                        DropdownButton<String>(
+                          value: selectedMetric,
+                          dropdownColor: const Color(0xFF1E293B),
+                          items: _availableMetrics.map((m) {
+                            return DropdownMenuItem(
+                              value: m['key'],
+                              child: Text(m['label']!),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            if (val != null) {
+                              appState.setSelectedMetric(datasetId, val);
+                              setState(() {
+                                _load(datasetId, val);
+                              });
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
                 IconButton(
                   onPressed: () {
                     setState(() {
-                      _load(datasetId);
+                      _load(datasetId, selectedMetric);
                     });
                   },
                   icon: const Icon(Icons.refresh),
@@ -134,9 +177,9 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 SizedBox(
                   width: 420,
                   child: ChartCard(
-                    title: 'CPU Histogram',
+                    title: '$selectedMetric Histogram',
                     child: FutureBuilder<HistogramData>(
-                      future: _cpuHistFuture,
+                      future: _metricHistFuture,
                       builder: (context, snapshot) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const Center(child: CircularProgressIndicator());
@@ -180,10 +223,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             SizedBox(
               width: double.infinity,
               child: ChartCard(
-                title: 'CPU Usage Mean (1h)',
+                title: '$selectedMetric Mean (1h)',
                 height: 240,
                 child: FutureBuilder<List<TimeSeriesPoint>>(
-                  future: _cpuTsFuture,
+                  future: _metricTsFuture,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator());
@@ -194,7 +237,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     final points = snapshot.data ?? [];
                     if (points.isEmpty) return const SizedBox.shrink();
                     final xs = List<double>.generate(points.length, (i) => i.toDouble());
-                    final ys = points.map((e) => e.values['cpu_usage_mean'] ?? 0.0).toList();
+                    final ys = points.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
                     return LineChart(x: xs, y: ys);
                   },
                 ),

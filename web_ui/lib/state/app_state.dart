@@ -12,6 +12,15 @@ class AppState extends ChangeNotifier {
   DatasetStatus? currentDataset;
   ModelStatus? currentModel;
 
+  final Map<String, String> _datasetMetrics = {};
+
+  String getSelectedMetric(String datasetId) => _datasetMetrics[datasetId] ?? 'cpu_usage';
+
+  void setSelectedMetric(String datasetId, String metric) {
+    _datasetMetrics[datasetId] = metric;
+    notifyListeners();
+  }
+
   void setDataset(String? id, {DatasetStatus? status}) {
     datasetId = id;
     currentDataset = status;
