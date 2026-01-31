@@ -24,6 +24,7 @@ class _ControlPanelState extends State<ControlPanel> {
   List<DatasetRun> _availableDatasets = [];
   List<ModelRunSummary> _availableModels = [];
   bool _fetchingResources = false;
+  String? _selectionWarning;
 
   @override
   void initState() {
@@ -33,14 +34,32 @@ class _ControlPanelState extends State<ControlPanel> {
 
   Future<void> _fetchResources() async {
     if (_fetchingResources) return;
-    setState(() => _fetchingResources = true);
+    setState(() {
+      _fetchingResources = true;
+      _selectionWarning = null;
+    });
     final service = context.read<TelemetryService>();
+    final appState = context.read<AppState>();
     try {
       final datasets = await service.listDatasets(limit: 100);
       final models = await service.listModels(limit: 100);
+      
+      String? warning;
+      if (appState.datasetId != null && !datasets.any((d) => d.runId == appState.datasetId)) {
+        warning = 'Previously selected dataset is no longer available.';
+        appState.setDataset(null);
+      }
+      if (appState.modelRunId != null && !models.any((m) => m.modelRunId == appState.modelRunId)) {
+        warning = (warning == null) 
+            ? 'Previously selected model is no longer available.' 
+            : 'Previously selected dataset and model are no longer available.';
+        appState.setModel(null);
+      }
+
       setState(() {
         _availableDatasets = datasets;
         _availableModels = models;
+        _selectionWarning = warning;
       });
     } catch (e) {
       _showError('Failed to fetch resources: $e');
@@ -62,13 +81,13 @@ class _ControlPanelState extends State<ControlPanel> {
     if (appState.datasetId != null && appState.currentDataset == null) {
       try {
         final status = await service.getDatasetStatus(appState.datasetId!);
-        appState.setDatasetStatus(status);
+        appState.setDataset(status.runId, status: status);
       } catch (_) {}
     }
     if (appState.modelRunId != null && appState.currentModel == null) {
       try {
         final status = await service.getModelStatus(appState.modelRunId!);
-        appState.setModelStatus(status);
+        appState.setModel(status.modelRunId, status: status);
       } catch (_) {}
     }
   }
@@ -91,14 +110,14 @@ class _ControlPanelState extends State<ControlPanel> {
       try {
         if (type == 'dataset') {
           final status = await service.getDatasetStatus(id);
-          appState.setDatasetStatus(status);
+          appState.setDataset(status.runId, status: status);
           if (status.status != 'PENDING' && status.status != 'RUNNING') {
             timer.cancel();
             setState(() => _loading = false);
           }
         } else {
           final status = await service.getModelStatus(id);
-          appState.setModelStatus(status);
+          appState.setModel(status.modelRunId, status: status);
           if (status.status != 'PENDING' && status.status != 'RUNNING') {
             timer.cancel();
             setState(() => _loading = false);
@@ -121,11 +140,11 @@ class _ControlPanelState extends State<ControlPanel> {
     try {
       if (appState.datasetId != null) {
         final status = await service.getDatasetStatus(appState.datasetId!);
-        appState.setDatasetStatus(status);
+        appState.setDataset(status.runId, status: status);
       }
       if (appState.modelRunId != null) {
         final status = await service.getModelStatus(appState.modelRunId!);
-        appState.setModelStatus(status);
+        appState.setModel(status.modelRunId, status: status);
       }
     } catch (e) {
       _showError(e.toString());
@@ -206,6 +225,13 @@ class _ControlPanelState extends State<ControlPanel> {
   }
 
   Widget _buildDatasetSelector(AppState appState) {
+    if (_availableDatasets.isEmpty && !_fetchingResources) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Text('No datasets available. Generate a dataset to get started.',
+            style: TextStyle(color: Colors.amberAccent, fontSize: 13)),
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -247,6 +273,13 @@ class _ControlPanelState extends State<ControlPanel> {
   }
 
   Widget _buildModelSelector(AppState appState) {
+    if (_availableModels.isEmpty && !_fetchingResources) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Text('No models available. Train a model to enable inference.',
+            style: TextStyle(color: Colors.amberAccent, fontSize: 13)),
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -301,6 +334,30 @@ class _ControlPanelState extends State<ControlPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildHeader(),
+          if (_selectionWarning != null)
+            Container(
+              margin: const EdgeInsets.only(top: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.amber),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(_selectionWarning!,
+                        style: const TextStyle(color: Colors.amber)),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.amber, size: 18),
+                    onPressed: () => setState(() => _selectionWarning = null),
+                  ),
+                ],
+              ),
+            ),
           const SizedBox(height: 12),
           Row(
             children: [

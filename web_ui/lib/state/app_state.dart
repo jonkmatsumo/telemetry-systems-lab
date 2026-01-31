@@ -47,18 +47,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setDatasetStatus(DatasetStatus? status) {
-    currentDataset = status;
-    if (status != null) datasetId = status.runId;
-    notifyListeners();
-  }
-
-  void setModelStatus(ModelStatus? status) {
-    currentModel = status;
-    if (status != null) modelRunId = status.modelRunId;
-    notifyListeners();
-  }
-
   void setTimeRange({String? start, String? end}) {
     startTime = start;
     endTime = end;
