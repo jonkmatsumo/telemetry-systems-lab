@@ -29,3 +29,13 @@ This document serves as a guide for manual verification of UX improvements in th
 - [ ] **Real-time Progress:** Start a "Score Dataset" job from the `Models` tab. Open the global Jobs drawer. You should see a progress bar updating as rows are processed.
 - [ ] **Status Badge:** When jobs are running, a red badge with the count of active jobs should appear on the Jobs icon in the AppBar.
 - [ ] **Failure Details:** If a job fails, the error message should be visible in the Jobs drawer.
+
+## 6. UX Hardening & Resilience
+- [ ] **Stale Selection Handling:** If a dataset or model is deleted (or missing from latest fetch), the `Control` tab should clear the selection and show an amber warning banner.
+- [ ] **Empty States:** When no datasets or models exist, the selectors in the `Control` tab should show helpful empty state messages (e.g., "No datasets available...").
+- [ ] **Schema-Driven Metrics:** Verify that the metric list in `Dataset Analytics` is fetched from the server. If the server is down, it should fall back to a safe default list.
+- [ ] **Analytics Error Recovery:** If a dataset doesn't support a specific metric, an inline error alert should appear within the analytics view, allowing for a retry.
+- [ ] **Jobs Polling Efficiency:** The app should only poll for job updates when the Jobs drawer is open or there are active/pending jobs.
+- [ ] **Job Drawer Actions:** Verify that "Dataset" and "Model" buttons in the Jobs drawer correctly navigate and set the application context.
+- [ ] **Clear Completed Jobs:** Verify that the "Clear Completed" button in the Jobs drawer correctly hides finished jobs.
+- [ ] **Inference Preview with Real Data:** In the `Control` tab, once a model is trained and a dataset is selected, you should be able to pick a real record from a dropdown to test anomaly detection.
