@@ -454,6 +454,16 @@ class TelemetryService {
     throw Exception('$defaultMessage: ${response.body}');
   }
 
+  Future<List<Map<String, String>>> getMetricsSchema() async {
+    final response = await _client.get(Uri.parse('$baseUrl/schema/metrics'));
+    if (response.statusCode == 200) {
+      final List metrics = jsonDecode(response.body)['metrics'];
+      return metrics.map<Map<String, String>>((m) => Map<String, String>.from(m)).toList();
+    }
+    _handleError(response, 'Failed to get metrics schema');
+    throw Exception('Unreachable');
+  }
+
   Future<String> generateDataset(int hostCount) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/datasets'),

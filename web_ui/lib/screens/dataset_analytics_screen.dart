@@ -18,13 +18,35 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   Future<HistogramData>? _metricHistFuture;
   Future<List<TimeSeriesPoint>>? _metricTsFuture;
 
-  final List<Map<String, String>> _availableMetrics = [
-    {'key': 'cpu_usage', 'label': 'CPU Usage'},
-    {'key': 'memory_usage', 'label': 'Memory Usage'},
-    {'key': 'disk_utilization', 'label': 'Disk Utilization'},
-    {'key': 'network_rx_rate', 'label': 'Network RX Rate'},
-    {'key': 'network_tx_rate', 'label': 'Network TX Rate'},
-  ];
+  List<Map<String, String>> _availableMetrics = [];
+  bool _loadingSchema = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchSchema();
+  }
+
+  Future<void> _fetchSchema() async {
+    setState(() => _loadingSchema = true);
+    try {
+      final schema = await context.read<TelemetryService>().getMetricsSchema();
+      setState(() => _availableMetrics = schema);
+    } catch (_) {
+      // Fallback if schema API fails
+      setState(() {
+        _availableMetrics = [
+          {'key': 'cpu_usage', 'label': 'CPU Usage'},
+          {'key': 'memory_usage', 'label': 'Memory Usage'},
+          {'key': 'disk_utilization', 'label': 'Disk Utilization'},
+          {'key': 'network_rx_rate', 'label': 'Network RX Rate'},
+          {'key': 'network_tx_rate', 'label': 'Network TX Rate'},
+        ];
+      });
+    } finally {
+      setState(() => _loadingSchema = false);
+    }
+  }
 
   void _load(String datasetId, String metric) {
     final service = context.read<TelemetryService>();

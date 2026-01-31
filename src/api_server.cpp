@@ -164,6 +164,19 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         res.set_content(telemetry::metrics::MetricsRegistry::Instance().ToPrometheus(), "text/plain");
     });
 
+    svr_.Get("/schema/metrics", [this](const httplib::Request& req, httplib::Response& res) {
+        std::string rid = GetRequestId(req);
+        nlohmann::json resp;
+        resp["metrics"] = {
+            {{"key", "cpu_usage"}, {"label", "CPU Usage"}},
+            {{"key", "memory_usage"}, {"label", "Memory Usage"}},
+            {{"key", "disk_utilization"}, {"label", "Disk Utilization"}},
+            {{"key", "network_rx_rate"}, {"label", "Network RX Rate"}},
+            {{"key", "network_tx_rate"}, {"label", "Network TX Rate"}}
+        };
+        SendJson(res, resp, 200, rid);
+    });
+
     // Serve Static Web UI
     svr_.set_mount_point("/", "./www");
 
