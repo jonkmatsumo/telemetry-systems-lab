@@ -17,11 +17,33 @@ class _ControlPanelState extends State<ControlPanel> {
   final _modelNameController = TextEditingController(text: 'pca_v1');
 
   bool _loading = false;
-  DatasetStatus? _currentDataset;
-  ModelStatus? _currentModel;
   InferenceResponse? _inferenceResults;
   Timer? _pollingTimer;
   bool _pollingInFlight = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncWithAppState();
+  }
+
+  void _syncWithAppState() async {
+    final appState = context.read<AppState>();
+    final service = context.read<TelemetryService>();
+
+    if (appState.datasetId != null && appState.currentDataset == null) {
+      try {
+        final status = await service.getDatasetStatus(appState.datasetId!);
+        appState.setDatasetStatus(status);
+      } catch (_) {}
+    }
+    if (appState.modelRunId != null && appState.currentModel == null) {
+      try {
+        final status = await service.getModelStatus(appState.modelRunId!);
+        appState.setModelStatus(status);
+      } catch (_) {}
+    }
+  }
 
   @override
   void dispose() {
@@ -37,22 +59,21 @@ class _ControlPanelState extends State<ControlPanel> {
       if (_pollingInFlight) return;
       _pollingInFlight = true;
       final service = context.read<TelemetryService>();
+      final appState = context.read<AppState>();
       try {
         if (type == 'dataset') {
           final status = await service.getDatasetStatus(id);
-          setState(() => _currentDataset = status);
+          appState.setDatasetStatus(status);
           if (status.status != 'PENDING' && status.status != 'RUNNING') {
             timer.cancel();
             setState(() => _loading = false);
-            context.read<AppState>().setDataset(status.runId);
           }
         } else {
           final status = await service.getModelStatus(id);
-          setState(() => _currentModel = status);
+          appState.setModelStatus(status);
           if (status.status != 'PENDING' && status.status != 'RUNNING') {
             timer.cancel();
             setState(() => _loading = false);
-            context.read<AppState>().setModel(status.modelRunId);
           }
         }
       } catch (e) {
@@ -67,14 +88,15 @@ class _ControlPanelState extends State<ControlPanel> {
 
   Future<void> _refreshStatus() async {
     final service = context.read<TelemetryService>();
+    final appState = context.read<AppState>();
     try {
-      if (_currentDataset != null) {
-        final status = await service.getDatasetStatus(_currentDataset!.runId);
-        setState(() => _currentDataset = status);
+      if (appState.datasetId != null) {
+        final status = await service.getDatasetStatus(appState.datasetId!);
+        appState.setDatasetStatus(status);
       }
-      if (_currentModel != null) {
-        final status = await service.getModelStatus(_currentModel!.modelRunId);
-        setState(() => _currentModel = status);
+      if (appState.modelRunId != null) {
+        final status = await service.getModelStatus(appState.modelRunId!);
+        appState.setModelStatus(status);
       }
     } catch (e) {
       _showError(e.toString());
@@ -87,6 +109,7 @@ class _ControlPanelState extends State<ControlPanel> {
     try {
       final count = int.parse(_hostCountController.text);
       final runId = await service.generateDataset(count);
+      context.read<AppState>().setDataset(runId);
       _startPolling(runId, 'dataset');
     } catch (e) {
       setState(() => _loading = false);
@@ -95,14 +118,16 @@ class _ControlPanelState extends State<ControlPanel> {
   }
 
   void _train() async {
-    if (_currentDataset == null) return;
+    final appState = context.read<AppState>();
+    if (appState.datasetId == null) return;
     setState(() => _loading = true);
     final service = context.read<TelemetryService>();
     try {
       final modelId = await service.trainModel(
-        _currentDataset!.runId,
+        appState.datasetId!,
         name: _modelNameController.text,
       );
+      appState.setModel(modelId);
       _startPolling(modelId, 'model');
     } catch (e) {
       setState(() => _loading = false);
@@ -111,7 +136,8 @@ class _ControlPanelState extends State<ControlPanel> {
   }
 
   void _infer() async {
-    if (_currentModel == null) return;
+    final appState = context.read<AppState>();
+    if (appState.modelRunId == null) return;
     setState(() => _loading = true);
     final service = context.read<TelemetryService>();
     try {
@@ -131,7 +157,7 @@ class _ControlPanelState extends State<ControlPanel> {
           'network_tx_rate': 5.0
         }
       ];
-      final res = await service.runInference(_currentModel!.modelRunId, samples);
+      final res = await service.runInference(appState.modelRunId!, samples);
       setState(() {
         _inferenceResults = res;
         _loading = false;
@@ -150,8 +176,12 @@ class _ControlPanelState extends State<ControlPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final canTrain = _currentDataset?.status == 'SUCCEEDED' || _currentDataset?.status == 'COMPLETED';
-    final canInfer = _currentModel?.status == 'COMPLETED';
+    final appState = context.watch<AppState>();
+    final currentDataset = appState.currentDataset;
+    final currentModel = appState.currentModel;
+
+    final canTrain = currentDataset?.status == 'SUCCEEDED' || currentDataset?.status == 'COMPLETED';
+    final canInfer = currentModel?.status == 'COMPLETED';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
@@ -181,7 +211,7 @@ class _ControlPanelState extends State<ControlPanel> {
                     _buildTextField('Host Count', _hostCountController),
                     const SizedBox(height: 16),
                     _buildButton('Generate Dataset', _generate, enabled: !_loading),
-                    if (_currentDataset != null) _buildDatasetStatus(),
+                    if (currentDataset != null) _buildDatasetStatus(currentDataset),
                   ],
                 ),
               ),
@@ -190,10 +220,20 @@ class _ControlPanelState extends State<ControlPanel> {
                 enabled: canTrain,
                 child: Column(
                   children: [
+                    if (!canTrain)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Text(
+                          currentDataset == null
+                              ? 'Select a dataset to enable training'
+                              : 'Wait for dataset generation to complete',
+                          style: const TextStyle(color: Colors.amberAccent, fontSize: 13),
+                        ),
+                      ),
                     _buildTextField('Model Name', _modelNameController),
                     const SizedBox(height: 16),
                     _buildButton('Start Training', _train, enabled: !_loading && canTrain),
-                    if (_currentModel != null) _buildModelStatus(),
+                    if (currentModel != null) _buildModelStatus(currentModel),
                   ],
                 ),
               ),
@@ -202,6 +242,16 @@ class _ControlPanelState extends State<ControlPanel> {
                 enabled: canInfer,
                 child: Column(
                   children: [
+                    if (!canInfer)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Text(
+                          currentModel == null
+                              ? 'Select a model to enable inference'
+                              : 'Wait for model training to complete',
+                          style: const TextStyle(color: Colors.amberAccent, fontSize: 13),
+                        ),
+                      ),
                     _buildButton('Test Anomaly Detection', _infer, enabled: !_loading && canInfer),
                     if (_inferenceResults != null) _buildInferenceResults(),
                   ],
@@ -314,7 +364,7 @@ class _ControlPanelState extends State<ControlPanel> {
     );
   }
 
-  Widget _buildDatasetStatus() {
+  Widget _buildDatasetStatus(DatasetStatus status) {
     return Container(
       margin: const EdgeInsets.only(top: 24),
       padding: const EdgeInsets.all(16),
@@ -322,15 +372,15 @@ class _ControlPanelState extends State<ControlPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildStatusText('ID', _currentDataset!.runId, Colors.white70),
-          _buildStatusText('Status', _currentDataset!.status, _getStatusColor(_currentDataset!.status)),
-          _buildStatusText('Rows', _currentDataset!.rowsInserted.toString(), Colors.white70),
+          _buildStatusText('ID', status.runId, Colors.white70),
+          _buildStatusText('Status', status.status, _getStatusColor(status.status)),
+          _buildStatusText('Rows', status.rowsInserted.toString(), Colors.white70),
         ],
       ),
     );
   }
 
-  Widget _buildModelStatus() {
+  Widget _buildModelStatus(ModelStatus status) {
     return Container(
       margin: const EdgeInsets.only(top: 24),
       padding: const EdgeInsets.all(16),
@@ -338,9 +388,9 @@ class _ControlPanelState extends State<ControlPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildStatusText('ID', _currentModel!.modelRunId, Colors.white70),
-          _buildStatusText('Status', _currentModel!.status, _getStatusColor(_currentModel!.status)),
-          if (_currentModel!.error != null) Text(_currentModel!.error!, style: const TextStyle(color: Colors.red)),
+          _buildStatusText('ID', status.modelRunId, Colors.white70),
+          _buildStatusText('Status', status.status, _getStatusColor(status.status)),
+          if (status.error != null) Text(status.error!, style: const TextStyle(color: Colors.red)),
         ],
       ),
     );

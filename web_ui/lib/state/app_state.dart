@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/telemetry_service.dart';
 
 class AppState extends ChangeNotifier {
   String? datasetId;
@@ -8,13 +9,30 @@ class AppState extends ChangeNotifier {
   bool? isAnomaly;
   String? anomalyType;
 
-  void setDataset(String? id) {
+  DatasetStatus? currentDataset;
+  ModelStatus? currentModel;
+
+  void setDataset(String? id, {DatasetStatus? status}) {
     datasetId = id;
+    currentDataset = status;
     notifyListeners();
   }
 
-  void setModel(String? id) {
+  void setModel(String? id, {ModelStatus? status}) {
     modelRunId = id;
+    currentModel = status;
+    notifyListeners();
+  }
+
+  void setDatasetStatus(DatasetStatus? status) {
+    currentDataset = status;
+    if (status != null) datasetId = status.runId;
+    notifyListeners();
+  }
+
+  void setModelStatus(ModelStatus? status) {
+    currentModel = status;
+    if (status != null) modelRunId = status.modelRunId;
     notifyListeners();
   }
 
