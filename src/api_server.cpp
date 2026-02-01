@@ -102,7 +102,6 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
     svr_.Get("/datasets/([a-zA-Z0-9-]+)/models", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetDatasetModels(req, res);
     });
-...
     svr_.Get("/models/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetModelDetail(req, res);
     });
