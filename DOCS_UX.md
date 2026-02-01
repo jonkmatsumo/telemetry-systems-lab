@@ -7,7 +7,7 @@ This document serves as a guide for manual verification of UX improvements in th
   *   *Repro:* Open Results → record drawer → Click "Load into Inference Preview". Verify dataset/model is selected but record values are not populated in the Control tab.
 - [x] **SR-01:** Min score slider has hardcoded max of 10.
   *   *Repro:* Open Scoring Results for a dataset with high scores. Verify slider cannot filter scores > 10.
-- [ ] **DL-01:** Deep link `metric` param is ignored.
+- [x] **DL-01:** Deep link `metric` param is ignored.
   *   *Repro:* Copy analytics link with `&metric=network_tx_rate`, reload page. Verify metric reverts to default (`cpu_usage`).
 - [ ] **DL-02:** Scoring Results screen does not support deep linking.
   *   *Repro:* Refresh while on Scoring Results screen. Verify it redirects to home/default state instead of restoring results view.
@@ -75,4 +75,4 @@ This document serves as a guide for manual verification of UX improvements in th
 
 ## 11. Deep Links
 - [ ] **Copy Link:** Click "Copy Link" in any detail or analytics screen.
-- [ ] **Hydration:** Paste the link into a new tab (or refresh). Verify that the app restores the selected dataset, model, and metric automatically.
+- [x] **Hydration:** Paste the link into a new tab (or refresh). Verify that the app restores the selected dataset, model, and metric automatically.
