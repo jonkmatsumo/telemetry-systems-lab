@@ -53,6 +53,12 @@ Logs are single-line JSON with the following required fields (when applicable):
 - model_load_end
 - model_load_error
 - artifact_write
+- generation_start
+- generation_end
+- generation_error
+- score_job_start
+- score_job_end
+- score_job_error
 
 ## Error Code Taxonomy
 
@@ -83,6 +89,12 @@ Metrics use either the in-process registry (`/metrics`) or log-emitted metric ev
 - train_bytes_written (counter, bytes)
 - train_db_query_duration_ms (histogram, ms)
 
+### Dataset Generation
+
+- generation_duration_ms (histogram, ms)
+- generation_rows_written (counter, rows)
+- generation_db_write_count (counter, batches)
+
 ### Inference
 
 - infer_duration_ms (histogram, ms)
@@ -108,3 +120,20 @@ All JSON responses that originate from the API server must include `request_id`.
 ## Debugging
 
 To trace a request, filter logs by `request_id` and then pivot to run identifiers (model_run_id, inference_run_id, dataset_id).
+
+### Training stuck / slow
+
+- Find `train_start` and `train_end` by `model_run_id` to compute duration.
+- Check `train_duration_ms` and `train_db_query_duration_ms` metrics for spikes.
+- Verify `train_rows_processed` is non-zero; if zero, look for `E_TRAIN_NO_DATA`.
+
+### Model load failure
+
+- Search `model_load_error` logs for `artifact_path` and `error_code`.
+- Confirm `model_bytes_read` and `model_load_duration_ms` metrics exist for recent runs.
+
+### Scores missing or incomplete
+
+- Search `score_job_start` / `score_job_end` for the `score_job_id`.
+- Check `scores_insert_rows` and `scores_insert_duration_ms` metrics for throughput.
+- Use `scores_query_duration_ms` to confirm retrieval latency.
