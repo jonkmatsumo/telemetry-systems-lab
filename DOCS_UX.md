@@ -78,3 +78,7 @@ This document serves as a guide for manual verification of UX improvements in th
 - [x] **Hydration:** Paste the link into a new tab (or refresh). Verify that the app restores the selected dataset, model, and metric automatically.
 - [x] **Results Link:** Open Scoring Results, apply filters, copy link. Open new tab. Verify Results screen restores with same filters.
 - [x] **Error Handling:** Kill API/server. Verify UI shows error messages (snackbars/logs) instead of silent failure.
+
+## Follow-up Items
+- [ ] **Job Cancellation:** The "close" icon in the Jobs Drawer currently only hides the job locally. Implement API call to `DELETE /jobs/{id}` to actually cancel running jobs.
+- [ ] **Invalid IDs:** Deep links with invalid dataset/model IDs currently result in empty states or partial loads. Add explicit error pages or redirects for invalid resources.
