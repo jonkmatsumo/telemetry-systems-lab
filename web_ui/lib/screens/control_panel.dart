@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
+import '../widgets/inline_alert.dart';
 
 class ControlPanel extends StatefulWidget {
   const ControlPanel({super.key});
@@ -44,9 +45,35 @@ class _ControlPanelState extends State<ControlPanel> {
       final datasets = await service.listDatasets(limit: 50, offset: 0);
       final models = await service.listModels(limit: 50, offset: 0);
       if (!mounted) return;
+      final appState = context.read<AppState>();
+      final datasetId = appState.datasetId;
+      final modelId = appState.modelRunId;
+      final datasetMissing =
+          datasetId != null && !datasets.any((d) => d.runId == datasetId);
+      final modelMissing =
+          modelId != null && !models.any((m) => m.modelRunId == modelId);
+
+      if (datasetMissing) {
+        appState.setDataset(null);
+        appState.setModel(null);
+      } else if (modelMissing) {
+        appState.setModel(null);
+      }
+
+      String? warning;
+      if (datasetMissing && modelMissing) {
+        warning =
+            'Selected dataset and model are no longer available. Selections cleared.';
+      } else if (datasetMissing) {
+        warning = 'Selected dataset is no longer available. Selection cleared.';
+      } else if (modelMissing) {
+        warning = 'Selected model is no longer available. Selection cleared.';
+      }
+
       setState(() {
         _availableDatasets = datasets;
         _availableModels = models;
+        _selectionWarning = warning;
       });
     } catch (e) {
       if (!mounted) return;
@@ -403,27 +430,12 @@ class _ControlPanelState extends State<ControlPanel> {
         children: [
           _buildHeader(),
           if (_selectionWarning != null)
-            Container(
-              margin: const EdgeInsets.only(top: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.amber.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.amber.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.warning_amber_rounded, color: Colors.amber),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(_selectionWarning!,
-                        style: const TextStyle(color: Colors.amber)),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.amber, size: 18),
-                    onPressed: () => setState(() => _selectionWarning = null),
-                  ),
-                ],
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: InlineAlert(
+                message: _selectionWarning!,
+                color: Colors.amber,
+                onRetry: _fetchResources,
               ),
             ),
           const SizedBox(height: 12),
