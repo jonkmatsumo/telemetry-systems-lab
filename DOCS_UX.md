@@ -39,3 +39,27 @@ This document serves as a guide for manual verification of UX improvements in th
 - [ ] **Job Drawer Actions:** Verify that "Dataset" and "Model" buttons in the Jobs drawer correctly navigate and set the application context.
 - [ ] **Clear Completed Jobs:** Verify that the "Clear Completed" button in the Jobs drawer correctly hides finished jobs.
 - [ ] **Inference Preview with Real Data:** In the `Control` tab, once a model is trained and a dataset is selected, you should be able to pick a real record from a dropdown to test anomaly detection.
+
+## 7. Dataset Schema & Explorer
+- [ ] **Feature List:** In `Runs` detail, click the "Features" tab. You should see a list of available metrics with descriptions, types, and units.
+- [ ] **Quick Stats:** Click a feature in the list. A panel should appear showing count, mean, min, max, p50, and p95 for that metric in the selected dataset.
+
+## 8. Feature Distributions Browser
+- [ ] **Distributions Tab:** In `Dataset Analytics`, click the "Distributions" tab.
+- [ ] **Metric Rail:** Use the left rail to switch between different metrics. Histogram and Trend charts should update accordingly.
+- [ ] **Comparison Mode:** Click the "+" icon next to a metric in the rail. It should render a second set of charts and stats side-by-side for comparison.
+- [ ] **Suggested Metrics:** Verify that the "Suggested (High Var)" chips appear and correctly switch the primary metric when clicked.
+
+## 9. Model ↔ Dataset Linkage
+- [ ] **Dataset → Models:** In `Runs` detail, "Models" tab, verify that models trained on that dataset are listed with a "View Model" shortcut.
+- [ ] **Model → Scored Datasets:** In `Models` detail, "Scored Datasets" tab, verify that datasets scored by that model are listed with a "View Dataset" shortcut.
+
+## 10. Scoring Results Browser
+- [ ] **Open Results:** From a completed job in the Jobs drawer, or from the "Scored Datasets" tab in Models, navigate to the Results browser.
+- [ ] **Table View:** Verify that scored records are listed with their anomaly scores and predictions.
+- [ ] **Filters:** Toggle "Only Anomalies" and adjust the "Min Score" slider. The table should update to reflect the filters.
+- [ ] **Record Detail:** Click a row to open the detail drawer. Verify the data and click "Load into Inference Preview" to ensure it navigates correctly.
+
+## 11. Deep Links
+- [ ] **Copy Link:** Click "Copy Link" in any detail or analytics screen.
+- [ ] **Hydration:** Paste the link into a new tab (or refresh). Verify that the app restores the selected dataset, model, and metric automatically.

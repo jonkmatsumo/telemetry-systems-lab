@@ -6,6 +6,7 @@ import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
 import '../widgets/charts.dart';
 import '../widgets/inline_alert.dart';
+import 'scoring_results_screen.dart';
 
 class ModelsScreen extends StatefulWidget {
   const ModelsScreen({super.key});
@@ -339,13 +340,33 @@ class _ModelsScreenState extends State<ModelsScreen> {
             return ListTile(
               title: Text('Dataset: ${ds['dataset_id'].substring(0, 8)}...'),
               subtitle: Text('Scored at: ${ds['scored_at']}'),
-              trailing: ElevatedButton(
-                onPressed: () {
-                  final appState = context.read<AppState>();
-                  appState.setDataset(ds['dataset_id']);
-                  appState.setTabIndex(1); // Go to Runs
-                },
-                child: const Text('View Dataset'),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      final appState = context.read<AppState>();
+                      appState.setDataset(ds['dataset_id']);
+                      appState.setTabIndex(1); // Go to Runs
+                    },
+                    child: const Text('View Dataset'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ScoringResultsScreen(
+                            datasetId: ds['dataset_id'],
+                            modelRunId: modelRunId,
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Text('Open Results'),
+                  ),
+                ],
               ),
             );
           },

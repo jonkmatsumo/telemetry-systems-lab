@@ -8,6 +8,7 @@ import 'screens/runs_screen.dart';
 import 'screens/dataset_analytics_screen.dart';
 import 'screens/models_screen.dart';
 import 'screens/inference_history_screen.dart';
+import 'screens/scoring_results_screen.dart';
 
 void main() {
   runApp(
@@ -80,7 +81,6 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
       
       final hasRunningJobs = appState.activeJobs.any((j) => j.status == 'RUNNING' || j.status == 'PENDING');
       
-      // Only poll if drawer is open OR there are active jobs
       if (_drawerOpen || hasRunningJobs) {
         try {
           final jobs = await service.listScoreJobs(limit: 10);
@@ -145,7 +145,7 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
       ),
       onEndDrawerChanged: (isOpen) {
         setState(() => _drawerOpen = isOpen);
-        if (isOpen) _startJobPolling(); // Ensure fresh data when opening
+        if (isOpen) _startJobPolling();
       },
       endDrawer: _buildJobsDrawer(appState),
       body: Container(
@@ -262,6 +262,22 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
                                   },
                                   child: const Text('Model', style: TextStyle(fontSize: 12)),
                                 ),
+                                if (job.status == 'COMPLETED')
+                                  TextButton.icon(
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => ScoringResultsScreen(
+                                            datasetId: job.datasetId,
+                                            modelRunId: job.modelRunId,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.analytics, size: 14),
+                                    label: const Text('Results', style: TextStyle(fontSize: 12)),
+                                  ),
                               ],
                             ),
                           ],
