@@ -111,8 +111,13 @@ class _ControlPanelState extends State<ControlPanel> {
       // If payload missing, fetch it (though we expect it passed)
       if (payload == null) {
         try {
+          final recordId = int.tryParse(pending.recordId);
+          if (recordId == null) {
+            _showError('Invalid record id: ${pending.recordId}');
+            return;
+          }
           final service = context.read<TelemetryService>();
-          payload = await service.getDatasetRecord(pending.datasetId, pending.recordId);
+          payload = await service.getDatasetRecord(pending.datasetId, recordId);
         } catch (e) {
           _showError('Failed to fetch pending record: $e');
           return;
