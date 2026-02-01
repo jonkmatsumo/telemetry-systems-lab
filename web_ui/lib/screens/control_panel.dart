@@ -107,7 +107,9 @@ class _ControlPanelState extends State<ControlPanel> {
         final status = await service.getDatasetStatus(appState.datasetId!);
         appState.setDataset(status.runId, status: status);
         _fetchSamples();
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Sync dataset failed: $e');
+      }
     } else if (appState.datasetId != null && _datasetSamples.isEmpty && !_loadingSamples) {
       _fetchSamples();
     }
@@ -115,7 +117,9 @@ class _ControlPanelState extends State<ControlPanel> {
       try {
         final status = await service.getModelStatus(appState.modelRunId!);
         appState.setModel(status.modelRunId, status: status);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Sync model failed: $e');
+      }
     }
   }
 

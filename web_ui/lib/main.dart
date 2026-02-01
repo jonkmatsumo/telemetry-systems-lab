@@ -139,7 +139,9 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
         try {
           final jobs = await service.listScoreJobs(limit: 10);
           appState.updateJobs(jobs);
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('Job polling failed: $e');
+        }
       }
     });
   }

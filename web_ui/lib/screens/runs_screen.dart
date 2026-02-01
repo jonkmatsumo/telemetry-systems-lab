@@ -30,8 +30,10 @@ class _RunsScreenState extends State<RunsScreen> {
   Future<void> _fetchSchema() async {
     try {
       final schema = await context.read<TelemetryService>().getMetricsSchema();
-      setState(() => _schema = schema);
-    } catch (_) {}
+      if (mounted) setState(() => _schema = schema);
+    } catch (e) {
+      debugPrint('Failed to fetch schema: $e');
+    }
   }
 
   Future<void> _fetchStats(String runId, String metric) async {
@@ -42,9 +44,16 @@ class _RunsScreenState extends State<RunsScreen> {
     });
     try {
       final stats = await context.read<TelemetryService>().getMetricStats(runId, metric);
-      setState(() => _metricStats = stats);
-    } catch (_) {} finally {
-      setState(() => _loadingStats = false);
+      if (mounted) setState(() => _metricStats = stats);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Failed to load stats for $metric: $e'),
+          backgroundColor: Colors.red,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _loadingStats = false);
     }
   }
 
@@ -52,6 +61,7 @@ class _RunsScreenState extends State<RunsScreen> {
     setState(() {
       _runsFuture = context.read<TelemetryService>().listDatasets();
     });
+    await _fetchSchema();
   }
 
   Future<void> _selectRun(DatasetRun run) async {
