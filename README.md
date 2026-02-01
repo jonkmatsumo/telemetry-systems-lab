@@ -6,8 +6,8 @@ A full-stack system for synthetic telemetry generation, PCA training, inference,
 
 ```mermaid
 graph TD
-    UI[Flutter Web App] -->|HTTP/JSON| API[HTTP API Service :8280]
-    API -->|gRPC| GEN[Generator Service :52051]
+    UI[Flutter Web App] -->|HTTP/JSON| API[HTTP API Service :${API_HTTP_PORT}]
+    API -->|gRPC| GEN[Generator Service :${GRPC_PORT}]
     API -->|In-process| CPP[Native C++ Trainer]
     API -->|SQL| DB[(Postgres :5432)]
     GEN -->|SQL| DB
@@ -21,12 +21,14 @@ The system is decomposed into five core components:
 4.  **Training (C++)**: PCA training logic invoked by the API server.
 5.  **Management Plane (Dart)**: Unified logic across the **Flutter Web Dashboard** and the **Dart CLI Tool** for system orchestration and verification.
 
-## Ports
+## Ports (from .env)
 
-- **HTTP API**: `8280` (External) -> `8080` (Internal)
-- **gRPC Generator**: `52051` (External) -> `50051` (Internal)
-- **Postgres**: `5434` (External) -> `5432` (Internal)
-- **Web UI**: `8300` (External/Internal)
+All service ports are configurable via the root `.env` file.
+
+- **HTTP API**: `${API_HTTP_PORT}` (External) -> `${API_HTTP_PORT_INTERNAL}` (Internal)
+- **gRPC Generator**: `${GRPC_PORT}` (External) -> `${GRPC_PORT_INTERNAL}` (Internal)
+- **Postgres**: `${DB_PORT}` (External) -> `${DB_PORT_INTERNAL}` (Internal)
+- **Web UI**: `${UI_PORT}` (External/Internal)
 
 ## Running alongside Text2SQL + Label Lag
 
@@ -34,10 +36,10 @@ This project is configured to avoid port conflicts with Text2SQL and Label Lag.
 
 | Service | Host Port | Internal Port | Conflict Avoidance |
 | :--- | :--- | :--- | :--- |
-| **telemetry-api** | `8280` | `8080` | Avoids Text2SQL `8080`, `8081`, `8082` |
-| **telemetry-generator** | `52051` | `50051` | Avoids Label Lag `50051`, `50052` |
-| **Postgres** | `5434` | `5432` | Avoids Text2SQL `5432`, `5433` |
-| **Flutter Web Dev** | `8300` | `8300` | Avoids Text2SQL `3000` |
+| **telemetry-api** | `${API_HTTP_PORT}` | `${API_HTTP_PORT_INTERNAL}` | Avoids Text2SQL `8080`, `8081`, `8082` |
+| **telemetry-generator** | `${GRPC_PORT}` | `${GRPC_PORT_INTERNAL}` | Avoids Label Lag `50051`, `50052` |
+| **Postgres** | `${DB_PORT}` | `${DB_PORT_INTERNAL}` | Avoids Text2SQL `5432`, `5433` |
+| **Flutter Web Dev** | `${UI_PORT}` | `${UI_PORT}` | Avoids Text2SQL `3000` |
 
 ## Repo Layout (Key Paths)
 
@@ -74,6 +76,9 @@ This produces:
 ## Docker (Infra + Dev Container)
 
 ```bash
+# Copy and edit local ports as needed
+cp .env.example .env
+
 # Start Postgres
 make infra-up
 
@@ -87,7 +92,7 @@ The dev environment (`make dev-up`) automatically:
 3.  Starts the `telemetry-api` service (once built).
 4.  Starts the `web-ui` (Flutter).
 
-You can access the Web UI at http://localhost:8300.
+You can access the Web UI at http://localhost:${UI_PORT}.
 
 To manually rebuild (e.g., after code changes) without restarting containers:
 ```bash
@@ -123,7 +128,7 @@ This populates the `host_telemetry_archival` table.
 
 API:
 ```bash
-curl -X POST http://localhost:8280/datasets -H 'Content-Type: application/json' -d '{"host_count": 10}'
+curl -X POST http://localhost:${API_HTTP_PORT}/datasets -H 'Content-Type: application/json' -d '{"host_count": 10}'
 ```
 
 ### 2. Train Model (API or CLI)
@@ -135,7 +140,7 @@ Outputs `artifacts/pca/default/model.json`.
 
 API:
 ```bash
-curl -X POST http://localhost:8280/train -H 'Content-Type: application/json' -d '{"dataset_id":"<RUN_ID>","name":"pca_v1"}'
+curl -X POST http://localhost:${API_HTTP_PORT}/train -H 'Content-Type: application/json' -d '{"dataset_id":"<RUN_ID>","name":"pca_v1"}'
 ```
 
 ### 3. Run Scorer (Inference)
@@ -195,11 +200,11 @@ Run in development:
 ```bash
 cd web_ui
 flutter pub get
-flutter run -d chrome --web-port 8300
+flutter run -d chrome --web-port ${UI_PORT}
 ```
-Set the API base URL (default: http://localhost:8280):
+Set the API base URL (default: http://localhost:${API_HTTP_PORT}):
 ```bash
-flutter run -d chrome --web-port 8300 --dart-define=API_BASE_URL=http://localhost:8280
+flutter run -d chrome --web-port ${UI_PORT} --dart-define=API_BASE_URL=${API_BASE_URL_HOST}
 ```
 
 Tabs:
