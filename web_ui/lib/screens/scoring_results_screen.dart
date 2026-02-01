@@ -219,6 +219,15 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
                       final appState = context.read<AppState>();
                       appState.setDataset(widget.datasetId);
                       appState.setModel(widget.modelRunId);
+                      
+                      // Pass the full record payload so we don't need to re-fetch
+                      appState.setPendingInference(PendingInferenceRequest(
+                        datasetId: widget.datasetId,
+                        modelId: widget.modelRunId,
+                        recordId: recordId.toString(),
+                        recordPayload: record,
+                      ));
+                      
                       appState.setTabIndex(0); // Go to Control/Inference
                       Navigator.pop(context); // Close bottom sheet
                       Navigator.pop(context); // Go back from results browser
