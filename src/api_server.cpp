@@ -14,6 +14,7 @@
 #include "preprocessing.h"
 #include "detector_config.h"
 #include "metrics.h"
+#include "obs/http_log.h"
 
 #include <uuid/uuid.h>
 
@@ -145,7 +146,9 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
 
     svr_.Delete("/jobs/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
         std::string rid = GetRequestId(req);
+        telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
         std::string job_id = req.matches[1];
+        log.AddFields({{"score_job_id", job_id}});
         job_manager_->CancelJob(job_id);
         res.status = 200;
         res.set_content("{\"status\":\"CANCEL_REQUESTED\", \"job_id\":\"" + job_id + "\", \"request_id\":\"" + rid + "\"}", "application/json");
@@ -159,29 +162,37 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleModelErrorDistribution(req, res);
     });
 
-    svr_.Get("/healthz", [](const httplib::Request&, httplib::Response& res) {
+    svr_.Get("/healthz", [](const httplib::Request& req, httplib::Response& res) {
+        std::string rid = GetRequestId(req);
+        telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
         res.status = 200;
         res.set_content("{\"status\":\"OK\"}", "application/json");
     });
 
-    svr_.Get("/readyz", [this](const httplib::Request&, httplib::Response& res) {
+    svr_.Get("/readyz", [this](const httplib::Request& req, httplib::Response& res) {
+        std::string rid = GetRequestId(req);
+        telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
         try {
             pqxx::connection C(db_conn_str_);
             res.status = 200;
             res.set_content("{\"status\":\"READY\"}", "application/json");
         } catch (const std::exception& e) {
+            log.RecordError("DB_ERROR", e.what(), 503);
             res.status = 503;
             res.set_content("{\"status\":\"UNREADY\", \"reason\":\"DB_CONNECTION_FAILED\"}", "application/json");
         }
     });
 
-    svr_.Get("/metrics", [](const httplib::Request&, httplib::Response& res) {
+    svr_.Get("/metrics", [](const httplib::Request& req, httplib::Response& res) {
+        std::string rid = GetRequestId(req);
+        telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
         res.status = 200;
         res.set_content(telemetry::metrics::MetricsRegistry::Instance().ToPrometheus(), "text/plain");
     });
 
     svr_.Get("/schema/metrics", [this](const httplib::Request& req, httplib::Response& res) {
         std::string rid = GetRequestId(req);
+        telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
         nlohmann::json resp;
         resp["metrics"] = {
             {{"key", "cpu_usage"}, {"label", "CPU Usage"}, {"type", "numeric"}, {"unit", "%"}, {"description", "Percentage of CPU time used across all cores."}},
@@ -236,6 +247,7 @@ void ApiServer::Stop() {
 
 void ApiServer::HandleGenerateData(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     try {
         auto j = nlohmann::json::parse(req.body);
         int host_count = j.value("host_count", 5);
@@ -259,17 +271,21 @@ void ApiServer::HandleGenerateData(const httplib::Request& req, httplib::Respons
             nlohmann::json resp;
             resp["run_id"] = g_res.run_id();
             resp["status"] = "PENDING";
+            log.AddFields({{"dataset_id", g_res.run_id()}});
             SendJson(res, resp, 202, rid);
         } else {
+            log.RecordError("GRPC_ERROR", status.error_message(), 500);
             SendError(res, "gRPC Error: " + status.error_message(), 500, "GRPC_ERROR", rid);
         }
     } catch (const std::exception& e) {
+        log.RecordError("BAD_REQUEST", e.what(), 400);
         SendError(res, std::string("Error: ") + e.what(), 400, "BAD_REQUEST", rid);
     }
 }
 
 void ApiServer::HandleListDatasets(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     int limit = GetIntParam(req, "limit", 50);
     int offset = GetIntParam(req, "offset", 0);
     std::string status = GetStrParam(req, "status");
@@ -283,13 +299,16 @@ void ApiServer::HandleListDatasets(const httplib::Request& req, httplib::Respons
         resp["offset"] = offset;
         SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleGetDataset(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string run_id = req.matches[1];
+    log.AddFields({{"dataset_id", run_id}});
     try {
         auto detail = db_client_->GetDatasetDetail(run_id);
         if (!detail.empty()) {
@@ -315,13 +334,16 @@ void ApiServer::HandleGetDataset(const httplib::Request& req, httplib::Response&
         resp["error"] = g_res.error();
         SendJson(res, resp, 200, rid);
     } else {
+        log.RecordError("NOT_FOUND", status.error_message(), 404);
         SendError(res, "gRPC Error: " + status.error_message(), 404, "NOT_FOUND", rid);
     }
 }
 
 void ApiServer::HandleDatasetSummary(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string run_id = req.matches[1];
+    log.AddFields({{"dataset_id", run_id}});
     int topk = GetIntParam(req, "topk", 5);
     bool debug = GetStrParam(req, "debug") == "true";
     try {
@@ -329,6 +351,7 @@ void ApiServer::HandleDatasetSummary(const httplib::Request& req, httplib::Respo
         auto summary = db_client_->GetDatasetSummary(run_id, topk);
         auto end = std::chrono::steady_clock::now();
         if (summary.empty()) {
+            log.RecordError("NOT_FOUND", "Dataset not found", 404);
             SendError(res, "Dataset not found", 404, "NOT_FOUND", rid);
             return;
         }
@@ -339,13 +362,16 @@ void ApiServer::HandleDatasetSummary(const httplib::Request& req, httplib::Respo
         }
         SendJson(res, summary, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string run_id = req.matches[1];
+    log.AddFields({{"dataset_id", run_id}});
     std::string column = GetStrParam(req, "column");
     int k = GetIntParam(req, "k", 10);
     std::string is_anomaly = GetStrParam(req, "is_anomaly");
@@ -360,6 +386,7 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         {"anomaly_type", "anomaly_type"}
     };
     if (allowed.find(column) == allowed.end()) {
+        log.RecordError("INVALID_ARGUMENT", "Invalid column", 400);
         SendError(res, "Invalid column", 400, "INVALID_ARGUMENT", rid);
         return;
     }
@@ -378,15 +405,19 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         }
         SendJson(res, resp, 200, rid);
     } catch (const std::invalid_argument& e) {
+        log.RecordError("INVALID_ARGUMENT", e.what(), 400);
         SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string run_id = req.matches[1];
+    log.AddFields({{"dataset_id", run_id}});
     std::string metrics_param = GetStrParam(req, "metrics");
     // ... (rest of parsing)
     std::string aggs_param = GetStrParam(req, "aggs");
@@ -403,6 +434,7 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         if (!token.empty()) metrics.push_back(token);
     }
     if (metrics.empty()) {
+        log.RecordError("INVALID_ARGUMENT", "metrics required", 400);
         SendError(res, "metrics required", 400, "INVALID_ARGUMENT", rid);
         return;
     }
@@ -438,17 +470,22 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         }
         SendJson(res, resp, 200, rid);
     } catch (const std::invalid_argument& e) {
+        log.RecordError("INVALID_ARGUMENT", e.what(), 400);
         SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string run_id = req.matches[1];
+    log.AddFields({{"dataset_id", run_id}});
     std::string metric = GetStrParam(req, "metric");
     if (metric.empty()) {
+        log.RecordError("INVALID_ARGUMENT", "metric required", 400);
         SendError(res, "metric required", 400, "INVALID_ARGUMENT", rid);
         return;
     }
@@ -482,15 +519,19 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         }
         SendJson(res, data, 200, rid);
     } catch (const std::invalid_argument& e) {
+        log.RecordError("INVALID_ARGUMENT", e.what(), 400);
         SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleGetDatasetSamples(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string run_id = req.matches[1];
+    log.AddFields({{"dataset_id", run_id}});
     int limit = GetIntParam(req, "limit", 20);
     try {
         auto data = db_client_->GetDatasetSamples(run_id, limit);
@@ -498,75 +539,94 @@ void ApiServer::HandleGetDatasetSamples(const httplib::Request& req, httplib::Re
         resp["items"] = data;
         SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleGetDatasetRecord(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string run_id = req.matches[1];
+    log.AddFields({{"dataset_id", run_id}});
     long record_id = std::stol(req.matches[2]);
     try {
         auto data = db_client_->GetDatasetRecord(run_id, record_id);
         if (data.empty()) {
+            log.RecordError("NOT_FOUND", "Record not found", 404);
             SendError(res, "Record not found", 404, "NOT_FOUND", rid);
             return;
         }
         SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleGetDatasetMetricStats(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string run_id = req.matches[1];
+    log.AddFields({{"dataset_id", run_id}});
     std::string metric = req.matches[2];
     try {
         auto data = db_client_->GetMetricStats(run_id, metric);
         SendJson(res, data, 200, rid);
     } catch (const std::invalid_argument& e) {
+        log.RecordError("INVALID_ARGUMENT", e.what(), 400);
         SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleGetDatasetMetricsSummary(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string run_id = req.matches[1];
+    log.AddFields({{"dataset_id", run_id}});
     try {
         auto data = db_client_->GetDatasetMetricsSummary(run_id);
         SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleGetDatasetModels(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string run_id = req.matches[1];
+    log.AddFields({{"dataset_id", run_id}});
     try {
         auto data = db_client_->GetModelsForDataset(run_id);
         SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     try {
         auto j = nlohmann::json::parse(req.body);
         std::string dataset_id = j.at("dataset_id");
         std::string name = j.value("name", "pca_default");
+        log.AddFields({{"dataset_id", dataset_id}});
 
         // 1. Create DB entry
         std::string model_run_id = db_client_->CreateModelRun(dataset_id, name, rid);
         if (model_run_id.empty()) {
+            log.RecordError("DB_ERROR", "Failed to create model run in DB", 500);
             SendError(res, "Failed to create model run in DB", 500, "DB_ERROR", rid);
             return;
         }
+        log.AddFields({{"model_run_id", model_run_id}});
 
         // 2. Spawn training via JobManager
         job_manager_->StartJob("train-" + model_run_id, rid, [this, model_run_id, dataset_id, rid](const std::atomic<bool>* stop_flag) {
@@ -597,8 +657,10 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
     } catch (const std::exception& e) {
         std::string err = e.what();
         if (err.find("Job queue full") != std::string::npos) {
+            log.RecordError("RESOURCE_EXHAUSTED", err, 503);
             SendError(res, err, 503, "RESOURCE_EXHAUSTED", rid);
         } else {
+            log.RecordError("BAD_REQUEST", err, 400);
             SendError(res, std::string("Error: ") + err, 400, "BAD_REQUEST", rid);
         }
     }
@@ -606,9 +668,12 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
 
 void ApiServer::HandleGetTrainStatus(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string model_run_id = req.matches[1];
+    log.AddFields({{"model_run_id", model_run_id}});
     auto j = db_client_->GetModelRun(model_run_id);
     if (j.empty()) {
+        log.RecordError("NOT_FOUND", "Model run not found", 404);
         SendError(res, "Model run not found", 404, "NOT_FOUND", rid);
     } else {
         SendJson(res, j, 200, rid);
@@ -617,6 +682,7 @@ void ApiServer::HandleGetTrainStatus(const httplib::Request& req, httplib::Respo
 
 void ApiServer::HandleListModels(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     int limit = GetIntParam(req, "limit", 50);
     int offset = GetIntParam(req, "offset", 0);
     std::string status = GetStrParam(req, "status");
@@ -631,16 +697,20 @@ void ApiServer::HandleListModels(const httplib::Request& req, httplib::Response&
         resp["offset"] = offset;
         SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string model_run_id = req.matches[1];
+    log.AddFields({{"model_run_id", model_run_id}});
     try {
         auto j = db_client_->GetModelRun(model_run_id);
         if (j.empty()) {
+            log.RecordError("NOT_FOUND", "Model run not found", 404);
             SendError(res, "Model run not found", 404, "NOT_FOUND", rid);
             return;
         }
@@ -661,25 +731,31 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
         }
         SendJson(res, j, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleGetModelScoredDatasets(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string model_run_id = req.matches[1];
+    log.AddFields({{"model_run_id", model_run_id}});
     try {
         auto data = db_client_->GetScoredDatasetsForModel(model_run_id);
         SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleGetScores(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string dataset_id = GetStrParam(req, "dataset_id");
     std::string model_run_id = GetStrParam(req, "model_run_id");
+    log.AddFields({{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
     int limit = GetIntParam(req, "limit", 50);
     int offset = GetIntParam(req, "offset", 0);
     bool only_anomalies = GetStrParam(req, "only_anomalies") == "true";
@@ -687,6 +763,7 @@ void ApiServer::HandleGetScores(const httplib::Request& req, httplib::Response& 
     double max_score = GetDoubleParam(req, "max_score", 0.0);
 
     if (dataset_id.empty() || model_run_id.empty()) {
+        log.RecordError("BAD_REQUEST", "dataset_id and model_run_id required", 400);
         SendError(res, "dataset_id and model_run_id required", 400, "BAD_REQUEST", rid);
         return;
     }
@@ -695,27 +772,32 @@ void ApiServer::HandleGetScores(const httplib::Request& req, httplib::Response& 
         auto data = db_client_->GetScores(dataset_id, model_run_id, limit, offset, only_anomalies, min_score, max_score);
         SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     try {
         auto start = std::chrono::steady_clock::now();
         auto j = nlohmann::json::parse(req.body);
         std::string model_run_id = j.at("model_run_id");
         auto samples = j.at("samples");
+        log.AddFields({{"model_run_id", model_run_id}});
 
         // 1. Get Model Info
         auto model_info = db_client_->GetModelRun(model_run_id);
         if (model_info.empty()) {
+            log.RecordError("NOT_FOUND", "Model not found", 404);
             SendError(res, "Model not found", 404, "NOT_FOUND", rid);
             return;
         }
 
         std::string artifact_path = model_info.value("artifact_path", "");
         if (artifact_path.empty()) {
+            log.RecordError("BAD_REQUEST", "Model is not yet complete or has no artifact", 400);
             SendError(res, "Model is not yet complete or has no artifact", 400, "BAD_REQUEST", rid);
             return;
         }
@@ -725,12 +807,16 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
         try {
             pca.Load(artifact_path);
         } catch (const std::exception& e) {
+            log.RecordError("LOAD_ERROR", e.what(), 500);
             SendError(res, "Failed to load PCA model artifact: " + std::string(e.what()), 500, "LOAD_ERROR", rid);
             return;
         }
 
         // 3. Process Samples
         std::string inference_id = db_client_->CreateInferenceRun(model_run_id);
+        if (!inference_id.empty()) {
+            log.AddFields({{"inference_run_id", inference_id}});
+        }
         int anomaly_count = 0;
         nlohmann::json results = nlohmann::json::array();
         for (const auto& s : samples) {
@@ -764,14 +850,17 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
         SendJson(res, resp, 200, rid);
 
     } catch (const std::exception& e) {
+        log.RecordError("BAD_REQUEST", e.what(), 400);
         SendError(res, std::string("Error: ") + e.what(), 400, "BAD_REQUEST", rid);
     }
 }
 
 void ApiServer::HandleListInferenceRuns(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string dataset_id = GetStrParam(req, "dataset_id");
     std::string model_run_id = GetStrParam(req, "model_run_id");
+    log.AddFields({{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
     int limit = GetIntParam(req, "limit", 50);
     int offset = GetIntParam(req, "offset", 0);
     std::string status = GetStrParam(req, "status");
@@ -785,32 +874,39 @@ void ApiServer::HandleListInferenceRuns(const httplib::Request& req, httplib::Re
         resp["offset"] = offset;
         SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleGetInferenceRun(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string inference_id = req.matches[1];
+    log.AddFields({{"inference_run_id", inference_id}});
     try {
         auto j = db_client_->GetInferenceRun(inference_id);
         if (j.empty()) {
+            log.RecordError("NOT_FOUND", "Inference run not found", 404);
             SendError(res, "Inference run not found", 404, "NOT_FOUND", rid);
             return;
         }
         SendJson(res, j, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleListJobs(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     int limit = GetIntParam(req, "limit", 50);
     int offset = GetIntParam(req, "offset", 0);
     std::string status = GetStrParam(req, "status");
     std::string dataset_id = GetStrParam(req, "dataset_id");
     std::string model_run_id = GetStrParam(req, "model_run_id");
+    log.AddFields({{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
     std::string created_from = GetStrParam(req, "created_from");
     std::string created_to = GetStrParam(req, "created_to");
     try {
@@ -821,25 +917,31 @@ void ApiServer::HandleListJobs(const httplib::Request& req, httplib::Response& r
         resp["offset"] = offset;
         SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     try {
         auto j = nlohmann::json::parse(req.body);
         std::string dataset_id = j.at("dataset_id");
         std::string model_run_id = j.at("model_run_id");
+        log.AddFields({{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
 
         std::string job_id = db_client_->CreateScoreJob(dataset_id, model_run_id, rid);
         if (job_id.empty()) {
+            log.RecordError("DB_ERROR", "Failed to create job", 500);
             SendError(res, "Failed to create job", 500, "DB_ERROR", rid);
             return;
         }
+        log.AddFields({{"score_job_id", job_id}});
 
         auto job = db_client_->GetScoreJob(job_id);
         if (job.empty()) {
+            log.RecordError("DB_ERROR", "Failed to load job status", 500);
             SendError(res, "Failed to load job status", 500, "DB_ERROR", rid);
             return;
         }
@@ -929,8 +1031,10 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
     } catch (const std::exception& e) {
         std::string err = e.what();
         if (err.find("Job queue full") != std::string::npos) {
+            log.RecordError("RESOURCE_EXHAUSTED", err, 503);
             SendError(res, err, 503, "RESOURCE_EXHAUSTED", rid);
         } else {
+            log.RecordError("BAD_REQUEST", err, 400);
             SendError(res, std::string("Error: ") + err, 400, "BAD_REQUEST", rid);
         }
     }
@@ -938,42 +1042,53 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
 
 void ApiServer::HandleGetJobStatus(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string job_id = req.matches[1];
+    log.AddFields({{"score_job_id", job_id}});
     try {
         auto j = db_client_->GetScoreJob(job_id);
         if (j.empty()) {
+            log.RecordError("NOT_FOUND", "Job not found", 404);
             SendError(res, "Job not found", 404, "NOT_FOUND", rid);
             return;
         }
         SendJson(res, j, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleGetJobProgress(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string job_id = req.matches[1];
+    log.AddFields({{"score_job_id", job_id}});
     try {
         auto j = db_client_->GetScoreJob(job_id);
         if (j.empty()) {
+            log.RecordError("NOT_FOUND", "Job not found", 404);
             SendError(res, "Job not found", 404, "NOT_FOUND", rid);
             return;
         }
         SendJson(res, j, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleModelEval(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string model_run_id = req.matches[1];
     std::string dataset_id = GetStrParam(req, "dataset_id");
+    log.AddFields({{"model_run_id", model_run_id}, {"dataset_id", dataset_id}});
     int points = GetIntParam(req, "points", 50);
     int max_samples = GetIntParam(req, "max_samples", 20000);
     bool debug = GetStrParam(req, "debug") == "true";
     if (dataset_id.empty()) {
+        log.RecordError("BAD_REQUEST", "dataset_id required", 400);
         SendError(res, "dataset_id required", 400, "BAD_REQUEST", rid);
         return;
     }
@@ -991,17 +1106,21 @@ void ApiServer::HandleModelEval(const httplib::Request& req, httplib::Response& 
         }
         SendJson(res, eval, 200, rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
 
 void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
+    telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string model_run_id = req.matches[1];
     std::string dataset_id = GetStrParam(req, "dataset_id");
     std::string group_by = GetStrParam(req, "group_by");
+    log.AddFields({{"model_run_id", model_run_id}, {"dataset_id", dataset_id}});
     bool debug = GetStrParam(req, "debug") == "true";
     if (dataset_id.empty() || group_by.empty()) {
+        log.RecordError("BAD_REQUEST", "dataset_id and group_by required", 400);
         SendError(res, "dataset_id and group_by required", 400, "BAD_REQUEST", rid);
         return;
     }
@@ -1011,6 +1130,7 @@ void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httpli
         {"project_id", "h.project_id"}
     };
     if (allowed.find(group_by) == allowed.end()) {
+        log.RecordError("INVALID_ARGUMENT", "Invalid group_by", 400);
         SendError(res, "Invalid group_by", 400, "INVALID_ARGUMENT", rid);
         return;
     }
@@ -1028,8 +1148,10 @@ void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httpli
         }
         SendJson(res, resp, 200, rid);
     } catch (const std::invalid_argument& e) {
+        log.RecordError("INVALID_ARGUMENT", e.what(), 400);
         SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
     } catch (const std::exception& e) {
+        log.RecordError("DB_ERROR", e.what(), 500);
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }
 }
