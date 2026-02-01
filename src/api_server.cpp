@@ -1,6 +1,8 @@
 #include "detectors/pca_model.h"
 #include "api_server.h"
+#include "api_debug.h"
 #include "route_registry.h"
+#include "training/pca_trainer.h"
 #include <spdlog/spdlog.h>
 #include <filesystem>
 #include <thread>

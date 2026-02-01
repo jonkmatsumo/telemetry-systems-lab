@@ -15,6 +15,7 @@ pkg_search_module(HTTPLIB IMPORTED_TARGET cpp-httplib libcpp-httplib)
 
 
 
+find_package(Threads REQUIRED)
 find_package(fmt REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(nlohmann_json REQUIRED)
@@ -290,6 +291,7 @@ target_link_libraries(api_route_tests
     nlohmann_json::nlohmann_json
     fmt::fmt
     spdlog::spdlog
+    Threads::Threads
 )
 if(HTTPLIB_FOUND)
     target_link_libraries(api_route_tests PkgConfig::HTTPLIB)
