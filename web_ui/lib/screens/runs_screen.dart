@@ -14,11 +14,20 @@ class _RunsScreenState extends State<RunsScreen> {
   late Future<List<DatasetRun>> _runsFuture;
   Map<String, dynamic>? _selectedDetail;
   bool _loadingDetail = false;
+  List<Map<String, String>> _schema = [];
 
   @override
   void initState() {
     super.initState();
     _runsFuture = context.read<TelemetryService>().listDatasets();
+    _fetchSchema();
+  }
+
+  Future<void> _fetchSchema() async {
+    try {
+      final schema = await context.read<TelemetryService>().getMetricsSchema();
+      setState(() => _schema = schema);
+    } catch (_) {}
   }
 
   Future<void> _refresh() async {
@@ -91,7 +100,6 @@ class _RunsScreenState extends State<RunsScreen> {
                 Expanded(
                   flex: 3,
                   child: Container(
-                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(12),
@@ -101,7 +109,27 @@ class _RunsScreenState extends State<RunsScreen> {
                         ? const Center(child: CircularProgressIndicator())
                         : _selectedDetail == null
                             ? const Center(child: Text('Select a run to view details'))
-                            : _buildDetail(_selectedDetail!),
+                            : DefaultTabController(
+                                length: 2,
+                                child: Column(
+                                  children: [
+                                    const TabBar(
+                                      tabs: [
+                                        Tab(text: 'Overview'),
+                                        Tab(text: 'Features'),
+                                      ],
+                                    ),
+                                    Expanded(
+                                      child: TabBarView(
+                                        children: [
+                                          _buildOverview(_selectedDetail!),
+                                          _buildFeatures(_selectedDetail!),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                   ),
                 ),
               ],
@@ -112,50 +140,74 @@ class _RunsScreenState extends State<RunsScreen> {
     );
   }
 
-  Widget _buildDetail(Map<String, dynamic> detail) {
+  Widget _buildOverview(Map<String, dynamic> detail) {
     final runId = detail['run_id'] ?? '';
-    return ListView(
-      children: [
-        _kv('Run ID', runId),
-        _kv('Status', detail['status'] ?? ''),
-        _kv('Inserted Rows', '${detail['inserted_rows'] ?? 0}'),
-        _kv('Tier', detail['tier'] ?? ''),
-        _kv('Host Count', '${detail['host_count'] ?? 0}'),
-        _kv('Interval (s)', '${detail['interval_seconds'] ?? 0}'),
-        _kv('Start Time', detail['start_time'] ?? ''),
-        _kv('End Time', detail['end_time'] ?? ''),
-        _kv('Created', detail['created_at'] ?? ''),
-        if ((detail['error'] ?? '').toString().isNotEmpty) _kv('Error', detail['error']),
-        const SizedBox(height: 24),
-        ElevatedButton.icon(
-          onPressed: () {
-            final appState = context.read<AppState>();
-            appState.setDataset(runId);
-            appState.setTabIndex(0); // Go to Control
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF38BDF8),
-            foregroundColor: const Color(0xFF0F172A),
-            padding: const EdgeInsets.symmetric(vertical: 16),
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: ListView(
+        children: [
+          _kv('Run ID', runId),
+          _kv('Status', detail['status'] ?? ''),
+          _kv('Inserted Rows', '${detail['inserted_rows'] ?? 0}'),
+          _kv('Tier', detail['tier'] ?? ''),
+          _kv('Host Count', '${detail['host_count'] ?? 0}'),
+          _kv('Interval (s)', '${detail['interval_seconds'] ?? 0}'),
+          _kv('Start Time', detail['start_time'] ?? ''),
+          _kv('End Time', detail['end_time'] ?? ''),
+          _kv('Created', detail['created_at'] ?? ''),
+          if ((detail['error'] ?? '').toString().isNotEmpty) _kv('Error', detail['error']),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: () {
+              final appState = context.read<AppState>();
+              appState.setDataset(runId);
+              appState.setTabIndex(0); // Go to Control
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF38BDF8),
+              foregroundColor: const Color(0xFF0F172A),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+            icon: const Icon(Icons.psychology),
+            label: const Text('Train Model on this Dataset',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
-          icon: const Icon(Icons.psychology),
-          label: const Text('Train Model on this Dataset',
-              style: TextStyle(fontWeight: FontWeight.bold)),
-        ),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: () {
-            final appState = context.read<AppState>();
-            appState.setDataset(runId);
-            appState.setTabIndex(2); // Go to Analytics
-          },
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () {
+              final appState = context.read<AppState>();
+              appState.setDataset(runId);
+              appState.setTabIndex(2); // Go to Analytics
+            },
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+            icon: const Icon(Icons.analytics),
+            label: const Text('View Analytics'),
           ),
-          icon: const Icon(Icons.analytics),
-          label: const Text('View Analytics'),
-        ),
-      ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFeatures(Map<String, dynamic> detail) {
+    if (_schema.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: ListView.separated(
+        itemCount: _schema.length,
+        separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+        itemBuilder: (context, index) {
+          final f = _schema[index];
+          return ListTile(
+            title: Text(f['label'] ?? f['key'] ?? ''),
+            subtitle: Text('${f['description'] ?? ''}\nType: ${f['type']} • Unit: ${f['unit']}'),
+            isThreeLine: true,
+          );
+        },
+      ),
     );
   }
 

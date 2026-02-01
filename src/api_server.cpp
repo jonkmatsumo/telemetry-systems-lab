@@ -172,11 +172,11 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         std::string rid = GetRequestId(req);
         nlohmann::json resp;
         resp["metrics"] = {
-            {{"key", "cpu_usage"}, {"label", "CPU Usage"}},
-            {{"key", "memory_usage"}, {"label", "Memory Usage"}},
-            {{"key", "disk_utilization"}, {"label", "Disk Utilization"}},
-            {{"key", "network_rx_rate"}, {"label", "Network RX Rate"}},
-            {{"key", "network_tx_rate"}, {"label", "Network TX Rate"}}
+            {{"key", "cpu_usage"}, {"label", "CPU Usage"}, {"type", "numeric"}, {"unit", "%"}, {"description", "Percentage of CPU time used across all cores."}},
+            {{"key", "memory_usage"}, {"label", "Memory Usage"}, {"type", "numeric"}, {"unit", "%"}, {"description", "Percentage of physical RAM currently occupied."}},
+            {{"key", "disk_utilization"}, {"label", "Disk Utilization"}, {"type", "numeric"}, {"unit", "%"}, {"description", "Percentage of disk throughput capacity used."}},
+            {{"key", "network_rx_rate"}, {"label", "Network RX Rate"}, {"type", "numeric"}, {"unit", "Mbps"}, {"description", "Inbound network traffic rate."}},
+            {{"key", "network_tx_rate"}, {"label", "Network TX Rate"}, {"type", "numeric"}, {"unit", "Mbps"}, {"description", "Outbound network traffic rate."}}
         };
         SendJson(res, resp, 200, rid);
     });
