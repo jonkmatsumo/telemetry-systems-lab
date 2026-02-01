@@ -67,10 +67,41 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
     final uri = Uri.base;
     final dsId = uri.queryParameters['datasetId'];
     final mId = uri.queryParameters['modelId'];
+    final metric = uri.queryParameters['metric'];
+    
     if (dsId != null) appState.setDataset(dsId);
     if (mId != null) appState.setModel(mId);
+    if (dsId != null && metric != null) {
+      _validateAndSetMetric(dsId, metric, appState);
+    }
 
     _startJobPolling();
+  }
+
+  Future<void> _validateAndSetMetric(String datasetId, String metric, AppState appState) async {
+    // Optimistically set it so UI renders immediately
+    appState.setSelectedMetric(datasetId, metric);
+    
+    try {
+      final service = context.read<TelemetryService>();
+      final schema = await service.getMetricsSchema();
+      final isValid = schema.any((m) => m['key'] == metric);
+      
+      if (!isValid && mounted) {
+        // Revert to default
+        appState.setSelectedMetric(datasetId, 'cpu_usage');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Metric "$metric" not found. Defaulting to cpu_usage.'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (_) {
+      // If validation fails (e.g. network error), keep optimistic selection
+      // logic in DatasetAnalyticsScreen will handle load failures
+    }
   }
 
   void _startJobPolling() {
