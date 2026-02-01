@@ -19,6 +19,7 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
   final int _limit = 50;
   bool _onlyAnomalies = false;
   double _minScore = 0.0;
+  double _maxScore = 10.0;
   
   Future<Map<String, dynamic>>? _resultsFuture;
 
@@ -37,7 +38,21 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
         offset: _offset,
         onlyAnomalies: _onlyAnomalies,
         minScore: _minScore,
-      );
+      ).then((data) {
+        if (mounted && data.containsKey('max_score')) {
+           // Defer state update to avoid build conflict during build frame
+           WidgetsBinding.instance.addPostFrameCallback((_) {
+             if (mounted) {
+               setState(() {
+                 _maxScore = (data['max_score'] as num).toDouble();
+                 if (_maxScore < 10.0) _maxScore = 10.0; // Keep at least 10 for visibility
+                 if (_minScore > _maxScore) _minScore = _maxScore;
+               });
+             }
+           });
+        }
+        return data;
+      });
     });
   }
 
@@ -88,7 +103,7 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
             child: Slider(
               value: _minScore,
               min: 0,
-              max: 10, // Assuming a reasonable range, can be dynamic
+              max: _maxScore, 
               onChanged: (val) {
                 setState(() => _minScore = val);
               },
@@ -100,7 +115,7 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
               },
             ),
           ),
-          Text(_minScore.toStringAsFixed(2), style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text('${_minScore.toStringAsFixed(2)} / ${_maxScore.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(width: 24),
           IconButton(
             icon: const Icon(Icons.refresh),
