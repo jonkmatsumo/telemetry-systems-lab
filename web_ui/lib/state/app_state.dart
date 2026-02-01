@@ -1,6 +1,20 @@
 import 'package:flutter/material.dart';
 import '../services/telemetry_service.dart';
 
+class PendingInferenceRequest {
+  final String datasetId;
+  final String modelId;
+  final String recordId;
+  final Map<String, dynamic>? recordPayload;
+
+  PendingInferenceRequest({
+    required this.datasetId,
+    required this.modelId,
+    required this.recordId,
+    this.recordPayload,
+  });
+}
+
 class AppState extends ChangeNotifier {
   String? datasetId;
   String? modelRunId;
@@ -11,8 +25,20 @@ class AppState extends ChangeNotifier {
 
   int currentTabIndex = 0;
 
+  PendingInferenceRequest? pendingInference;
+
   void setTabIndex(int index) {
     currentTabIndex = index;
+    notifyListeners();
+  }
+
+  void setPendingInference(PendingInferenceRequest? req) {
+    pendingInference = req;
+    notifyListeners();
+  }
+
+  void clearPendingInference() {
+    pendingInference = null;
     notifyListeners();
   }
 
