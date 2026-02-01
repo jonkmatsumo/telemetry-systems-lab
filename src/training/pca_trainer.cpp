@@ -256,6 +256,7 @@ PcaArtifact TrainPcaFromDbBatched(const std::string& db_conn_str,
     
     spdlog::info("PCA training completed: dataset_id={}, rows_processed={}, duration_ms={:.2f}",
                  dataset_id, iter.TotalRowsProcessed(), duration_ms);
+    return artifact;
 }
 
 PcaArtifact TrainPcaFromDb(const std::string& db_conn_str,

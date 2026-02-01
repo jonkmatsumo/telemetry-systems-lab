@@ -1219,8 +1219,12 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
              "reconstruction_error",
              "predicted_is_anomaly"});
 #else
-        const std::string_view columns =
-            "dataset_id,model_run_id,record_id,reconstruction_error,predicted_is_anomaly";
+        const std::vector<std::string> columns = {
+            "dataset_id",
+            "model_run_id",
+            "record_id",
+            "reconstruction_error",
+            "predicted_is_anomaly"};
         pqxx::stream_to stream(W, "dataset_scores", columns);
 #endif
         for (const auto& entry : scores) {

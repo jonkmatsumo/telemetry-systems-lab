@@ -72,6 +72,8 @@ target_include_directories(telemetry_trainer PUBLIC src)
 target_link_libraries(telemetry_trainer
     telemetry_linalg
     nlohmann_json::nlohmann_json
+    fmt::fmt
+    spdlog::spdlog
     PkgConfig::PQXX
 )
 
@@ -286,6 +288,8 @@ target_link_libraries(api_route_tests
     GTest::GTest
     GTest::Main
     nlohmann_json::nlohmann_json
+    fmt::fmt
+    spdlog::spdlog
 )
 if(HTTPLIB_FOUND)
     target_link_libraries(api_route_tests PkgConfig::HTTPLIB)
