@@ -38,7 +38,6 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       final schema = await context.read<TelemetryService>().getMetricsSchema();
       setState(() => _availableMetrics = schema);
     } catch (_) {
-      // Fallback if schema API fails
       setState(() {
         _availableMetrics = [
           {'key': 'cpu_usage', 'label': 'CPU Usage'},
@@ -63,12 +62,12 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     _topRegionsFuture = service.getTopK(datasetId, 'region', k: 10);
     _topAnomalyFuture = service.getTopK(datasetId, 'anomaly_type', k: 10, isAnomaly: 'true');
     _metricHistFuture = service.getHistogram(datasetId, metric: metric, bins: 30).catchError((e) {
-      setState(() => _loadError = 'Metric "$metric" is not supported for this dataset.');
+      setState(() => _loadError = 'Metric "$metric" is not supported.');
       throw e;
     });
     _metricTsFuture =
         service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: '1h').catchError((e) {
-      setState(() => _loadError = 'Metric "$metric" is not supported for this dataset.');
+      setState(() => _loadError = 'Metric "$metric" is not supported.');
       throw e;
     });
   }
@@ -89,46 +88,24 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
     return Padding(
       padding: const EdgeInsets.all(24),
-      child: SingleChildScrollView(
+      child: DefaultTabController(
+        length: 2,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Dataset Analytics — $datasetId',
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Text('Metric: ', style: TextStyle(color: Colors.white60)),
-                        const SizedBox(width: 8),
-                        if (_loadingSchema)
-                          const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                        else
-                          DropdownButton<String>(
-                            value: _availableMetrics.any((m) => m['key'] == selectedMetric) ? selectedMetric : (_availableMetrics.isNotEmpty ? _availableMetrics.first['key'] : null),
-                            dropdownColor: const Color(0xFF1E293B),
-                            items: _availableMetrics.map((m) {
-                              return DropdownMenuItem(
-                                value: m['key'],
-                                child: Text(m['label']!),
-                              );
-                            }).toList(),
-                            onChanged: (val) {
-                              if (val != null) {
-                                appState.setSelectedMetric(datasetId, val);
-                                setState(() {
-                                  _load(datasetId, val);
-                                });
-                              }
-                            },
-                          ),
-                      ],
-                    ),
+                Text('Dataset Analytics — $datasetId',
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const TabBar(
+                  isScrollable: true,
+                  labelColor: Color(0xFF38BDF8),
+                  unselectedLabelColor: Colors.white60,
+                  indicatorColor: Color(0xFF38BDF8),
+                  tabs: [
+                    Tab(text: 'Dashboard'),
+                    Tab(text: 'Distributions'),
                   ],
                 ),
                 IconButton(
@@ -141,162 +118,358 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 ),
               ],
             ),
-            if (_loadError != null) ...[
-              const SizedBox(height: 16),
-              InlineAlert(
-                message: _loadError!,
-                onRetry: () {
-                  setState(() {
-                    _load(datasetId, selectedMetric);
-                  });
-                },
-              ),
-            ],
             const SizedBox(height: 16),
-            FutureBuilder<DatasetSummary>(
-              future: _summaryFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const LinearProgressIndicator();
-                }
-                if (snapshot.hasError) {
-                  return Text('Error: ${snapshot.error}');
-                }
-                final summary = snapshot.data;
-                if (summary == null) return const SizedBox.shrink();
-                return Wrap(
-                  spacing: 16,
-                  runSpacing: 16,
-                  children: [
-                    _statCard('Rows', '${summary.rowCount}'),
-                    _statCard('Anomaly Rate', summary.anomalyRate.toStringAsFixed(4)),
-                    _statCard('Hosts', '${summary.distinctCounts['host_id']}'),
-                    _statCard('Projects', '${summary.distinctCounts['project_id']}'),
-                    _statCard('Regions', '${summary.distinctCounts['region']}'),
-                    _statCard('Ingestion p50 (s)', summary.ingestionLatencyP50.toStringAsFixed(3)),
-                    _statCard('Ingestion p95 (s)', summary.ingestionLatencyP95.toStringAsFixed(3)),
-                    _statCard('Time Range', '${summary.minTs} → ${summary.maxTs}'),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 24),
-            Wrap(
-              spacing: 16,
-              runSpacing: 16,
-              children: [
-                SizedBox(
-                  width: 420,
-                  child: ChartCard(
-                    title: 'Top Regions',
-                    child: FutureBuilder<List<TopKEntry>>(
-                      future: _topRegionsFuture,
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
-                        }
-                        if (snapshot.hasError) {
-                          return Text('Error: ${snapshot.error}');
-                        }
-                        final items = snapshot.data ?? [];
-                        if (items.isEmpty) return const SizedBox.shrink();
-                        return BarChart(values: items.map((e) => e.count.toDouble()).toList());
-                      },
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 420,
-                  child: ChartCard(
-                    title: 'Anomaly Types',
-                    child: FutureBuilder<List<TopKEntry>>(
-                      future: _topAnomalyFuture,
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
-                        }
-                        if (snapshot.hasError) {
-                          return Text('Error: ${snapshot.error}');
-                        }
-                        final items = snapshot.data ?? [];
-                        if (items.isEmpty) return const SizedBox.shrink();
-                        return BarChart(values: items.map((e) => e.count.toDouble()).toList());
-                      },
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 420,
-                  child: ChartCard(
-                    title: '$selectedMetric Histogram',
-                    child: FutureBuilder<HistogramData>(
-                      future: _metricHistFuture,
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
-                        }
-                        if (snapshot.hasError) {
-                          return Text('Error: ${snapshot.error}');
-                        }
-                        final hist = snapshot.data;
-                        final values = hist?.counts.map((e) => e.toDouble()).toList() ?? [];
-                        if (values.isEmpty) return const SizedBox.shrink();
-                        return BarChart(values: values);
-                      },
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 420,
-                  child: ChartCard(
-                    title: 'Anomaly Rate Trend (1h)',
-                    child: FutureBuilder<DatasetSummary>(
-                      future: _summaryFuture,
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
-                        }
-                        if (snapshot.hasError) {
-                          return Text('Error: ${snapshot.error}');
-                        }
-                        final trend = snapshot.data?.anomalyRateTrend ?? [];
-                        if (trend.isEmpty) return const SizedBox.shrink();
-                        final xs = List<double>.generate(trend.length, (i) => i.toDouble());
-                        final ys = trend.map((e) => e.anomalyRate).toList();
-                        return LineChart(x: xs, y: ys);
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ChartCard(
-                title: '$selectedMetric Mean (1h)',
-                height: 240,
-                child: FutureBuilder<List<TimeSeriesPoint>>(
-                  future: _metricTsFuture,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (snapshot.hasError) {
-                      return Text('Error: ${snapshot.error}');
-                    }
-                    final points = snapshot.data ?? [];
-                    if (points.isEmpty) return const SizedBox.shrink();
-                    final xs = List<double>.generate(points.length, (i) => i.toDouble());
-                    final ys = points.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
-                    return LineChart(x: xs, y: ys);
-                  },
-                ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _buildDashboard(datasetId, selectedMetric, appState),
+                  _buildDistributions(datasetId, selectedMetric, appState),
+                ],
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildDashboard(String datasetId, String selectedMetric, AppState appState) {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('Quick Metric Toggle: ', style: TextStyle(color: Colors.white60)),
+              const SizedBox(width: 8),
+              if (_loadingSchema)
+                const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              else
+                DropdownButton<String>(
+                  value: _availableMetrics.any((m) => m['key'] == selectedMetric)
+                      ? selectedMetric
+                      : (_availableMetrics.isNotEmpty ? _availableMetrics.first['key'] : null),
+                  dropdownColor: const Color(0xFF1E293B),
+                  items: _availableMetrics.map((m) {
+                    return DropdownMenuItem(
+                      value: m['key'],
+                      child: Text(m['label']!),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      appState.setSelectedMetric(datasetId, val);
+                      setState(() {
+                        _load(datasetId, val);
+                      });
+                    }
+                  },
+                ),
+            ],
+          ),
+          if (_loadError != null) ...[
+            const SizedBox(height: 16),
+            InlineAlert(
+              message: _loadError!,
+              onRetry: () {
+                setState(() {
+                  _load(datasetId, selectedMetric);
+                });
+              },
+            ),
+          ],
+          const SizedBox(height: 16),
+          FutureBuilder<DatasetSummary>(
+            future: _summaryFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const LinearProgressIndicator();
+              }
+              if (snapshot.hasError) {
+                return Text('Error: ${snapshot.error}');
+              }
+              final summary = snapshot.data;
+              if (summary == null) return const SizedBox.shrink();
+              return Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                children: [
+                  _statCard('Rows', '${summary.rowCount}'),
+                  _statCard('Anomaly Rate', summary.anomalyRate.toStringAsFixed(4)),
+                  _statCard('Hosts', '${summary.distinctCounts['host_id']}'),
+                  _statCard('Projects', '${summary.distinctCounts['project_id']}'),
+                  _statCard('Regions', '${summary.distinctCounts['region']}'),
+                  _statCard('Ingestion p50 (s)', summary.ingestionLatencyP50.toStringAsFixed(3)),
+                  _statCard('Ingestion p95 (s)', summary.ingestionLatencyP95.toStringAsFixed(3)),
+                  _statCard('Time Range', '${summary.minTs} → ${summary.maxTs}'),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 24),
+          Wrap(
+            spacing: 16,
+            runSpacing: 16,
+            children: [
+              SizedBox(
+                width: 420,
+                child: ChartCard(
+                  title: 'Top Regions',
+                  child: FutureBuilder<List<TopKEntry>>(
+                    future: _topRegionsFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (snapshot.hasError) {
+                        return Text('Error: ${snapshot.error}');
+                      }
+                      final items = snapshot.data ?? [];
+                      if (items.isEmpty) return const SizedBox.shrink();
+                      return BarChart(values: items.map((e) => e.count.toDouble()).toList());
+                    },
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 420,
+                child: ChartCard(
+                  title: 'Anomaly Types',
+                  child: FutureBuilder<List<TopKEntry>>(
+                    future: _topAnomalyFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (snapshot.hasError) {
+                        return Text('Error: ${snapshot.error}');
+                      }
+                      final items = snapshot.data ?? [];
+                      if (items.isEmpty) return const SizedBox.shrink();
+                      return BarChart(values: items.map((e) => e.count.toDouble()).toList());
+                    },
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 420,
+                child: ChartCard(
+                  title: '$selectedMetric Histogram',
+                  child: FutureBuilder<HistogramData>(
+                    future: _metricHistFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (snapshot.hasError) {
+                        return const SizedBox.shrink();
+                      }
+                      final hist = snapshot.data;
+                      final values = hist?.counts.map((e) => e.toDouble()).toList() ?? [];
+                      if (values.isEmpty) return const SizedBox.shrink();
+                      return BarChart(values: values);
+                    },
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 420,
+                child: ChartCard(
+                  title: 'Anomaly Rate Trend (1h)',
+                  child: FutureBuilder<DatasetSummary>(
+                    future: _summaryFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (snapshot.hasError) {
+                        return const SizedBox.shrink();
+                      }
+                      final trend = snapshot.data?.anomalyRateTrend ?? [];
+                      if (trend.isEmpty) return const SizedBox.shrink();
+                      final xs = List<double>.generate(trend.length, (i) => i.toDouble());
+                      final ys = trend.map((e) => e.anomalyRate).toList();
+                      return LineChart(x: xs, y: ys);
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: ChartCard(
+              title: '$selectedMetric Mean (1h)',
+              height: 240,
+              child: FutureBuilder<List<TimeSeriesPoint>>(
+                future: _metricTsFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return const SizedBox.shrink();
+                  }
+                  final points = snapshot.data ?? [];
+                  if (points.isEmpty) return const SizedBox.shrink();
+                  final xs = List<double>.generate(points.length, (i) => i.toDouble());
+                  final ys = points.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
+                  return LineChart(x: xs, y: ys);
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDistributions(String datasetId, String selectedMetric, AppState appState) {
+    return Row(
+      children: [
+        Container(
+          width: 200,
+          decoration: const BoxDecoration(
+            border: Border(right: BorderSide(color: Colors.white12)),
+          ),
+          child: ListView.builder(
+            itemCount: _availableMetrics.length,
+            itemBuilder: (context, index) {
+              final m = _availableMetrics[index];
+              final isSelected = m['key'] == selectedMetric;
+              return ListTile(
+                title: Text(m['label']!,
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: isSelected ? const Color(0xFF38BDF8) : Colors.white70)),
+                onTap: () {
+                  appState.setSelectedMetric(datasetId, m['key']!);
+                  setState(() {
+                    _load(datasetId, m['key']!);
+                  });
+                },
+                selected: isSelected,
+                dense: true,
+              );
+            },
+          ),
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildQuickStats(datasetId, selectedMetric),
+                const SizedBox(height: 24),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    SizedBox(
+                      width: 500,
+                      child: ChartCard(
+                        title: 'Distribution (Histogram)',
+                        child: FutureBuilder<HistogramData>(
+                          future: _metricHistFuture,
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState == ConnectionState.waiting) {
+                              return const Center(child: CircularProgressIndicator());
+                            }
+                            if (snapshot.hasError) {
+                              return InlineAlert(message: 'Failed to load histogram: ${snapshot.error}');
+                            }
+                            final hist = snapshot.data;
+                            final values = hist?.counts.map((e) => e.toDouble()).toList() ?? [];
+                            if (values.isEmpty) return const Center(child: Text('No data'));
+                            return BarChart(values: values);
+                          },
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 500,
+                      child: ChartCard(
+                        title: 'Trend (1h Mean)',
+                        child: FutureBuilder<List<TimeSeriesPoint>>(
+                          future: _metricTsFuture,
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState == ConnectionState.waiting) {
+                              return const Center(child: CircularProgressIndicator());
+                            }
+                            if (snapshot.hasError) {
+                              return InlineAlert(message: 'Failed to load trend: ${snapshot.error}');
+                            }
+                            final points = snapshot.data ?? [];
+                            if (points.isEmpty) return const Center(child: Text('No data'));
+                            final xs = List<double>.generate(points.length, (i) => i.toDouble());
+                            final ys =
+                                points.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
+                            return LineChart(x: xs, y: ys);
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickStats(String datasetId, String metric) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: context.read<TelemetryService>().getMetricStats(datasetId, metric),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const LinearProgressIndicator();
+        }
+        if (snapshot.hasError) {
+          return const SizedBox.shrink();
+        }
+        final stats = snapshot.data!;
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Summary Statistics for $metric',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF38BDF8))),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 24,
+                runSpacing: 12,
+                children: [
+                  _statItem('Mean', (stats['mean'] as double).toStringAsFixed(3)),
+                  _statItem('Min', (stats['min'] as double).toStringAsFixed(3)),
+                  _statItem('Max', (stats['max'] as double).toStringAsFixed(3)),
+                  _statItem('p50', (stats['p50'] as double).toStringAsFixed(3)),
+                  _statItem('p95', (stats['p95'] as double).toStringAsFixed(3)),
+                  _statItem('Count', stats['count'].toString()),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _statItem(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+        Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+      ],
     );
   }
 
