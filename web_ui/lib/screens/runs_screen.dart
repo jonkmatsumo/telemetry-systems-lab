@@ -15,6 +15,9 @@ class _RunsScreenState extends State<RunsScreen> {
   Map<String, dynamic>? _selectedDetail;
   bool _loadingDetail = false;
   List<Map<String, String>> _schema = [];
+  String? _selectedMetric;
+  Map<String, dynamic>? _metricStats;
+  bool _loadingStats = false;
 
   @override
   void initState() {
@@ -30,6 +33,21 @@ class _RunsScreenState extends State<RunsScreen> {
     } catch (_) {}
   }
 
+  Future<void> _fetchStats(String runId, String metric) async {
+    setState(() {
+      _selectedMetric = metric;
+      _loadingStats = true;
+      _metricStats = null;
+    });
+    try {
+      final stats = await context.read<TelemetryService>().getMetricStats(runId, metric);
+      setState(() => _metricStats = stats);
+    } catch (_) {}
+    finally {
+      setState(() => _loadingStats = false);
+    }
+  }
+
   Future<void> _refresh() async {
     setState(() {
       _runsFuture = context.read<TelemetryService>().listDatasets();
@@ -37,12 +55,17 @@ class _RunsScreenState extends State<RunsScreen> {
   }
 
   Future<void> _selectRun(DatasetRun run) async {
-    setState(() => _loadingDetail = true);
+    setState(() {
+      _loadingDetail = true;
+      _selectedMetric = null;
+      _metricStats = null;
+    });
     try {
       final detail = await context.read<TelemetryService>().getDatasetDetail(run.runId);
       setState(() => _selectedDetail = detail);
       context.read<AppState>().setDataset(run.runId);
-    } finally {
+    }
+    finally {
       setState(() => _loadingDetail = false);
     }
   }
@@ -194,20 +217,87 @@ class _RunsScreenState extends State<RunsScreen> {
     if (_schema.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
-    return Padding(
+    return Column(
+      children: [
+        if (_selectedMetric != null) _buildStatsPanel(),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: ListView.separated(
+              itemCount: _schema.length,
+              separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+              itemBuilder: (context, index) {
+                final f = _schema[index];
+                final key = f['key'] ?? '';
+                final isSelected = _selectedMetric == key;
+                return ListTile(
+                  title: Text(f['label'] ?? key,
+                      style: TextStyle(
+                          color: isSelected ? const Color(0xFF38BDF8) : Colors.white)),
+                  subtitle: Text('${f['description'] ?? ''}\nType: ${f['type']} • Unit: ${f['unit']}'),
+                  isThreeLine: true,
+                  onTap: () => _fetchStats(detail['run_id'], key),
+                  selected: isSelected,
+                  selectedTileColor: Colors.white.withOpacity(0.05),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatsPanel() {
+    if (_loadingStats) return const LinearProgressIndicator();
+    if (_metricStats == null) return const SizedBox.shrink();
+    return Container(
       padding: const EdgeInsets.all(16),
-      child: ListView.separated(
-        itemCount: _schema.length,
-        separatorBuilder: (_, __) => const Divider(color: Colors.white12),
-        itemBuilder: (context, index) {
-          final f = _schema[index];
-          return ListTile(
-            title: Text(f['label'] ?? f['key'] ?? ''),
-            subtitle: Text('${f['description'] ?? ''}\nType: ${f['type']} • Unit: ${f['unit']}'),
-            isThreeLine: true,
-          );
-        },
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF38BDF8).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF38BDF8).withOpacity(0.3)),
       ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Stats for $_selectedMetric',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF38BDF8))),
+              IconButton(
+                icon: const Icon(Icons.close, size: 16),
+                onPressed: () => setState(() => _selectedMetric = null),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 16,
+            runSpacing: 8,
+            children: [
+              _statItem('Count', _metricStats!['count'].toString()),
+              _statItem('Mean', (_metricStats!['mean'] as double).toStringAsFixed(3)),
+              _statItem('Min', (_metricStats!['min'] as double).toStringAsFixed(3)),
+              _statItem('Max', (_metricStats!['max'] as double).toStringAsFixed(3)),
+              _statItem('p50', (_metricStats!['p50'] as double).toStringAsFixed(3)),
+              _statItem('p95', (_metricStats!['p95'] as double).toStringAsFixed(3)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statItem(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+      ],
     );
   }
 

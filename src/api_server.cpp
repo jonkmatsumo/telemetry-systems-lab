@@ -87,6 +87,10 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleGetDatasetSamples(req, res);
     });
 
+    svr_.Get("/datasets/([a-zA-Z0-9-]+)/metrics/([a-zA-Z0-9_]+)/stats", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGetDatasetMetricStats(req, res);
+    });
+
     svr_.Post("/train", [this](const httplib::Request& req, httplib::Response& res) {
         HandleTrainModel(req, res);
     });
@@ -471,6 +475,20 @@ void ApiServer::HandleGetDatasetSamples(const httplib::Request& req, httplib::Re
         nlohmann::json resp;
         resp["items"] = data;
         SendJson(res, resp, 200, rid);
+    } catch (const std::exception& e) {
+        SendError(res, e.what(), 500, "DB_ERROR", rid);
+    }
+}
+
+void ApiServer::HandleGetDatasetMetricStats(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
+    std::string run_id = req.matches[1];
+    std::string metric = req.matches[2];
+    try {
+        auto data = db_client_->GetMetricStats(run_id, metric);
+        SendJson(res, data, 200, rid);
+    } catch (const std::invalid_argument& e) {
+        SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
     } catch (const std::exception& e) {
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }

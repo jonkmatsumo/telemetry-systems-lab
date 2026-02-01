@@ -107,6 +107,7 @@ public:
                                 const std::string& anomaly_type,
                                 const std::string& start_time,
                                 const std::string& end_time);
+    nlohmann::json GetMetricStats(const std::string& run_id, const std::string& metric);
 
     std::string CreateScoreJob(const std::string& dataset_id, 
                                const std::string& model_run_id,

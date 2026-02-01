@@ -856,6 +856,37 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
     return out;
 }
 
+nlohmann::json DbClient::GetMetricStats(const std::string& run_id, const std::string& metric) {
+    if (!IsValidMetric(metric)) {
+        throw std::invalid_argument("Invalid metric: " + metric);
+    }
+    nlohmann::json j;
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        auto res = W.exec_params(
+            "SELECT COUNT(*), MIN(" + metric + "), MAX(" + metric + "), AVG(" + metric + "), "
+            "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY " + metric + "), "
+            "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY " + metric + ") "
+            "FROM host_telemetry_archival WHERE run_id = $1",
+            run_id);
+        if (!res.empty()) {
+            j["count"] = res[0][0].as<long>();
+            j["min"] = res[0][1].is_null() ? 0.0 : res[0][1].as<double>();
+            j["max"] = res[0][2].is_null() ? 0.0 : res[0][2].as<double>();
+            j["mean"] = res[0][3].is_null() ? 0.0 : res[0][3].as<double>();
+            j["p50"] = res[0][4].is_null() ? 0.0 : res[0][4].as<double>();
+            j["p95"] = res[0][5].is_null() ? 0.0 : res[0][5].as<double>();
+            j["missing_count"] = 0; // Schema is NOT NULL
+        }
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get metric stats for run {} metric {}: {}", run_id, metric, e.what());
+        throw;
+    }
+    return j;
+}
+
 std::string DbClient::CreateScoreJob(const std::string& dataset_id, 
                                     const std::string& model_run_id,
                                     const std::string& request_id) {
