@@ -51,6 +51,8 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
   late TabController _tabController;
   Timer? _jobPoller;
   bool _drawerOpen = false;
+  final Set<String> _cancellingJobs = {};
+  final Map<String, String> _jobErrors = {};
 
   @override
   void initState() {
@@ -205,6 +207,14 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
         try {
           final jobs = await service.listScoreJobs(limit: 10);
           appState.updateJobs(jobs);
+          if (mounted) {
+            setState(() {
+              _cancellingJobs.removeWhere((id) =>
+                  !jobs.any((j) => j.jobId == id) ||
+                  !jobs.any((j) => j.jobId == id && (j.status == 'RUNNING' || j.status == 'PENDING')));
+              _jobErrors.removeWhere((id, _) => !jobs.any((j) => j.jobId == id));
+            });
+          }
         } catch (e) {
           debugPrint('Job polling failed: $e');
         }
@@ -352,6 +362,11 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
                           children: [
                             Text('Status: ${job.status}',
                                 style: TextStyle(color: _getJobStatusColor(job.status))),
+                            if (_cancellingJobs.contains(job.jobId))
+                              const Padding(
+                                padding: EdgeInsets.only(top: 4),
+                                child: Text('Cancelling...', style: TextStyle(color: Colors.orange, fontSize: 11)),
+                              ),
                             if (job.status == 'RUNNING')
                               Padding(
                                 padding: const EdgeInsets.only(top: 4),
@@ -365,6 +380,8 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
                                 style: const TextStyle(fontSize: 11, color: Colors.white54)),
                             if (job.error.isNotEmpty)
                               Text(job.error, style: const TextStyle(color: Colors.red, fontSize: 11)),
+                            if (_jobErrors.containsKey(job.jobId))
+                              Text(_jobErrors[job.jobId]!, style: const TextStyle(color: Colors.red, fontSize: 11)),
                             const SizedBox(height: 8),
                             Row(
                               children: [
@@ -402,6 +419,14 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
                                   ),
                               ],
                             ),
+                            if (job.status == 'RUNNING' || job.status == 'PENDING')
+                              TextButton.icon(
+                                onPressed: _cancellingJobs.contains(job.jobId)
+                                    ? null
+                                    : () => _cancelJob(job),
+                                icon: const Icon(Icons.cancel, size: 14),
+                                label: const Text('Cancel', style: TextStyle(fontSize: 12)),
+                              ),
                           ],
                         ),
                         trailing: IconButton(
@@ -423,10 +448,30 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
         return Colors.greenAccent;
       case 'FAILED':
         return Colors.redAccent;
+      case 'CANCELLED':
+        return Colors.orangeAccent;
       case 'RUNNING':
         return Colors.amberAccent;
       default:
         return Colors.white54;
+    }
+  }
+
+  Future<void> _cancelJob(ScoreJobStatus job) async {
+    final service = context.read<TelemetryService>();
+    setState(() {
+      _cancellingJobs.add(job.jobId);
+      _jobErrors.remove(job.jobId);
+    });
+    try {
+      await service.cancelJob(job.jobId);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _jobErrors[job.jobId] = 'Cancel failed: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _cancellingJobs.remove(job.jobId));
+      }
     }
   }
 }
