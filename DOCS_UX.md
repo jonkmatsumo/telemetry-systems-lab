@@ -2,6 +2,18 @@
 
 This document serves as a guide for manual verification of UX improvements in the Telemetry Anomaly Detection System (TADS).
 
+## Known issues fixed in this PR (Repro Notes)
+- [ ] **RD-01:** "Load into Inference Preview" fails to pass record data.
+  *   *Repro:* Open Results → record drawer → Click "Load into Inference Preview". Verify dataset/model is selected but record values are not populated in the Control tab.
+- [ ] **SR-01:** Min score slider has hardcoded max of 10.
+  *   *Repro:* Open Scoring Results for a dataset with high scores. Verify slider cannot filter scores > 10.
+- [ ] **DL-01:** Deep link `metric` param is ignored.
+  *   *Repro:* Copy analytics link with `&metric=network_tx_rate`, reload page. Verify metric reverts to default (`cpu_usage`).
+- [ ] **DL-02:** Scoring Results screen does not support deep linking.
+  *   *Repro:* Refresh while on Scoring Results screen. Verify it redirects to home/default state instead of restoring results view.
+- [ ] **ERR-01:** Silent error handling masking failures.
+  *   *Repro:* Disconnect server or API. Observe UI swallows errors in polling/hydration without user feedback.
+
 ## 1. Unified Context & State Persistence
 - [ ] **AppState Hydration:** Select a dataset in the `Runs` tab, navigate to the `Control` tab. The "Model Training" section should be enabled and show the selected dataset ID.
 - [ ] **Bidirectional Updates:** Generate a dataset in the `Control` tab. Once it reaches `SUCCEEDED`, navigate to the `Runs` tab. The new dataset should appear at the top and be selected.
