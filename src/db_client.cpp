@@ -564,6 +564,52 @@ nlohmann::json DbClient::GetInferenceRun(const std::string& inference_id) {
     return j;
 }
 
+nlohmann::json DbClient::GetModelsForDataset(const std::string& dataset_id) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT model_run_id, name, status, created_at FROM model_runs WHERE dataset_id = $1 ORDER BY created_at DESC",
+            dataset_id);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["model_run_id"] = row[0].as<std::string>();
+            j["name"] = row[1].as<std::string>();
+            j["status"] = row[2].as<std::string>();
+            j["created_at"] = row[3].as<std::string>();
+            out.push_back(j);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get models for dataset {}: {}", dataset_id, e.what());
+    }
+    return out;
+}
+
+nlohmann::json DbClient::GetScoredDatasetsForModel(const std::string& model_run_id) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        // We find unique datasets from dataset_scores for this model
+        auto res = N.exec_params(
+            "SELECT DISTINCT ds.dataset_id, gr.created_at, ds.scored_at "
+            "FROM dataset_scores ds JOIN generation_runs gr ON ds.dataset_id = gr.run_id "
+            "WHERE ds.model_run_id = $1 ORDER BY ds.scored_at DESC",
+            model_run_id);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["dataset_id"] = row[0].as<std::string>();
+            j["created_at"] = row[1].as<std::string>();
+            j["scored_at"] = row[2].as<std::string>();
+            out.push_back(j);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get scored datasets for model {}: {}", model_run_id, e.what());
+    }
+    return out;
+}
+
 nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) {
     nlohmann::json j;
     try {
@@ -1110,6 +1156,56 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
     } catch (const std::exception& e) {
         spdlog::error("Failed to insert dataset scores: {}", e.what());
     }
+}
+
+nlohmann::json DbClient::GetScores(const std::string& dataset_id,
+                                   const std::string& model_run_id,
+                                   int limit,
+                                   int offset,
+                                   bool only_anomalies,
+                                   double min_score) {
+    nlohmann::json out = nlohmann::json::object();
+    out["items"] = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        std::string where = "WHERE s.dataset_id = " + N.quote(dataset_id) + " AND s.model_run_id = " + N.quote(model_run_id);
+        if (only_anomalies) {
+            where += " AND s.predicted_is_anomaly = true";
+        }
+        if (min_score > 0) {
+            where += " AND s.reconstruction_error >= " + std::to_string(min_score);
+        }
+
+        std::string query = 
+            "SELECT s.score_id, s.record_id, s.reconstruction_error, s.predicted_is_anomaly, s.scored_at, "
+            "h.metric_timestamp, h.host_id, h.is_anomaly as label "
+            "FROM dataset_scores s JOIN host_telemetry_archival h ON s.record_id = h.record_id "
+            + where + " ORDER BY s.reconstruction_error DESC LIMIT $1 OFFSET $2";
+        
+        auto res = N.exec_params(query, limit, offset);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["score_id"] = row[0].as<long>();
+            j["record_id"] = row[1].as<long>();
+            j["score"] = row[2].as<double>();
+            j["is_anomaly"] = row[3].as<bool>();
+            j["scored_at"] = row[4].as<std::string>();
+            j["timestamp"] = row[5].as<std::string>();
+            j["host_id"] = row[6].as<std::string>();
+            j["label"] = row[7].as<bool>();
+            out["items"].push_back(j);
+        }
+
+        auto count_res = N.exec("SELECT COUNT(*) FROM dataset_scores s " + where);
+        out["total"] = count_res.empty() ? 0 : count_res[0][0].as<long>();
+        out["limit"] = limit;
+        out["offset"] = offset;
+
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get scores: {}", e.what());
+    }
+    return out;
 }
 
 nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,

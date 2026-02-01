@@ -560,6 +560,44 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
+  Future<List<Map<String, dynamic>>> getDatasetModels(String runId) async {
+    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/models'));
+    if (response.statusCode == 200) {
+      final List items = jsonDecode(response.body);
+      return items.map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m)).toList();
+    }
+    _handleError(response, 'Failed to get dataset models');
+    throw Exception('Unreachable');
+  }
+
+  Future<List<Map<String, dynamic>>> getModelScoredDatasets(String modelRunId) async {
+    final response = await _client.get(Uri.parse('$baseUrl/models/$modelRunId/datasets/scored'));
+    if (response.statusCode == 200) {
+      final List items = jsonDecode(response.body);
+      return items.map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m)).toList();
+    }
+    _handleError(response, 'Failed to get scored datasets');
+    throw Exception('Unreachable');
+  }
+
+  Future<Map<String, dynamic>> getScores(String datasetId, String modelRunId,
+      {int limit = 50, int offset = 0, bool onlyAnomalies = false, double minScore = 0.0}) async {
+    final params = {
+      'dataset_id': datasetId,
+      'model_run_id': modelRunId,
+      'limit': '$limit',
+      'offset': '$offset',
+      'only_anomalies': '$onlyAnomalies',
+      'min_score': '$minScore',
+    };
+    final response = await _client.get(_buildUri('/scores', params));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    _handleError(response, 'Failed to get scores');
+    throw Exception('Unreachable');
+  }
+
   Future<List<Map<String, dynamic>>> getDatasetSamples(String runId, {int limit = 20}) async {
     final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/samples?limit=$limit'));
     if (response.statusCode == 200) {

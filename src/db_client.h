@@ -82,6 +82,9 @@ public:
                                      const std::string& created_to = "");
     nlohmann::json GetInferenceRun(const std::string& inference_id);
 
+    nlohmann::json GetModelsForDataset(const std::string& dataset_id);
+    nlohmann::json GetScoredDatasetsForModel(const std::string& model_run_id);
+
     nlohmann::json GetDatasetSummary(const std::string& run_id, int topk);
     nlohmann::json GetTopK(const std::string& run_id,
                            const std::string& column,
@@ -143,6 +146,13 @@ public:
     void InsertDatasetScores(const std::string& dataset_id,
                              const std::string& model_run_id,
                              const std::vector<std::pair<long, std::pair<double, bool>>>& scores);
+
+    nlohmann::json GetScores(const std::string& dataset_id,
+                             const std::string& model_run_id,
+                             int limit,
+                             int offset,
+                             bool only_anomalies,
+                             double min_score);
 
     nlohmann::json GetEvalMetrics(const std::string& dataset_id,
                                   const std::string& model_run_id,
