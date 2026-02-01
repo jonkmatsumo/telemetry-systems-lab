@@ -66,6 +66,7 @@ target_include_directories(telemetry_linalg PUBLIC src)
 # PCA training library
 add_library(telemetry_trainer
     src/training/pca_trainer.cpp
+    src/training/telemetry_iterator.cpp
 )
 target_include_directories(telemetry_trainer PUBLIC src)
 target_link_libraries(telemetry_trainer
@@ -121,6 +122,7 @@ target_link_libraries(telemetry-scorer
 add_executable(telemetry-api
     src/api_main.cpp
     src/api_server.cpp
+    src/route_registry.cpp
     src/db_client.cpp
     src/preprocessing.cpp
     src/detectors/detector_a.cpp
@@ -186,12 +188,15 @@ add_executable(unit_tests
     tests/unit/test_alert_manager.cpp
     tests/unit/test_linalg.cpp
     tests/unit/test_pca_trainer.cpp
+    tests/unit/test_telemetry_iterator.cpp
+    tests/unit/test_route_registry.cpp
     tests/unit/test_api_debug.cpp
     tests/unit/test_db_client_security.cpp
     tests/unit/test_job_manager.cpp
     tests/unit/test_obs_metrics.cpp
     src/generator.cpp
     src/db_client.cpp
+    src/route_registry.cpp
     src/server.cpp
     src/job_manager.cpp
     src/preprocessing.cpp
@@ -269,4 +274,19 @@ target_link_libraries(metrics_integration_tests
 )
 if(HTTPLIB_FOUND)
     target_link_libraries(metrics_integration_tests PkgConfig::HTTPLIB)
+endif()
+
+# API Route Probing Test
+add_executable(api_route_tests
+    tests/integration/test_api_routes.cpp
+    src/route_registry.cpp
+)
+target_include_directories(api_route_tests PRIVATE src)
+target_link_libraries(api_route_tests
+    GTest::GTest
+    GTest::Main
+    nlohmann_json::nlohmann_json
+)
+if(HTTPLIB_FOUND)
+    target_link_libraries(api_route_tests PkgConfig::HTTPLIB)
 endif()

@@ -161,6 +161,15 @@ Measure raw inference throughput:
 ```
 *Expected: >150k records/sec on modern hardware.*
 
+## Production Hardening
+
+The system includes several production hardening features:
+- **PCA Batching**: Memory-efficient training on large datasets.
+- **Consistent Deletion**: Transactional cleanup of datasets and scores.
+- **Route Guardrails**: Authoritative registry and automated route probing.
+
+See the [Production Hardening Runbook](docs/production_hardening.md) for details on tuning and maintenance.
+
 ## HTTP API (Selected Endpoints)
 
 ### Navigation + Status

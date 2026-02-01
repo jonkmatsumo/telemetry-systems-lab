@@ -287,3 +287,57 @@ TEST_F(DbClientTest, PersistsRequestId) {
     auto job = client.GetScoreJob(job_id);
     EXPECT_EQ(job["request_id"], req_id);
 }
+
+TEST_F(DbClientTest, DeleteDatasetWithScores) {
+    DbClient client(conn_str);
+    std::string run_id = GenerateUUID();
+    
+    telemetry::GenerateRequest req;
+    req.set_tier("DELETE_TEST");
+    req.set_start_time_iso("2025-01-01T00:00:00Z");
+    req.set_end_time_iso("2025-01-01T01:00:00Z");
+    req.set_interval_seconds(60);
+    req.set_host_count(1);
+    
+    // 1. Create Data
+    client.CreateRun(run_id, req, "SUCCEEDED");
+    
+    TelemetryRecord rec;
+    rec.run_id = run_id;
+    rec.metric_timestamp = std::chrono::system_clock::now();
+    rec.ingestion_time = rec.metric_timestamp;
+    rec.host_id = "host-1";
+    rec.project_id = "proj-1";
+    rec.region = "us-test";
+    rec.labels_json = "{}";
+    client.BatchInsertTelemetry({rec});
+    
+    // Need a record_id to insert scores. Fetch it back.
+    auto rows = client.FetchScoringRowsAfterRecord(run_id, 0, 10);
+    ASSERT_FALSE(rows.empty());
+    long record_id = rows[0].record_id;
+    
+    std::string model_run_id = client.CreateModelRun(run_id, "test_delete");
+    std::string job_id = client.CreateScoreJob(run_id, model_run_id);
+    
+    // Insert a score
+    client.InsertDatasetScores(run_id, model_run_id, {{record_id, {0.5, false}}});
+    
+    // 2. Verify existence
+    auto detail = client.GetDatasetDetail(run_id);
+    EXPECT_EQ(detail["run_id"], run_id);
+    
+    auto scores = client.GetScores(run_id, model_run_id, 10, 0, false, 0, 0);
+    EXPECT_EQ(scores["total"], 1);
+    
+    // 3. Delete
+    ASSERT_NO_THROW(client.DeleteDatasetWithScores(run_id));
+    
+    // 4. Verify deletion
+    auto detail_after = client.GetDatasetDetail(run_id);
+    EXPECT_TRUE(detail_after.empty() || detail_after.is_null());
+    
+    // Check scores too
+    auto scores_after = client.GetScores(run_id, model_run_id, 10, 0, false, 0, 0);
+    EXPECT_EQ(scores_after["total"], 0);
+}
