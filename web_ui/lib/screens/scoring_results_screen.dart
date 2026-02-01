@@ -7,8 +7,16 @@ import '../widgets/inline_alert.dart';
 class ScoringResultsScreen extends StatefulWidget {
   final String datasetId;
   final String modelRunId;
+  final double? initialMinScore;
+  final bool initialOnlyAnomalies;
 
-  const ScoringResultsScreen({super.key, required this.datasetId, required this.modelRunId});
+  const ScoringResultsScreen({
+    super.key,
+    required this.datasetId,
+    required this.modelRunId,
+    this.initialMinScore,
+    this.initialOnlyAnomalies = false,
+  });
 
   @override
   State<ScoringResultsScreen> createState() => _ScoringResultsScreenState();
@@ -26,6 +34,8 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
   @override
   void initState() {
     super.initState();
+    _minScore = widget.initialMinScore ?? 0.0;
+    _onlyAnomalies = widget.initialOnlyAnomalies;
     _load();
   }
 

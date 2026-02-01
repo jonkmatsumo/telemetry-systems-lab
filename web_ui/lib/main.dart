@@ -74,6 +74,29 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
     if (dsId != null && metric != null) {
       _validateAndSetMetric(dsId, metric, appState);
     }
+    
+    // Check for Scoring Results deep link
+    final resDsId = uri.queryParameters['resultsDatasetId'];
+    final resMId = uri.queryParameters['resultsModelId'];
+    if (resDsId != null && resMId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Parse optional filters
+        final minScoreStr = uri.queryParameters['minScore'];
+        final onlyAnomStr = uri.queryParameters['onlyAnomalies'];
+        
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ScoringResultsScreen(
+              datasetId: resDsId,
+              modelRunId: resMId,
+              initialMinScore: minScoreStr != null ? double.tryParse(minScoreStr) : null,
+              initialOnlyAnomalies: onlyAnomStr == 'true',
+            ),
+          ),
+        );
+      });
+    }
 
     _startJobPolling();
   }
