@@ -66,6 +66,7 @@ target_include_directories(telemetry_linalg PUBLIC src)
 # PCA training library
 add_library(telemetry_trainer
     src/training/pca_trainer.cpp
+    src/training/telemetry_iterator.cpp
 )
 target_include_directories(telemetry_trainer PUBLIC src)
 target_link_libraries(telemetry_trainer
@@ -186,6 +187,7 @@ add_executable(unit_tests
     tests/unit/test_alert_manager.cpp
     tests/unit/test_linalg.cpp
     tests/unit/test_pca_trainer.cpp
+    tests/unit/test_telemetry_iterator.cpp
     tests/unit/test_api_debug.cpp
     tests/unit/test_db_client_security.cpp
     tests/unit/test_job_manager.cpp
