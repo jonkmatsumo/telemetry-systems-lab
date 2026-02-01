@@ -217,6 +217,8 @@ class InferenceRunSummary {
 
 class ScoreJobStatus {
   final String jobId;
+  final String datasetId;
+  final String modelRunId;
   final String status;
   final int totalRows;
   final int processedRows;
@@ -226,6 +228,8 @@ class ScoreJobStatus {
 
   ScoreJobStatus({
     required this.jobId,
+    required this.datasetId,
+    required this.modelRunId,
     required this.status,
     required this.totalRows,
     required this.processedRows,
@@ -237,6 +241,8 @@ class ScoreJobStatus {
   factory ScoreJobStatus.fromJson(Map<String, dynamic> json) {
     return ScoreJobStatus(
       jobId: json['job_id'] ?? '',
+      datasetId: json['dataset_id'] ?? '',
+      modelRunId: json['model_run_id'] ?? '',
       status: json['status'] ?? '',
       totalRows: json['total_rows'] ?? 0,
       processedRows: json['processed_rows'] ?? 0,
@@ -855,6 +861,15 @@ class TelemetryService {
       return ScoreJobStatus.fromJson(jsonDecode(response.body));
     }
     _handleError(response, 'Failed to get job progress');
+    throw Exception('Unreachable');
+  }
+
+  Future<void> cancelJob(String jobId) async {
+    final response = await _client.delete(Uri.parse('$baseUrl/jobs/$jobId'));
+    if (response.statusCode == 200) {
+      return;
+    }
+    _handleError(response, 'Failed to cancel job');
     throw Exception('Unreachable');
   }
 
