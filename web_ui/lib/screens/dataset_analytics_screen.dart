@@ -26,6 +26,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   bool _loadingSchema = false;
   String? _loadError;
   String? _comparisonMetric;
+  Map<String, dynamic>? _metricsSummary;
 
   @override
   void initState() {
@@ -34,6 +35,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   }
 
   Future<void> _fetchSchema() async {
+    final appState = context.read<AppState>();
     setState(() {
       _loadingSchema = true;
       _loadError = null;
@@ -41,6 +43,11 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     try {
       final schema = await context.read<TelemetryService>().getMetricsSchema();
       setState(() => _availableMetrics = schema);
+      if (appState.datasetId != null) {
+        final summary =
+            await context.read<TelemetryService>().getDatasetMetricsSummary(appState.datasetId!);
+        setState(() => _metricsSummary = summary);
+      }
     } catch (_) {
       setState(() {
         _availableMetrics = [
@@ -345,45 +352,54 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
           decoration: const BoxDecoration(
             border: Border(right: BorderSide(color: Colors.white12)),
           ),
-          child: ListView.builder(
-            itemCount: _availableMetrics.length,
-            itemBuilder: (context, index) {
-              final m = _availableMetrics[index];
-              final isPrimary = m['key'] == selectedMetric;
-              final isSecondary = m['key'] == _comparisonMetric;
-              return ListTile(
-                title: Text(m['label']!,
-                    style: TextStyle(
-                        fontSize: 13,
-                        color: isPrimary
-                            ? const Color(0xFF38BDF8)
-                            : (isSecondary ? const Color(0xFF818CF8) : Colors.white70))),
-                onTap: () {
-                  appState.setSelectedMetric(datasetId, m['key']!);
-                  setState(() {
-                    _load(datasetId, m['key']!);
-                  });
-                },
-                trailing: isPrimary
-                    ? null
-                    : IconButton(
-                        icon: Icon(isSecondary ? Icons.compare_arrows : Icons.add_circle_outline,
-                            size: 16, color: isSecondary ? const Color(0xFF818CF8) : Colors.white24),
-                        onPressed: () {
-                          setState(() {
-                            if (isSecondary) {
-                              _comparisonMetric = null;
-                            } else {
-                              _comparisonMetric = m['key'];
-                            }
-                            _load(datasetId, selectedMetric);
-                          });
-                        },
-                      ),
-                selected: isPrimary,
-                dense: true,
-              );
-            },
+          child: Column(
+            children: [
+              if (_metricsSummary != null) _buildSuggestions(datasetId, appState),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _availableMetrics.length,
+                  itemBuilder: (context, index) {
+                    final m = _availableMetrics[index];
+                    final isPrimary = m['key'] == selectedMetric;
+                    final isSecondary = m['key'] == _comparisonMetric;
+                    return ListTile(
+                      title: Text(m['label']!,
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: isPrimary
+                                  ? const Color(0xFF38BDF8)
+                                  : (isSecondary ? const Color(0xFF818CF8) : Colors.white70))),
+                      onTap: () {
+                        appState.setSelectedMetric(datasetId, m['key']!);
+                        setState(() {
+                          _load(datasetId, m['key']!);
+                        });
+                      },
+                      trailing: isPrimary
+                          ? null
+                          : IconButton(
+                              icon: Icon(isSecondary ? Icons.compare_arrows : Icons.add_circle_outline,
+                                  size: 16,
+                                  color: isSecondary ? const Color(0xFF818CF8) : Colors.white24),
+                              onPressed: () {
+                                setState(() {
+                                  if (isSecondary) {
+                                    _comparisonMetric = null;
+                                  } else {
+                                    _comparisonMetric = m['key'];
+                                  }
+                                  _load(datasetId, selectedMetric);
+                                });
+                              },
+                            ),
+                      selected: isPrimary,
+                      dense: true,
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
         ),
         Expanded(
@@ -415,6 +431,37 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSuggestions(String datasetId, AppState appState) {
+    final highVar = _metricsSummary!['high_variance'] as List? ?? [];
+    if (highVar.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Suggested (High Var)',
+              style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 4,
+            runSpacing: 4,
+            children: highVar.take(3).map((m) {
+              return ActionChip(
+                label: Text(m['key'], style: const TextStyle(fontSize: 10)),
+                padding: EdgeInsets.zero,
+                backgroundColor: Colors.white10,
+                onPressed: () {
+                  appState.setSelectedMetric(datasetId, m['key']);
+                  setState(() => _load(datasetId, m['key']));
+                },
+              );
+            }).toList(),
+          ),
+        ],
+      ),
     );
   }
 
