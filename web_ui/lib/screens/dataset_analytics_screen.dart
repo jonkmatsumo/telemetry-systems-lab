@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
@@ -127,13 +128,32 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     Tab(text: 'Distributions'),
                   ],
                 ),
-                IconButton(
-                  onPressed: () {
-                    setState(() {
-                      _load(datasetId, selectedMetric);
-                    });
-                  },
-                  icon: const Icon(Icons.refresh),
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: () {
+                        setState(() {
+                          _load(datasetId, selectedMetric);
+                        });
+                      },
+                      icon: const Icon(Icons.refresh),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        final uri = Uri.base;
+                        final link = uri.replace(queryParameters: {
+                          ...uri.queryParameters,
+                          'datasetId': datasetId,
+                          'metric': selectedMetric,
+                        }).toString();
+                        Clipboard.setData(ClipboardData(text: link));
+                        ScaffoldMessenger.of(context)
+                            .showSnackBar(const SnackBar(content: Text('Link copied to clipboard')));
+                      },
+                      icon: const Icon(Icons.link),
+                      label: const Text('Copy Link'),
+                    ),
+                  ],
                 ),
               ],
             ),

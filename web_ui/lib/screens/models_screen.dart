@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
@@ -232,6 +233,22 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Inference Preview'),
                 ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    final uri = Uri.base;
+                    final link = uri.replace(queryParameters: {
+                      ...uri.queryParameters,
+                      'datasetId': detail['dataset_id'],
+                      'modelId': modelRunId,
+                    }).toString();
+                    Clipboard.setData(ClipboardData(text: link));
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(const SnackBar(content: Text('Link copied to clipboard')));
+                  },
+                  icon: const Icon(Icons.link),
+                  label: const Text('Copy Shareable Link'),
+                ),
               ],
             ),
           if (_jobStatus != null)
@@ -326,7 +343,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
                 onPressed: () {
                   final appState = context.read<AppState>();
                   appState.setDataset(ds['dataset_id']);
-                  appState.setTabIndex(1); // Go to Runs (or results browser if implemented)
+                  appState.setTabIndex(1); // Go to Runs
                 },
                 child: const Text('View Dataset'),
               ),

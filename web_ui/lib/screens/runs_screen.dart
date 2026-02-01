@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
@@ -207,6 +208,20 @@ class _RunsScreenState extends State<RunsScreen> {
             ),
             icon: const Icon(Icons.analytics),
             label: const Text('View Analytics'),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () {
+              final uri = Uri.base;
+              final link = uri.replace(queryParameters: {
+                ...uri.queryParameters,
+                'datasetId': runId,
+              }).toString();
+              Clipboard.setData(ClipboardData(text: link));
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link copied to clipboard')));
+            },
+            icon: const Icon(Icons.link),
+            label: const Text('Copy Shareable Link'),
           ),
         ],
       ),

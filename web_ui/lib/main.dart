@@ -61,6 +61,14 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
         appState.setTabIndex(_tabController.index);
       }
     });
+
+    // Hydrate from URL
+    final uri = Uri.base;
+    final dsId = uri.queryParameters['datasetId'];
+    final mId = uri.queryParameters['modelId'];
+    if (dsId != null) appState.setDataset(dsId);
+    if (mId != null) appState.setModel(mId);
+
     _startJobPolling();
   }
 
