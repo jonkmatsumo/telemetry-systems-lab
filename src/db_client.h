@@ -67,6 +67,7 @@ public:
                                       const std::string& created_to = "");
     nlohmann::json GetDatasetDetail(const std::string& run_id);
     nlohmann::json GetDatasetSamples(const std::string& run_id, int limit);
+    nlohmann::json GetDatasetRecord(const std::string& run_id, long record_id);
     nlohmann::json ListModelRuns(int limit,
                                  int offset,
                                  const std::string& status = "",

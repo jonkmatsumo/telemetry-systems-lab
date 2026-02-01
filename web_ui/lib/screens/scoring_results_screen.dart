@@ -161,59 +161,86 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
                     );
                   }).toList(),
 ...
-  void _showDetail(Map<String, dynamic> item) {
+  void _showDetail(Map<String, dynamic> item) async {
+    final recordId = item['record_id'];
+    final runId = widget.datasetId;
+    
+    // Show loading drawer first
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1E293B),
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Record ${item['record_id']} Detail',
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _detailRow('Host ID', item['host_id']),
-              _detailRow('Timestamp', item['timestamp']),
-              _detailRow('Anomaly Score', item['score'].toStringAsFixed(6)),
-              _detailRow('Prediction', item['is_anomaly'] ? 'ANOMALY' : 'NORMAL'),
-              _detailRow('Ground Truth', item['label'] ? 'ANOMALY' : 'NORMAL'),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    final appState = context.read<AppState>();
-                    appState.setDataset(widget.datasetId);
-                    appState.setModel(widget.modelRunId);
-                    appState.setTabIndex(0); // Go to Control/Inference
-                    Navigator.pop(context); // Close bottom sheet
-                    Navigator.pop(context); // Go back from results browser
-                  },
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text('Load into Inference Preview'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF38BDF8),
-                    foregroundColor: const Color(0xFF0F172A),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final record = await context.read<TelemetryService>().getDatasetRecord(runId, recordId);
+      Navigator.pop(context); // Close loading sheet
+
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: const Color(0xFF1E293B),
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (context) {
+          return Container(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Record $recordId Detail',
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _detailRow('Host ID', record['host_id'] ?? item['host_id']),
+                _detailRow('Timestamp', record['timestamp'] ?? item['timestamp']),
+                _detailRow('Anomaly Score', item['score'].toStringAsFixed(6)),
+                _detailRow('Prediction', item['is_anomaly'] ? 'ANOMALY' : 'NORMAL'),
+                _detailRow('Ground Truth', item['label'] ? 'ANOMALY' : 'NORMAL'),
+                const Divider(height: 32, color: Colors.white12),
+                const Text('Raw Metrics', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF38BDF8))),
+                const SizedBox(height: 12),
+                _detailRow('CPU Usage', '${record['cpu_usage']?.toStringAsFixed(2)}%'),
+                _detailRow('Memory Usage', '${record['memory_usage']?.toStringAsFixed(2)}%'),
+                _detailRow('Disk Utilization', '${record['disk_utilization']?.toStringAsFixed(2)}%'),
+                _detailRow('Network RX', '${record['network_rx_rate']?.toStringAsFixed(2)} Mbps'),
+                _detailRow('Network TX', '${record['network_tx_rate']?.toStringAsFixed(2)} Mbps'),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      final appState = context.read<AppState>();
+                      appState.setDataset(widget.datasetId);
+                      appState.setModel(widget.modelRunId);
+                      appState.setTabIndex(0); // Go to Control/Inference
+                      Navigator.pop(context); // Close bottom sheet
+                      Navigator.pop(context); // Go back from results browser
+                    },
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('Load into Inference Preview'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF38BDF8),
+                      foregroundColor: const Color(0xFF0F172A),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+              ],
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      Navigator.pop(context); // Close loading sheet
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load record details: $e')));
+    }
   }
 
   Widget _detailRow(String label, String value) {

@@ -31,6 +31,7 @@ private:
     void HandleDatasetTimeSeries(const httplib::Request& req, httplib::Response& res);
     void HandleDatasetHistogram(const httplib::Request& req, httplib::Response& res);
     void HandleGetDatasetSamples(const httplib::Request& req, httplib::Response& res);
+    void HandleGetDatasetRecord(const httplib::Request& req, httplib::Response& res);
     void HandleGetDatasetMetricStats(const httplib::Request& req, httplib::Response& res);
     void HandleGetDatasetMetricsSummary(const httplib::Request& req, httplib::Response& res);
     void HandleGetDatasetModels(const httplib::Request& req, httplib::Response& res);

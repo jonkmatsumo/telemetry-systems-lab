@@ -608,6 +608,15 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
+  Future<Map<String, dynamic>> getDatasetRecord(String runId, int recordId) async {
+    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/records/$recordId'));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    _handleError(response, 'Failed to get dataset record');
+    throw Exception('Unreachable');
+  }
+
   Future<Map<String, dynamic>> getMetricStats(String runId, String metric) async {
     final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/metrics/$metric/stats'));
     if (response.statusCode == 200) {

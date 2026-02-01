@@ -447,6 +447,31 @@ nlohmann::json DbClient::GetDatasetSamples(const std::string& run_id, int limit)
     return out;
 }
 
+nlohmann::json DbClient::GetDatasetRecord(const std::string& run_id, long record_id) {
+    nlohmann::json j;
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate, metric_timestamp, host_id, labels "
+            "FROM host_telemetry_archival WHERE run_id = $1 AND record_id = $2",
+            run_id, record_id);
+        if (!res.empty()) {
+            j["cpu_usage"] = res[0][0].as<double>();
+            j["memory_usage"] = res[0][1].as<double>();
+            j["disk_utilization"] = res[0][2].as<double>();
+            j["network_rx_rate"] = res[0][3].as<double>();
+            j["network_tx_rate"] = res[0][4].as<double>();
+            j["timestamp"] = res[0][5].as<std::string>();
+            j["host_id"] = res[0][6].as<std::string>();
+            j["labels"] = nlohmann::json::parse(res[0][7].c_str());
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get dataset record run {} record {}: {}", run_id, record_id, e.what());
+    }
+    return j;
+}
+
 nlohmann::json DbClient::ListModelRuns(int limit,
                                        int offset,
                                        const std::string& status,
