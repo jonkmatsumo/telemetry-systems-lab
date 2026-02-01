@@ -45,7 +45,12 @@ class _ModelsScreenState extends State<ModelsScreen> {
     setState(() => _loadingDetail = true);
     try {
       final detail = await context.read<TelemetryService>().getModelDetail(model.modelRunId);
-      setState(() => _selectedDetail = detail);
+      setState(() {
+        _selectedDetail = detail;
+        _evalMetrics = null;
+        _errorDist = [];
+        _jobStatus = null;
+      });
       context.read<AppState>().setModel(model.modelRunId);
     } finally {
       setState(() => _loadingDetail = false);
@@ -141,7 +146,6 @@ class _ModelsScreenState extends State<ModelsScreen> {
           Expanded(
             flex: 4,
             child: Container(
-              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.black.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(12),
@@ -151,7 +155,27 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   ? const Center(child: CircularProgressIndicator())
                   : _selectedDetail == null
                       ? const Center(child: Text('Select a model to view details'))
-                      : _buildDetail(datasetId),
+                      : DefaultTabController(
+                          length: 2,
+                          child: Column(
+                            children: [
+                              const TabBar(
+                                tabs: [
+                                  Tab(text: 'Overview'),
+                                  Tab(text: 'Scored Datasets'),
+                                ],
+                              ),
+                              Expanded(
+                                child: TabBarView(
+                                  children: [
+                                    _buildDetail(datasetId),
+                                    _buildScoredDatasetsTab(_selectedDetail!),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
             ),
           ),
         ],
@@ -166,108 +190,150 @@ class _ModelsScreenState extends State<ModelsScreen> {
     final thresholds = artifact['thresholds'] ?? {};
     final nComponents = artifact['model']?['n_components'] ?? 0;
 
-    return ListView(
-      children: [
-        _kv('Model Run ID', modelRunId),
-        _kv('Dataset ID', detail['dataset_id'] ?? ''),
-        _kv('Status', detail['status'] ?? ''),
-        _kv('Artifact Path', detail['artifact_path'] ?? ''),
-        _kv('Threshold', '${thresholds['reconstruction_error'] ?? ''}'),
-        _kv('Components', '$nComponents'),
-        if (detail['error'] != null && detail['error'].toString().isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 16),
-            child: InlineAlert(title: 'Training Error', message: detail['error'].toString()),
-          ),
-        const SizedBox(height: 12),
-        if (datasetId != null)
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              ElevatedButton(
-                onPressed: () => _startScoring(datasetId, modelRunId),
-                child: const Text('Score Dataset'),
-              ),
-              ElevatedButton(
-                onPressed: () => _loadEval(datasetId, modelRunId),
-                child: const Text('Load Eval Metrics'),
-              ),
-              ElevatedButton.icon(
-                onPressed: () {
-                  final appState = context.read<AppState>();
-                  appState.setModel(modelRunId);
-                  appState.setTabIndex(0); // Go to Control
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF38BDF8),
-                  foregroundColor: const Color(0xFF0F172A),
-                ),
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('Inference Preview'),
-              ),
-            ],
-          ),
-        if (_jobStatus != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: ListView(
+        children: [
+          _kv('Model Run ID', modelRunId),
+          _kv('Dataset ID', detail['dataset_id'] ?? ''),
+          _kv('Status', detail['status'] ?? ''),
+          _kv('Artifact Path', detail['artifact_path'] ?? ''),
+          _kv('Threshold', '${thresholds['reconstruction_error'] ?? ''}'),
+          _kv('Components', '$nComponents'),
+          if (detail['error'] != null && detail['error'].toString().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: InlineAlert(title: 'Training Error', message: detail['error'].toString()),
+            ),
+          const SizedBox(height: 12),
+          if (datasetId != null)
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
               children: [
-                Text(
-                  'Scoring job: ${_jobStatus!.status} (${_jobStatus!.processedRows}/${_jobStatus!.totalRows})',
+                ElevatedButton(
+                  onPressed: () => _startScoring(datasetId, modelRunId),
+                  child: const Text('Score Dataset'),
                 ),
-                if (_jobStatus!.error.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: InlineAlert(title: 'Scoring Error', message: _jobStatus!.error),
+                ElevatedButton(
+                  onPressed: () => _loadEval(datasetId, modelRunId),
+                  child: const Text('Load Eval Metrics'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    final appState = context.read<AppState>();
+                    appState.setModel(modelRunId);
+                    appState.setTabIndex(0); // Go to Control
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF38BDF8),
+                    foregroundColor: const Color(0xFF0F172A),
                   ),
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Inference Preview'),
+                ),
               ],
             ),
-          ),
-        if (_jobStatus != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: OutlinedButton.icon(
-              onPressed: _refreshJobStatus,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Refresh Job Status'),
-            ),
-          ),
-        const SizedBox(height: 16),
-        if (_evalMetrics != null)
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: [
-              _metricCard('Confusion',
-                  'TP ${_evalMetrics!.confusion['tp']} | FP ${_evalMetrics!.confusion['fp']}\nTN ${_evalMetrics!.confusion['tn']} | FN ${_evalMetrics!.confusion['fn']}'),
-              SizedBox(
-                width: 360,
-                child: ChartCard(
-                  title: 'ROC Curve',
-                  child: _buildLineFromPairs(_evalMetrics!.roc, 'fpr', 'tpr'),
-                ),
+          if (_jobStatus != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Scoring job: ${_jobStatus!.status} (${_jobStatus!.processedRows}/${_jobStatus!.totalRows})',
+                  ),
+                  if (_jobStatus!.error.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: InlineAlert(title: 'Scoring Error', message: _jobStatus!.error),
+                    ),
+                ],
               ),
-              SizedBox(
-                width: 360,
-                child: ChartCard(
-                  title: 'PR Curve',
-                  child: _buildLineFromPairs(_evalMetrics!.pr, 'recall', 'precision'),
-                ),
+          ),
+          if (_jobStatus != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: OutlinedButton.icon(
+                onPressed: _refreshJobStatus,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh Job Status'),
               ),
-            ],
-          ),
-        if (_errorDist.isNotEmpty) const SizedBox(height: 16),
-        if (_errorDist.isNotEmpty)
-          SizedBox(
-            width: 420,
-            child: ChartCard(
-              title: 'Error by Anomaly Type (mean)',
-              child: BarChart(values: _errorDist.map((e) => e.mean).toList()),
             ),
-          ),
-      ],
+          const SizedBox(height: 16),
+          if (_evalMetrics != null)
+            Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                _metricCard('Confusion',
+                    'TP ${_evalMetrics!.confusion['tp']} | FP ${_evalMetrics!.confusion['fp']}\nTN ${_evalMetrics!.confusion['tn']} | FN ${_evalMetrics!.confusion['fn']}'),
+                SizedBox(
+                  width: 360,
+                  child: ChartCard(
+                    title: 'ROC Curve',
+                    child: _buildLineFromPairs(_evalMetrics!.roc, 'fpr', 'tpr'),
+                  ),
+                ),
+                SizedBox(
+                  width: 360,
+                  child: ChartCard(
+                    title: 'PR Curve',
+                    child: _buildLineFromPairs(_evalMetrics!.pr, 'recall', 'precision'),
+                  ),
+                ),
+              ],
+            ),
+          if (_errorDist.isNotEmpty) const SizedBox(height: 16),
+          if (_errorDist.isNotEmpty)
+            SizedBox(
+              width: 420,
+              child: ChartCard(
+                title: 'Error by Anomaly Type (mean)',
+                child: BarChart(values: _errorDist.map((e) => e.mean).toList()),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScoredDatasetsTab(Map<String, dynamic> detail) {
+    final modelRunId = detail['model_run_id'];
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: context.read<TelemetryService>().getModelScoredDatasets(modelRunId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        }
+        final datasets = snapshot.data ?? [];
+        if (datasets.isEmpty) {
+          return const Center(child: Text('This model hasn\'t scored any datasets yet.'));
+        }
+        return ListView.separated(
+          itemCount: datasets.length,
+          padding: const EdgeInsets.all(16),
+          separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+          itemBuilder: (context, index) {
+            final ds = datasets[index];
+            return ListTile(
+              title: Text('Dataset: ${ds['dataset_id'].substring(0, 8)}...'),
+              subtitle: Text('Scored at: ${ds['scored_at']}'),
+              trailing: ElevatedButton(
+                onPressed: () {
+                  final appState = context.read<AppState>();
+                  appState.setDataset(ds['dataset_id']);
+                  appState.setTabIndex(1); // Go to Runs (or results browser if implemented)
+                },
+                child: const Text('View Dataset'),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
