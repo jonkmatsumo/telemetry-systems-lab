@@ -217,6 +217,8 @@ class InferenceRunSummary {
 
 class ScoreJobStatus {
   final String jobId;
+  final String datasetId;
+  final String modelRunId;
   final String status;
   final int totalRows;
   final int processedRows;
@@ -226,6 +228,8 @@ class ScoreJobStatus {
 
   ScoreJobStatus({
     required this.jobId,
+    required this.datasetId,
+    required this.modelRunId,
     required this.status,
     required this.totalRows,
     required this.processedRows,
@@ -237,6 +241,8 @@ class ScoreJobStatus {
   factory ScoreJobStatus.fromJson(Map<String, dynamic> json) {
     return ScoreJobStatus(
       jobId: json['job_id'] ?? '',
+      datasetId: json['dataset_id'] ?? '',
+      modelRunId: json['model_run_id'] ?? '',
       status: json['status'] ?? '',
       totalRows: json['total_rows'] ?? 0,
       processedRows: json['processed_rows'] ?? 0,
@@ -454,6 +460,16 @@ class TelemetryService {
     throw Exception('$defaultMessage: ${response.body}');
   }
 
+  Future<List<Map<String, String>>> getMetricsSchema() async {
+    final response = await _client.get(Uri.parse('$baseUrl/schema/metrics'));
+    if (response.statusCode == 200) {
+      final List metrics = jsonDecode(response.body)['metrics'];
+      return metrics.map<Map<String, String>>((m) => Map<String, String>.from(m)).toList();
+    }
+    _handleError(response, 'Failed to get metrics schema');
+    throw Exception('Unreachable');
+  }
+
   Future<String> generateDataset(int hostCount) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/datasets'),
@@ -547,6 +563,88 @@ class TelemetryService {
       return data;
     }
     _handleError(response, 'Failed to get dataset detail');
+    throw Exception('Unreachable');
+  }
+
+  Future<List<Map<String, dynamic>>> getDatasetModels(String runId) async {
+    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/models'));
+    if (response.statusCode == 200) {
+      final List items = jsonDecode(response.body);
+      return items.map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m)).toList();
+    }
+    _handleError(response, 'Failed to get dataset models');
+    throw Exception('Unreachable');
+  }
+
+  Future<List<Map<String, dynamic>>> getModelScoredDatasets(String modelRunId) async {
+    final response = await _client.get(Uri.parse('$baseUrl/models/$modelRunId/datasets/scored'));
+    if (response.statusCode == 200) {
+      final List items = jsonDecode(response.body);
+      return items.map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m)).toList();
+    }
+    _handleError(response, 'Failed to get scored datasets');
+    throw Exception('Unreachable');
+  }
+
+  Future<Map<String, dynamic>> getScores(String datasetId, String modelRunId,
+      {int limit = 50,
+      int offset = 0,
+      bool onlyAnomalies = false,
+      double minScore = 0.0,
+      double? maxScore}) async {
+    final params = {
+      'dataset_id': datasetId,
+      'model_run_id': modelRunId,
+      'limit': '$limit',
+      'offset': '$offset',
+      'only_anomalies': '$onlyAnomalies',
+      'min_score': '$minScore',
+    };
+    if (maxScore != null) {
+      params['max_score'] = '$maxScore';
+    }
+    final response = await _client.get(_buildUri('/scores', params));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    _handleError(response, 'Failed to get scores');
+    throw Exception('Unreachable');
+  }
+
+  Future<List<Map<String, dynamic>>> getDatasetSamples(String runId, {int limit = 20}) async {
+    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/samples?limit=$limit'));
+    if (response.statusCode == 200) {
+      final List items = jsonDecode(response.body)['items'];
+      return items.map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m)).toList();
+    }
+    _handleError(response, 'Failed to get dataset samples');
+    throw Exception('Unreachable');
+  }
+
+  Future<Map<String, dynamic>> getDatasetRecord(String runId, int recordId) async {
+    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/records/$recordId'));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    _handleError(response, 'Failed to get dataset record');
+    throw Exception('Unreachable');
+  }
+
+  Future<Map<String, dynamic>> getMetricStats(String runId, String metric) async {
+    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/metrics/$metric/stats'));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    _handleError(response, 'Failed to get metric stats');
+    throw Exception('Unreachable');
+  }
+
+  Future<Map<String, dynamic>> getDatasetMetricsSummary(String runId) async {
+    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/metrics/summary'));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    _handleError(response, 'Failed to get dataset metrics summary');
     throw Exception('Unreachable');
   }
 
@@ -770,6 +868,15 @@ class TelemetryService {
       return ScoreJobStatus.fromJson(jsonDecode(response.body));
     }
     _handleError(response, 'Failed to get job progress');
+    throw Exception('Unreachable');
+  }
+
+  Future<void> cancelJob(String jobId) async {
+    final response = await _client.delete(Uri.parse('$baseUrl/jobs/$jobId'));
+    if (response.statusCode == 200) {
+      return;
+    }
+    _handleError(response, 'Failed to cancel job');
     throw Exception('Unreachable');
   }
 

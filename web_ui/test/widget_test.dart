@@ -1,30 +1,52 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:web_ui/screens/control_panel.dart';
+import 'package:web_ui/services/telemetry_service.dart';
+import 'package:web_ui/state/app_state.dart';
 
-import 'package:web_ui/main.dart';
+class _SmokeTelemetryService extends TelemetryService {
+  _SmokeTelemetryService() : super(baseUrl: 'http://example.com');
+
+  @override
+  Future<List<DatasetRun>> listDatasets(
+      {int limit = 50,
+      int offset = 0,
+      String? status,
+      String? createdFrom,
+      String? createdTo}) async {
+    return [];
+  }
+
+  @override
+  Future<List<ModelRunSummary>> listModels(
+      {int limit = 50,
+      int offset = 0,
+      String? status,
+      String? datasetId,
+      String? createdFrom,
+      String? createdTo}) async {
+    return [];
+  }
+}
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('ControlPanel smoke test', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<TelemetryService>(create: (_) => _SmokeTelemetryService()),
+          ChangeNotifierProvider(create: (_) => AppState()),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: ControlPanel(),
+          ),
+        ),
+      ),
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
     await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.byType(ControlPanel), findsOneWidget);
   });
 }

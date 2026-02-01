@@ -420,6 +420,58 @@ nlohmann::json DbClient::GetDatasetDetail(const std::string& run_id) {
     return j;
 }
 
+nlohmann::json DbClient::GetDatasetSamples(const std::string& run_id, int limit) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate, metric_timestamp, host_id "
+            "FROM host_telemetry_archival WHERE run_id = $1 ORDER BY metric_timestamp DESC LIMIT $2",
+            run_id, limit);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["cpu_usage"] = row[0].as<double>();
+            j["memory_usage"] = row[1].as<double>();
+            j["disk_utilization"] = row[2].as<double>();
+            j["network_rx_rate"] = row[3].as<double>();
+            j["network_tx_rate"] = row[4].as<double>();
+            j["timestamp"] = row[5].as<std::string>();
+            j["host_id"] = row[6].as<std::string>();
+            out.push_back(j);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get dataset samples {}: {}", run_id, e.what());
+        throw;
+    }
+    return out;
+}
+
+nlohmann::json DbClient::GetDatasetRecord(const std::string& run_id, long record_id) {
+    nlohmann::json j;
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate, metric_timestamp, host_id, labels "
+            "FROM host_telemetry_archival WHERE run_id = $1 AND record_id = $2",
+            run_id, record_id);
+        if (!res.empty()) {
+            j["cpu_usage"] = res[0][0].as<double>();
+            j["memory_usage"] = res[0][1].as<double>();
+            j["disk_utilization"] = res[0][2].as<double>();
+            j["network_rx_rate"] = res[0][3].as<double>();
+            j["network_tx_rate"] = res[0][4].as<double>();
+            j["timestamp"] = res[0][5].as<std::string>();
+            j["host_id"] = res[0][6].as<std::string>();
+            j["labels"] = nlohmann::json::parse(res[0][7].c_str());
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get dataset record run {} record {}: {}", run_id, record_id, e.what());
+    }
+    return j;
+}
+
 nlohmann::json DbClient::ListModelRuns(int limit,
                                        int offset,
                                        const std::string& status,
@@ -535,6 +587,52 @@ nlohmann::json DbClient::GetInferenceRun(const std::string& inference_id) {
         spdlog::error("Failed to get inference run {}: {}", inference_id, e.what());
     }
     return j;
+}
+
+nlohmann::json DbClient::GetModelsForDataset(const std::string& dataset_id) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT model_run_id, name, status, created_at FROM model_runs WHERE dataset_id = $1 ORDER BY created_at DESC",
+            dataset_id);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["model_run_id"] = row[0].as<std::string>();
+            j["name"] = row[1].as<std::string>();
+            j["status"] = row[2].as<std::string>();
+            j["created_at"] = row[3].as<std::string>();
+            out.push_back(j);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get models for dataset {}: {}", dataset_id, e.what());
+    }
+    return out;
+}
+
+nlohmann::json DbClient::GetScoredDatasetsForModel(const std::string& model_run_id) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        // We find unique datasets from dataset_scores for this model
+        auto res = N.exec_params(
+            "SELECT DISTINCT ds.dataset_id, gr.created_at, ds.scored_at "
+            "FROM dataset_scores ds JOIN generation_runs gr ON ds.dataset_id = gr.run_id "
+            "WHERE ds.model_run_id = $1 ORDER BY ds.scored_at DESC",
+            model_run_id);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["dataset_id"] = row[0].as<std::string>();
+            j["created_at"] = row[1].as<std::string>();
+            j["scored_at"] = row[2].as<std::string>();
+            out.push_back(j);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get scored datasets for model {}: {}", model_run_id, e.what());
+    }
+    return out;
 }
 
 nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) {
@@ -829,6 +927,76 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
     return out;
 }
 
+nlohmann::json DbClient::GetMetricStats(const std::string& run_id, const std::string& metric) {
+    if (!IsValidMetric(metric)) {
+        throw std::invalid_argument("Invalid metric: " + metric);
+    }
+    nlohmann::json j;
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        auto res = W.exec_params(
+            "SELECT COUNT(*), MIN(" + metric + "), MAX(" + metric + "), AVG(" + metric + "), "
+            "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY " + metric + "), "
+            "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY " + metric + ") "
+            "FROM host_telemetry_archival WHERE run_id = $1",
+            run_id);
+        if (!res.empty()) {
+            j["count"] = res[0][0].as<long>();
+            j["min"] = res[0][1].is_null() ? 0.0 : res[0][1].as<double>();
+            j["max"] = res[0][2].is_null() ? 0.0 : res[0][2].as<double>();
+            j["mean"] = res[0][3].is_null() ? 0.0 : res[0][3].as<double>();
+            j["p50"] = res[0][4].is_null() ? 0.0 : res[0][4].as<double>();
+            j["p95"] = res[0][5].is_null() ? 0.0 : res[0][5].as<double>();
+            j["missing_count"] = 0; // Schema is NOT NULL
+        }
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get metric stats for run {} metric {}: {}", run_id, metric, e.what());
+        throw;
+    }
+    return j;
+}
+
+nlohmann::json DbClient::GetDatasetMetricsSummary(const std::string& run_id) {
+    static const std::vector<std::string> kMetrics = {
+        "cpu_usage", "memory_usage", "disk_utilization", "network_rx_rate", "network_tx_rate"
+    };
+    nlohmann::json out = nlohmann::json::object();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        std::string select;
+        for (size_t i = 0; i < kMetrics.size(); ++i) {
+            select += "STDDEV(" + kMetrics[i] + ") AS " + kMetrics[i] + "_stddev";
+            if (i + 1 < kMetrics.size()) select += ", ";
+        }
+        auto res = W.exec_params("SELECT " + select + " FROM host_telemetry_archival WHERE run_id = $1", run_id);
+        if (!res.empty()) {
+            std::vector<std::pair<std::string, double>> stddevs;
+            for (const auto& m : kMetrics) {
+                double val = res[0][m + "_stddev"].is_null() ? 0.0 : res[0][m + "_stddev"].as<double>();
+                stddevs.push_back({m, val});
+            }
+            // Sort by stddev descending
+            std::sort(stddevs.begin(), stddevs.end(), [](const auto& a, const auto& b) {
+                return a.second > b.second;
+            });
+            nlohmann::json high_variance = nlohmann::json::array();
+            for (const auto& p : stddevs) {
+                high_variance.push_back({{"key", p.first}, {"stddev", p.second}});
+            }
+            out["high_variance"] = high_variance;
+            out["high_missingness"] = nlohmann::json::array(); // Not applicable with NOT NULL schema
+        }
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get dataset metrics summary for {}: {}", run_id, e.what());
+        throw;
+    }
+    return out;
+}
+
 std::string DbClient::CreateScoreJob(const std::string& dataset_id, 
                                     const std::string& model_run_id,
                                     const std::string& request_id) {
@@ -1013,6 +1181,72 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
     } catch (const std::exception& e) {
         spdlog::error("Failed to insert dataset scores: {}", e.what());
     }
+}
+
+nlohmann::json DbClient::GetScores(const std::string& dataset_id,
+                                   const std::string& model_run_id,
+                                   int limit,
+                                   int offset,
+                                   bool only_anomalies,
+                                   double min_score,
+                                   double max_score) {
+    nlohmann::json out = nlohmann::json::object();
+    out["items"] = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        std::string where = "WHERE s.dataset_id = " + N.quote(dataset_id) + " AND s.model_run_id = " + N.quote(model_run_id);
+        if (only_anomalies) {
+            where += " AND s.predicted_is_anomaly = true";
+        }
+        if (min_score > 0) {
+            where += " AND s.reconstruction_error >= " + std::to_string(min_score);
+        }
+        if (max_score > 0) {
+            where += " AND s.reconstruction_error <= " + std::to_string(max_score);
+        }
+
+        std::string query =
+            "SELECT s.score_id, s.record_id, s.reconstruction_error, s.predicted_is_anomaly, s.scored_at, "
+            "h.metric_timestamp, h.host_id, h.is_anomaly as label "
+            "FROM dataset_scores s JOIN host_telemetry_archival h ON s.record_id = h.record_id "
+            + where + " ORDER BY s.reconstruction_error DESC, s.score_id DESC LIMIT $1 OFFSET $2";
+        
+        auto res = N.exec_params(query, limit, offset);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["score_id"] = row[0].as<long>();
+            j["record_id"] = row[1].as<long>();
+            j["score"] = row[2].as<double>();
+            j["is_anomaly"] = row[3].as<bool>();
+            j["scored_at"] = row[4].as<std::string>();
+            j["timestamp"] = row[5].as<std::string>();
+            j["host_id"] = row[6].as<std::string>();
+            j["label"] = row[7].as<bool>();
+            out["items"].push_back(j);
+        }
+
+        auto count_res = N.exec("SELECT COUNT(*) FROM dataset_scores s " + where);
+        out["total"] = count_res.empty() ? 0 : count_res[0][0].as<long>();
+        
+        // Fetch global min/max for the dataset+model (ignoring filters) to drive UI sliders
+        std::string range_query = "SELECT MIN(reconstruction_error), MAX(reconstruction_error) FROM dataset_scores WHERE dataset_id = " + N.quote(dataset_id) + " AND model_run_id = " + N.quote(model_run_id);
+        auto range_res = N.exec(range_query);
+        if (!range_res.empty() && !range_res[0][0].is_null()) {
+             out["min_score"] = range_res[0][0].as<double>();
+             out["max_score"] = range_res[0][1].as<double>();
+        } else {
+             out["min_score"] = 0.0;
+             out["max_score"] = 10.0; // Default fallback
+        }
+
+        out["limit"] = limit;
+        out["offset"] = offset;
+
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get scores: {}", e.what());
+    }
+    return out;
 }
 
 nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,

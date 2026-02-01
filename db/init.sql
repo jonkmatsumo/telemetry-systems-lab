@@ -131,5 +131,16 @@ CREATE TABLE IF NOT EXISTS dataset_score_jobs (
     completed_at TIMESTAMPTZ NULL
 );
 
+CREATE TABLE IF NOT EXISTS dataset_scores (
+    score_id BIGSERIAL PRIMARY KEY,
+    dataset_id UUID NOT NULL REFERENCES generation_runs(run_id),
+    model_run_id UUID NOT NULL REFERENCES model_runs(model_run_id),
+    record_id BIGINT NOT NULL REFERENCES host_telemetry_archival(record_id),
+    reconstruction_error DOUBLE PRECISION NOT NULL,
+    predicted_is_anomaly BOOLEAN NOT NULL,
+    scored_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_score_jobs_request_id ON dataset_score_jobs(request_id);
 CREATE INDEX IF NOT EXISTS idx_scores_dataset_model ON dataset_scores(dataset_id, model_run_id);
+CREATE INDEX IF NOT EXISTS idx_scores_record_id ON dataset_scores(record_id);

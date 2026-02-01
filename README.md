@@ -23,9 +23,10 @@ The system is decomposed into five core components:
 
 ## Ports
 
-- HTTP API: `8280` (remapped from `8080`)
-- gRPC Generator: `52051` (remapped from `50051`)
-- Postgres: `5434` (host) → `5432` (container)
+- **HTTP API**: `8280` (External) -> `8080` (Internal)
+- **gRPC Generator**: `52051` (External) -> `50051` (Internal)
+- **Postgres**: `5434` (External) -> `5432` (Internal)
+- **Web UI**: `8300` (External/Internal)
 
 ## Running alongside Text2SQL + Label Lag
 
@@ -36,13 +37,14 @@ This project is configured to avoid port conflicts with Text2SQL and Label Lag.
 | **telemetry-api** | `8280` | `8080` | Avoids Text2SQL `8080`, `8081`, `8082` |
 | **telemetry-generator** | `52051` | `50051` | Avoids Label Lag `50051`, `50052` |
 | **Postgres** | `5434` | `5432` | Avoids Text2SQL `5432`, `5433` |
-| **Flutter Web Dev** | `8300` | N/A | Avoids Text2SQL `3000` |
+| **Flutter Web Dev** | `8300` | `8300` | Avoids Text2SQL `3000` |
 
 ## Repo Layout (Key Paths)
 
 - `src/`: C++ API server, generator, training, inference
-- `db/init.sql`: Fresh DB schema
-- `db/migrations/`: Incremental schema migrations
+- `proto/`: gRPC/Protobuf definitions
+- `db/`: Database schemas and migrations
+- `tests/`: Unit and integration tests
 - `web_ui/`: Flutter web dashboard
 - `dart_cli/`: CLI client
 
@@ -53,7 +55,7 @@ This project is configured to avoid port conflicts with Text2SQL and Label Lag.
 - CMake 3.15+
 - PostgreSQL (libpqxx)
 - gRPC & Protobuf
-- nlohmann/json, spdlog, fmt
+- nlohmann/json, spdlog, fmt, cpp-httplib
 
 ### Building
 ```bash
@@ -89,21 +91,25 @@ You can access the Web UI at http://localhost:8300.
 
 To manually rebuild (e.g., after code changes) without restarting containers:
 ```bash
+# Rebuild binaries inside the container
 make build
-# The running services should be restarted to pick up changes, or use the binaries manually.
-# Currently, the services run the binary once. To restart:
+
+# Restart services to pick up changes
 docker restart telemetry_generator_dev telemetry_api_dev
 ```
 
 ## Database Setup / Migration
 
 - **Fresh DB**: `db/init.sql` is applied automatically by `docker-compose.infra.yml`.
-- **Existing DB**: apply `db/migrations/20260127_add_analytics.sql` and `db/migrations/20260128_add_score_job_progress.sql`.
+- **Existing DB**: You must apply incremental migrations.
 
 Example (docker):
 ```bash
+# Apply migrations in order
 docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260127_add_analytics.sql
 docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260128_add_score_job_progress.sql
+docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260129_add_request_id_to_jobs.sql
+docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260129_retention_policy.sql
 ```
 
 ## Usage

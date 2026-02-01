@@ -83,21 +83,37 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleDatasetHistogram(req, res);
     });
 
-    svr_.Post("/train", [this](const httplib::Request& req, httplib::Response& res) {
-        HandleTrainModel(req, res);
+    svr_.Get("/datasets/([a-zA-Z0-9-]+)/samples", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGetDatasetSamples(req, res);
     });
 
-    svr_.Get("/train/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
-        HandleGetTrainStatus(req, res);
+    svr_.Get("/datasets/([a-zA-Z0-9-]+)/records/([0-9]+)", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGetDatasetRecord(req, res);
     });
 
-    svr_.Get("/models", [this](const httplib::Request& req, httplib::Response& res) {
-        HandleListModels(req, res);
+    svr_.Get("/datasets/([a-zA-Z0-9-]+)/metrics/([a-zA-Z0-9_]+)/stats", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGetDatasetMetricStats(req, res);
     });
 
+    svr_.Get("/datasets/([a-zA-Z0-9-]+)/metrics/summary", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGetDatasetMetricsSummary(req, res);
+    });
+
+    svr_.Get("/datasets/([a-zA-Z0-9-]+)/models", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGetDatasetModels(req, res);
+    });
     svr_.Get("/models/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetModelDetail(req, res);
     });
+
+    svr_.Get("/models/([a-zA-Z0-9-]+)/datasets/scored", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGetModelScoredDatasets(req, res);
+    });
+
+    svr_.Get("/scores", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGetScores(req, res);
+    });
+
 
     svr_.Post("/inference", [this](const httplib::Request& req, httplib::Response& res) {
         HandleInference(req, res);
@@ -162,6 +178,19 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
     svr_.Get("/metrics", [](const httplib::Request&, httplib::Response& res) {
         res.status = 200;
         res.set_content(telemetry::metrics::MetricsRegistry::Instance().ToPrometheus(), "text/plain");
+    });
+
+    svr_.Get("/schema/metrics", [this](const httplib::Request& req, httplib::Response& res) {
+        std::string rid = GetRequestId(req);
+        nlohmann::json resp;
+        resp["metrics"] = {
+            {{"key", "cpu_usage"}, {"label", "CPU Usage"}, {"type", "numeric"}, {"unit", "%"}, {"description", "Percentage of CPU time used across all cores."}},
+            {{"key", "memory_usage"}, {"label", "Memory Usage"}, {"type", "numeric"}, {"unit", "%"}, {"description", "Percentage of physical RAM currently occupied."}},
+            {{"key", "disk_utilization"}, {"label", "Disk Utilization"}, {"type", "numeric"}, {"unit", "%"}, {"description", "Percentage of disk throughput capacity used."}},
+            {{"key", "network_rx_rate"}, {"label", "Network RX Rate"}, {"type", "numeric"}, {"unit", "Mbps"}, {"description", "Inbound network traffic rate."}},
+            {{"key", "network_tx_rate"}, {"label", "Network TX Rate"}, {"type", "numeric"}, {"unit", "Mbps"}, {"description", "Outbound network traffic rate."}}
+        };
+        SendJson(res, resp, 200, rid);
     });
 
     // Serve Static Web UI
@@ -445,6 +474,72 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
     }
 }
 
+void ApiServer::HandleGetDatasetSamples(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
+    std::string run_id = req.matches[1];
+    int limit = GetIntParam(req, "limit", 20);
+    try {
+        auto data = db_client_->GetDatasetSamples(run_id, limit);
+        nlohmann::json resp;
+        resp["items"] = data;
+        SendJson(res, resp, 200, rid);
+    } catch (const std::exception& e) {
+        SendError(res, e.what(), 500, "DB_ERROR", rid);
+    }
+}
+
+void ApiServer::HandleGetDatasetRecord(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
+    std::string run_id = req.matches[1];
+    long record_id = std::stol(req.matches[2]);
+    try {
+        auto data = db_client_->GetDatasetRecord(run_id, record_id);
+        if (data.empty()) {
+            SendError(res, "Record not found", 404, "NOT_FOUND", rid);
+            return;
+        }
+        SendJson(res, data, 200, rid);
+    } catch (const std::exception& e) {
+        SendError(res, e.what(), 500, "DB_ERROR", rid);
+    }
+}
+
+void ApiServer::HandleGetDatasetMetricStats(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
+    std::string run_id = req.matches[1];
+    std::string metric = req.matches[2];
+    try {
+        auto data = db_client_->GetMetricStats(run_id, metric);
+        SendJson(res, data, 200, rid);
+    } catch (const std::invalid_argument& e) {
+        SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
+    } catch (const std::exception& e) {
+        SendError(res, e.what(), 500, "DB_ERROR", rid);
+    }
+}
+
+void ApiServer::HandleGetDatasetMetricsSummary(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
+    std::string run_id = req.matches[1];
+    try {
+        auto data = db_client_->GetDatasetMetricsSummary(run_id);
+        SendJson(res, data, 200, rid);
+    } catch (const std::exception& e) {
+        SendError(res, e.what(), 500, "DB_ERROR", rid);
+    }
+}
+
+void ApiServer::HandleGetDatasetModels(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
+    std::string run_id = req.matches[1];
+    try {
+        auto data = db_client_->GetModelsForDataset(run_id);
+        SendJson(res, data, 200, rid);
+    } catch (const std::exception& e) {
+        SendError(res, e.what(), 500, "DB_ERROR", rid);
+    }
+}
+
 void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
     try {
@@ -551,6 +646,40 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
             }
         }
         SendJson(res, j, 200, rid);
+    } catch (const std::exception& e) {
+        SendError(res, e.what(), 500, "DB_ERROR", rid);
+    }
+}
+
+void ApiServer::HandleGetModelScoredDatasets(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
+    std::string model_run_id = req.matches[1];
+    try {
+        auto data = db_client_->GetScoredDatasetsForModel(model_run_id);
+        SendJson(res, data, 200, rid);
+    } catch (const std::exception& e) {
+        SendError(res, e.what(), 500, "DB_ERROR", rid);
+    }
+}
+
+void ApiServer::HandleGetScores(const httplib::Request& req, httplib::Response& res) {
+    std::string rid = GetRequestId(req);
+    std::string dataset_id = GetStrParam(req, "dataset_id");
+    std::string model_run_id = GetStrParam(req, "model_run_id");
+    int limit = GetIntParam(req, "limit", 50);
+    int offset = GetIntParam(req, "offset", 0);
+    bool only_anomalies = GetStrParam(req, "only_anomalies") == "true";
+    double min_score = GetDoubleParam(req, "min_score", 0.0);
+    double max_score = GetDoubleParam(req, "max_score", 0.0);
+
+    if (dataset_id.empty() || model_run_id.empty()) {
+        SendError(res, "dataset_id and model_run_id required", 400, "BAD_REQUEST", rid);
+        return;
+    }
+
+    try {
+        auto data = db_client_->GetScores(dataset_id, model_run_id, limit, offset, only_anomalies, min_score, max_score);
+        SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
         SendError(res, e.what(), 500, "DB_ERROR", rid);
     }

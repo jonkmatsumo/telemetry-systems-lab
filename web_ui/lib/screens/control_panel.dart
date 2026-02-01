@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
+import '../widgets/inline_alert.dart';
 
 class ControlPanel extends StatefulWidget {
   const ControlPanel({super.key});
@@ -17,11 +18,166 @@ class _ControlPanelState extends State<ControlPanel> {
   final _modelNameController = TextEditingController(text: 'pca_v1');
 
   bool _loading = false;
-  DatasetStatus? _currentDataset;
-  ModelStatus? _currentModel;
   InferenceResponse? _inferenceResults;
   Timer? _pollingTimer;
   bool _pollingInFlight = false;
+
+  List<Map<String, dynamic>> _datasetSamples = [];
+  bool _loadingSamples = false;
+
+  List<DatasetRun> _availableDatasets = [];
+  List<ModelRunSummary> _availableModels = [];
+  bool _fetchingResources = false;
+  String? _selectionWarning;
+  String? _pendingInferenceMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchResources();
+  }
+
+  Future<void> _fetchResources() async {
+    if (_fetchingResources) return;
+    setState(() => _fetchingResources = true);
+    final service = context.read<TelemetryService>();
+    try {
+      final datasets = await service.listDatasets(limit: 50, offset: 0);
+      final models = await service.listModels(limit: 50, offset: 0);
+      if (!mounted) return;
+      final appState = context.read<AppState>();
+      final datasetId = appState.datasetId;
+      final modelId = appState.modelRunId;
+      final datasetMissing =
+          datasetId != null && !datasets.any((d) => d.runId == datasetId);
+      final modelMissing =
+          modelId != null && !models.any((m) => m.modelRunId == modelId);
+
+      if (datasetMissing) {
+        appState.setDataset(null);
+        appState.setModel(null);
+      } else if (modelMissing) {
+        appState.setModel(null);
+      }
+
+      String? warning;
+      if (datasetMissing && modelMissing) {
+        warning =
+            'Selected dataset and model are no longer available. Selections cleared.';
+      } else if (datasetMissing) {
+        warning = 'Selected dataset is no longer available. Selection cleared.';
+      } else if (modelMissing) {
+        warning = 'Selected model is no longer available. Selection cleared.';
+      }
+
+      setState(() {
+        _availableDatasets = datasets;
+        _availableModels = models;
+        _selectionWarning = warning;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      _showError('Failed to fetch resources: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _fetchingResources = false);
+      }
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncWithAppState();
+    _checkPendingInference();
+  }
+  
+  void _checkPendingInference() {
+    final appState = context.read<AppState>();
+    final pending = appState.pendingInference;
+    
+    if (pending == null) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+
+      // Clear it immediately to prevent loops, but keep local ref
+      appState.clearPendingInference();
+
+      // Ensure we are in the right context (should be handled by nav, but double check)
+      if (appState.datasetId != pending.datasetId || appState.modelRunId != pending.modelId) {
+        // Mismatch context, just ignore or log?
+        // For this task, we assume context is set by the caller (ScoringResultsScreen)
+      }
+
+      Map<String, dynamic>? payload = pending.recordPayload;
+
+      // If payload missing, fetch it (though we expect it passed)
+      if (payload == null) {
+        try {
+          final recordId = int.tryParse(pending.recordId);
+          if (recordId == null) {
+            _showError('Invalid record id: ${pending.recordId}');
+            return;
+          }
+          final service = context.read<TelemetryService>();
+          payload = await service.getDatasetRecord(pending.datasetId, recordId);
+        } catch (e) {
+          _showError('Failed to fetch pending record: $e');
+          return;
+        }
+      }
+
+      if (payload != null) {
+        setState(() {
+          _pendingInferenceMessage = 'Loaded record ${pending.recordId} from results.';
+        });
+
+        // Run inference
+        _inferWithSample(payload);
+      }
+    });
+  }
+
+  Future<void> _fetchSamples() async {
+    final appState = context.read<AppState>();
+    if (appState.datasetId == null) return;
+    setState(() => _loadingSamples = true);
+    final service = context.read<TelemetryService>();
+    try {
+      final samples = await service.getDatasetSamples(appState.datasetId!);
+      setState(() => _datasetSamples = samples);
+    } catch (e) {
+      _showError('Failed to fetch samples: $e');
+    } finally {
+      setState(() => _loadingSamples = false);
+    }
+  }
+
+  void _syncWithAppState() async {
+    final appState = context.read<AppState>();
+    final service = context.read<TelemetryService>();
+
+    if (appState.datasetId != null && appState.currentDataset == null) {
+      try {
+        final status = await service.getDatasetStatus(appState.datasetId!);
+        appState.setDataset(status.runId, status: status);
+        _fetchSamples();
+      } catch (e) {
+        debugPrint('Sync dataset failed: $e');
+      }
+    } else if (appState.datasetId != null && _datasetSamples.isEmpty && !_loadingSamples) {
+      _fetchSamples();
+    }
+    if (appState.modelRunId != null && appState.currentModel == null) {
+      try {
+        final status = await service.getModelStatus(appState.modelRunId!);
+        appState.setModel(status.modelRunId, status: status);
+      } catch (e) {
+        debugPrint('Sync model failed: $e');
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -37,22 +193,21 @@ class _ControlPanelState extends State<ControlPanel> {
       if (_pollingInFlight) return;
       _pollingInFlight = true;
       final service = context.read<TelemetryService>();
+      final appState = context.read<AppState>();
       try {
         if (type == 'dataset') {
           final status = await service.getDatasetStatus(id);
-          setState(() => _currentDataset = status);
+          appState.setDataset(status.runId, status: status);
           if (status.status != 'PENDING' && status.status != 'RUNNING') {
             timer.cancel();
             setState(() => _loading = false);
-            context.read<AppState>().setDataset(status.runId);
           }
         } else {
           final status = await service.getModelStatus(id);
-          setState(() => _currentModel = status);
+          appState.setModel(status.modelRunId, status: status);
           if (status.status != 'PENDING' && status.status != 'RUNNING') {
             timer.cancel();
             setState(() => _loading = false);
-            context.read<AppState>().setModel(status.modelRunId);
           }
         }
       } catch (e) {
@@ -67,14 +222,16 @@ class _ControlPanelState extends State<ControlPanel> {
 
   Future<void> _refreshStatus() async {
     final service = context.read<TelemetryService>();
+    final appState = context.read<AppState>();
+    _fetchResources();
     try {
-      if (_currentDataset != null) {
-        final status = await service.getDatasetStatus(_currentDataset!.runId);
-        setState(() => _currentDataset = status);
+      if (appState.datasetId != null) {
+        final status = await service.getDatasetStatus(appState.datasetId!);
+        appState.setDataset(status.runId, status: status);
       }
-      if (_currentModel != null) {
-        final status = await service.getModelStatus(_currentModel!.modelRunId);
-        setState(() => _currentModel = status);
+      if (appState.modelRunId != null) {
+        final status = await service.getModelStatus(appState.modelRunId!);
+        appState.setModel(status.modelRunId, status: status);
       }
     } catch (e) {
       _showError(e.toString());
@@ -87,7 +244,9 @@ class _ControlPanelState extends State<ControlPanel> {
     try {
       final count = int.parse(_hostCountController.text);
       final runId = await service.generateDataset(count);
+      context.read<AppState>().setDataset(runId);
       _startPolling(runId, 'dataset');
+      _fetchResources(); // Refresh list after starting generation
     } catch (e) {
       setState(() => _loading = false);
       _showError(e.toString());
@@ -95,15 +254,18 @@ class _ControlPanelState extends State<ControlPanel> {
   }
 
   void _train() async {
-    if (_currentDataset == null) return;
+    final appState = context.read<AppState>();
+    if (appState.datasetId == null) return;
     setState(() => _loading = true);
     final service = context.read<TelemetryService>();
     try {
       final modelId = await service.trainModel(
-        _currentDataset!.runId,
+        appState.datasetId!,
         name: _modelNameController.text,
       );
+      appState.setModel(modelId);
       _startPolling(modelId, 'model');
+      _fetchResources(); // Refresh list after starting training
     } catch (e) {
       setState(() => _loading = false);
       _showError(e.toString());
@@ -111,7 +273,8 @@ class _ControlPanelState extends State<ControlPanel> {
   }
 
   void _infer() async {
-    if (_currentModel == null) return;
+    final appState = context.read<AppState>();
+    if (appState.modelRunId == null) return;
     setState(() => _loading = true);
     final service = context.read<TelemetryService>();
     try {
@@ -131,7 +294,24 @@ class _ControlPanelState extends State<ControlPanel> {
           'network_tx_rate': 5.0
         }
       ];
-      final res = await service.runInference(_currentModel!.modelRunId, samples);
+      final res = await service.runInference(appState.modelRunId!, samples);
+      setState(() {
+        _inferenceResults = res;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() => _loading = false);
+      _showError(e.toString());
+    }
+  }
+
+  void _inferWithSample(Map<String, dynamic> sample) async {
+    final appState = context.read<AppState>();
+    if (appState.modelRunId == null) return;
+    setState(() => _loading = true);
+    final service = context.read<TelemetryService>();
+    try {
+      final res = await service.runInference(appState.modelRunId!, [sample]);
       setState(() {
         _inferenceResults = res;
         _loading = false;
@@ -148,10 +328,109 @@ class _ControlPanelState extends State<ControlPanel> {
     );
   }
 
+  Widget _buildDatasetSelector(AppState appState) {
+    if (_availableDatasets.isEmpty && !_fetchingResources) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Text('No datasets available. Generate a dataset to get started.',
+            style: TextStyle(color: Colors.amberAccent, fontSize: 13)),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Or Select Existing Dataset',
+            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF020617),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: _availableDatasets.any((d) => d.runId == appState.datasetId)
+                  ? appState.datasetId
+                  : null,
+              hint: const Text('Choose a dataset'),
+              dropdownColor: const Color(0xFF020617),
+              items: _availableDatasets.map((d) {
+                return DropdownMenuItem(
+                  value: d.runId,
+                  child: Text('${d.runId.substring(0, 8)}... (${d.status})',
+                      style: const TextStyle(fontSize: 14)),
+                );
+              }).toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  appState.setDataset(val);
+                  _syncWithAppState();
+                }
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModelSelector(AppState appState) {
+    if (_availableModels.isEmpty && !_fetchingResources) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Text('No models available. Train a model to enable inference.',
+            style: TextStyle(color: Colors.amberAccent, fontSize: 13)),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Or Select Existing Model',
+            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF020617),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: _availableModels.any((m) => m.modelRunId == appState.modelRunId)
+                  ? appState.modelRunId
+                  : null,
+              hint: const Text('Choose a model'),
+              dropdownColor: const Color(0xFF020617),
+              items: _availableModels.map((m) {
+                return DropdownMenuItem(
+                  value: m.modelRunId,
+                  child: Text('${m.name} (${m.status})', style: const TextStyle(fontSize: 14)),
+                );
+              }).toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  appState.setModel(val);
+                  _syncWithAppState();
+                }
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final canTrain = _currentDataset?.status == 'SUCCEEDED' || _currentDataset?.status == 'COMPLETED';
-    final canInfer = _currentModel?.status == 'COMPLETED';
+    final appState = context.watch<AppState>();
+    final currentDataset = appState.currentDataset;
+    final currentModel = appState.currentModel;
+
+    final canTrain = currentDataset?.status == 'SUCCEEDED' || currentDataset?.status == 'COMPLETED';
+    final canInfer = currentModel?.status == 'COMPLETED';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
@@ -159,6 +438,15 @@ class _ControlPanelState extends State<ControlPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildHeader(),
+          if (_selectionWarning != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: InlineAlert(
+                message: _selectionWarning!,
+                color: Colors.amber,
+                onRetry: _fetchResources,
+              ),
+            ),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -167,6 +455,15 @@ class _ControlPanelState extends State<ControlPanel> {
                 icon: const Icon(Icons.refresh),
                 label: const Text('Refresh Status'),
               ),
+              if (_fetchingResources)
+                const Padding(
+                  padding: EdgeInsets.only(left: 16),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 32),
@@ -181,7 +478,11 @@ class _ControlPanelState extends State<ControlPanel> {
                     _buildTextField('Host Count', _hostCountController),
                     const SizedBox(height: 16),
                     _buildButton('Generate Dataset', _generate, enabled: !_loading),
-                    if (_currentDataset != null) _buildDatasetStatus(),
+                    const SizedBox(height: 16),
+                    const Divider(color: Colors.white24),
+                    const SizedBox(height: 16),
+                    _buildDatasetSelector(appState),
+                    if (currentDataset != null) _buildDatasetStatus(currentDataset),
                   ],
                 ),
               ),
@@ -190,10 +491,24 @@ class _ControlPanelState extends State<ControlPanel> {
                 enabled: canTrain,
                 child: Column(
                   children: [
+                    if (!canTrain)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Text(
+                          currentDataset == null
+                              ? 'Select a dataset to enable training'
+                              : 'Wait for dataset generation to complete',
+                          style: const TextStyle(color: Colors.amberAccent, fontSize: 13),
+                        ),
+                      ),
                     _buildTextField('Model Name', _modelNameController),
                     const SizedBox(height: 16),
                     _buildButton('Start Training', _train, enabled: !_loading && canTrain),
-                    if (_currentModel != null) _buildModelStatus(),
+                    const SizedBox(height: 16),
+                    const Divider(color: Colors.white24),
+                    const SizedBox(height: 16),
+                    _buildModelSelector(appState),
+                    if (currentModel != null) _buildModelStatus(currentModel),
                   ],
                 ),
               ),
@@ -202,7 +517,70 @@ class _ControlPanelState extends State<ControlPanel> {
                 enabled: canInfer,
                 child: Column(
                   children: [
-                    _buildButton('Test Anomaly Detection', _infer, enabled: !_loading && canInfer),
+                    if (!canInfer)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Text(
+                          currentModel == null
+                              ? 'Select a model to enable inference'
+                              : 'Wait for model training to complete',
+                          style: const TextStyle(color: Colors.amberAccent, fontSize: 13),
+                        ),
+                      ),
+                    if (canInfer && _datasetSamples.isNotEmpty) ...[
+                      const Text('Use real sample from dataset',
+                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14)),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF020617),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<int>(
+                            isExpanded: true,
+                            hint: const Text('Pick a record'),
+                            dropdownColor: const Color(0xFF020617),
+                            items: _datasetSamples.asMap().entries.map((entry) {
+                              final idx = entry.key;
+                              final s = entry.value;
+                              return DropdownMenuItem(
+                                value: idx,
+                                child: Text('Host ${s['host_id'].substring(0, 8)}... @ ${s['timestamp'].substring(11, 19)}',
+                                    style: const TextStyle(fontSize: 13)),
+                              );
+                            }).toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                _inferWithSample(_datasetSamples[val]);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text('— OR —', style: TextStyle(color: Colors.white24, fontSize: 10)),
+                      const SizedBox(height: 16),
+                    ],
+                    if (_pendingInferenceMessage != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.check_circle_outline, color: Color(0xFF4ADE80), size: 16),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(_pendingInferenceMessage!, style: const TextStyle(color: Color(0xFF4ADE80), fontSize: 12))),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 14, color: Colors.white54),
+                              onPressed: () => setState(() => _pendingInferenceMessage = null),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    _buildButton('Test Anomaly Detection (Static)', _infer, enabled: !_loading && canInfer),
                     if (_inferenceResults != null) _buildInferenceResults(),
                   ],
                 ),
@@ -314,7 +692,7 @@ class _ControlPanelState extends State<ControlPanel> {
     );
   }
 
-  Widget _buildDatasetStatus() {
+  Widget _buildDatasetStatus(DatasetStatus status) {
     return Container(
       margin: const EdgeInsets.only(top: 24),
       padding: const EdgeInsets.all(16),
@@ -322,15 +700,15 @@ class _ControlPanelState extends State<ControlPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildStatusText('ID', _currentDataset!.runId, Colors.white70),
-          _buildStatusText('Status', _currentDataset!.status, _getStatusColor(_currentDataset!.status)),
-          _buildStatusText('Rows', _currentDataset!.rowsInserted.toString(), Colors.white70),
+          _buildStatusText('ID', status.runId, Colors.white70),
+          _buildStatusText('Status', status.status, _getStatusColor(status.status)),
+          _buildStatusText('Rows', status.rowsInserted.toString(), Colors.white70),
         ],
       ),
     );
   }
 
-  Widget _buildModelStatus() {
+  Widget _buildModelStatus(ModelStatus status) {
     return Container(
       margin: const EdgeInsets.only(top: 24),
       padding: const EdgeInsets.all(16),
@@ -338,9 +716,9 @@ class _ControlPanelState extends State<ControlPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildStatusText('ID', _currentModel!.modelRunId, Colors.white70),
-          _buildStatusText('Status', _currentModel!.status, _getStatusColor(_currentModel!.status)),
-          if (_currentModel!.error != null) Text(_currentModel!.error!, style: const TextStyle(color: Colors.red)),
+          _buildStatusText('ID', status.modelRunId, Colors.white70),
+          _buildStatusText('Status', status.status, _getStatusColor(status.status)),
+          if (status.error != null) Text(status.error!, style: const TextStyle(color: Colors.red)),
         ],
       ),
     );

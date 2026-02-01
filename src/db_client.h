@@ -66,6 +66,8 @@ public:
                                       const std::string& created_from = "",
                                       const std::string& created_to = "");
     nlohmann::json GetDatasetDetail(const std::string& run_id);
+    nlohmann::json GetDatasetSamples(const std::string& run_id, int limit);
+    nlohmann::json GetDatasetRecord(const std::string& run_id, long record_id);
     nlohmann::json ListModelRuns(int limit,
                                  int offset,
                                  const std::string& status = "",
@@ -80,6 +82,9 @@ public:
                                      const std::string& created_from = "",
                                      const std::string& created_to = "");
     nlohmann::json GetInferenceRun(const std::string& inference_id);
+
+    nlohmann::json GetModelsForDataset(const std::string& dataset_id);
+    nlohmann::json GetScoredDatasetsForModel(const std::string& model_run_id);
 
     nlohmann::json GetDatasetSummary(const std::string& run_id, int topk);
     nlohmann::json GetTopK(const std::string& run_id,
@@ -106,6 +111,8 @@ public:
                                 const std::string& anomaly_type,
                                 const std::string& start_time,
                                 const std::string& end_time);
+    nlohmann::json GetMetricStats(const std::string& run_id, const std::string& metric);
+    nlohmann::json GetDatasetMetricsSummary(const std::string& run_id);
 
     std::string CreateScoreJob(const std::string& dataset_id, 
                                const std::string& model_run_id,
@@ -140,6 +147,14 @@ public:
     void InsertDatasetScores(const std::string& dataset_id,
                              const std::string& model_run_id,
                              const std::vector<std::pair<long, std::pair<double, bool>>>& scores);
+
+    nlohmann::json GetScores(const std::string& dataset_id,
+                             const std::string& model_run_id,
+                             int limit,
+                             int offset,
+                             bool only_anomalies,
+                             double min_score,
+                             double max_score);
 
     nlohmann::json GetEvalMetrics(const std::string& dataset_id,
                                   const std::string& model_run_id,
