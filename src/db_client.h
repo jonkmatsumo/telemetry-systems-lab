@@ -153,7 +153,8 @@ public:
                              int limit,
                              int offset,
                              bool only_anomalies,
-                             double min_score);
+                             double min_score,
+                             double max_score);
 
     nlohmann::json GetEvalMetrics(const std::string& dataset_id,
                                   const std::string& model_run_id,

@@ -587,7 +587,11 @@ class TelemetryService {
   }
 
   Future<Map<String, dynamic>> getScores(String datasetId, String modelRunId,
-      {int limit = 50, int offset = 0, bool onlyAnomalies = false, double minScore = 0.0}) async {
+      {int limit = 50,
+      int offset = 0,
+      bool onlyAnomalies = false,
+      double minScore = 0.0,
+      double? maxScore}) async {
     final params = {
       'dataset_id': datasetId,
       'model_run_id': modelRunId,
@@ -596,6 +600,9 @@ class TelemetryService {
       'only_anomalies': '$onlyAnomalies',
       'min_score': '$minScore',
     };
+    if (maxScore != null) {
+      params['max_score'] = '$maxScore';
+    }
     final response = await _client.get(_buildUri('/scores', params));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;

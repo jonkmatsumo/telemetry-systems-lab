@@ -671,6 +671,7 @@ void ApiServer::HandleGetScores(const httplib::Request& req, httplib::Response& 
     int offset = GetIntParam(req, "offset", 0);
     bool only_anomalies = GetStrParam(req, "only_anomalies") == "true";
     double min_score = GetDoubleParam(req, "min_score", 0.0);
+    double max_score = GetDoubleParam(req, "max_score", 0.0);
 
     if (dataset_id.empty() || model_run_id.empty()) {
         SendError(res, "dataset_id and model_run_id required", 400, "BAD_REQUEST", rid);
@@ -678,7 +679,7 @@ void ApiServer::HandleGetScores(const httplib::Request& req, httplib::Response& 
     }
 
     try {
-        auto data = db_client_->GetScores(dataset_id, model_run_id, limit, offset, only_anomalies, min_score);
+        auto data = db_client_->GetScores(dataset_id, model_run_id, limit, offset, only_anomalies, min_score, max_score);
         SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
         SendError(res, e.what(), 500, "DB_ERROR", rid);

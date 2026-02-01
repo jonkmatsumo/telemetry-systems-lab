@@ -1188,7 +1188,8 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
                                    int limit,
                                    int offset,
                                    bool only_anomalies,
-                                   double min_score) {
+                                   double min_score,
+                                   double max_score) {
     nlohmann::json out = nlohmann::json::object();
     out["items"] = nlohmann::json::array();
     try {
@@ -1200,6 +1201,9 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
         }
         if (min_score > 0) {
             where += " AND s.reconstruction_error >= " + std::to_string(min_score);
+        }
+        if (max_score > 0) {
+            where += " AND s.reconstruction_error <= " + std::to_string(max_score);
         }
 
         std::string query =
