@@ -1,5 +1,7 @@
 #include "db_client.h"
 #include <spdlog/spdlog.h>
+#include <chrono>
+#include "obs/metrics.h"
 #include <google/protobuf/util/json_util.h>
 #include <fmt/chrono.h>
 #include <algorithm>
@@ -1182,6 +1184,7 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
                                    const std::string& model_run_id,
                                    const std::vector<std::pair<long, std::pair<double, bool>>>& scores) {
     if (scores.empty()) return;
+    auto start = std::chrono::steady_clock::now();
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
@@ -1199,6 +1202,12 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
         }
         stream.complete();
         W.commit();
+        auto end = std::chrono::steady_clock::now();
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        telemetry::obs::EmitCounter("scores_insert_rows", static_cast<long>(scores.size()), "rows", "db",
+                                    {{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
+        telemetry::obs::EmitHistogram("scores_insert_duration_ms", duration_ms, "ms", "db",
+                                      {{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
     } catch (const std::exception& e) {
         spdlog::error("Failed to insert dataset scores: {}", e.what());
     }
@@ -1213,6 +1222,7 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
                                    double max_score) {
     nlohmann::json out = nlohmann::json::object();
     out["items"] = nlohmann::json::array();
+    auto start = std::chrono::steady_clock::now();
     try {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
@@ -1267,6 +1277,10 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
     } catch (const std::exception& e) {
         spdlog::error("Failed to get scores: {}", e.what());
     }
+    auto end = std::chrono::steady_clock::now();
+    double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    telemetry::obs::EmitHistogram("scores_query_duration_ms", duration_ms, "ms", "db",
+                                  {{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
     return out;
 }
 

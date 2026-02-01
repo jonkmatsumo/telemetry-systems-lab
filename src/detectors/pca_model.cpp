@@ -3,9 +3,13 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
+
+#include "obs/metrics.h"
 
 namespace telemetry {
 namespace anomaly {
@@ -34,6 +38,7 @@ static linalg::Vector vec_div(const linalg::Vector& a, const linalg::Vector& b) 
 }
 
 void PcaModel::Load(const std::string& artifact_path) {
+    auto start = std::chrono::steady_clock::now();
     std::ifstream f(artifact_path);
     if (!f.is_open()) {
         throw std::runtime_error("Failed to open artifact: " + artifact_path);
@@ -78,6 +83,17 @@ void PcaModel::Load(const std::string& artifact_path) {
     loaded_ = true;
     spdlog::info("PcaModel loaded from {}. Dimensions: {}x{}, Threshold: {}", 
         artifact_path, k, d, threshold_);
+
+    auto end = std::chrono::steady_clock::now();
+    double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    telemetry::obs::EmitHistogram("model_load_duration_ms", duration_ms, "ms", "model",
+                                  {}, {{"artifact_path", artifact_path}});
+    std::error_code ec;
+    auto size = std::filesystem::file_size(artifact_path, ec);
+    if (!ec) {
+        telemetry::obs::EmitCounter("model_bytes_read", static_cast<long>(size), "bytes", "model",
+                                    {}, {{"artifact_path", artifact_path}});
+    }
 }
 
 PcaScore PcaModel::Score(const FeatureVector& vec) const {

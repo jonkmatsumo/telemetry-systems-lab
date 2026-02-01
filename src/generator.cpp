@@ -1,5 +1,6 @@
 #include "generator.h"
 #include <spdlog/spdlog.h>
+#include "obs/metrics.h"
 #include <cmath>
 #include <random>
 #include <fmt/chrono.h>
@@ -184,6 +185,8 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
 
 void Generator::Run() {
     spdlog::info("Starting generation run {} (req_id: {})", run_id_, config_.request_id());
+    auto start_time = std::chrono::steady_clock::now();
+    long write_batches = 0;
     try {
         db_->CreateRun(run_id_, config_, "RUNNING", config_.request_id());
         
@@ -203,6 +206,7 @@ void Generator::Run() {
                 batch.push_back(GenerateRecord(host, t));
                 if (batch.size() >= BATCH_SIZE) {
                     db_->BatchInsertTelemetry(batch);
+                    write_batches += 1;
                     total_rows += batch.size();
                     db_->UpdateRunStatus(run_id_, "RUNNING", total_rows);
                     batch.clear();
@@ -213,14 +217,27 @@ void Generator::Run() {
         // Final batch
         if (!batch.empty()) {
             db_->BatchInsertTelemetry(batch);
+            write_batches += 1;
             total_rows += batch.size();
         }
         
         spdlog::info("Generation run {} complete. Total rows: {}", run_id_, total_rows);
         db_->UpdateRunStatus(run_id_, "SUCCEEDED", total_rows);
+        auto end_time = std::chrono::steady_clock::now();
+        double duration_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+        telemetry::obs::EmitHistogram("generation_duration_ms", duration_ms, "ms", "generator",
+                                      {{"dataset_id", run_id_}});
+        telemetry::obs::EmitCounter("generation_rows_written", total_rows, "rows", "generator",
+                                    {{"dataset_id", run_id_}});
+        telemetry::obs::EmitCounter("generation_db_write_count", write_batches, "batches", "generator",
+                                    {{"dataset_id", run_id_}});
         
     } catch (const std::exception& e) {
         spdlog::error("Generation run {} failed: {}", run_id_, e.what());
         db_->UpdateRunStatus(run_id_, "FAILED", 0, e.what());
+        auto end_time = std::chrono::steady_clock::now();
+        double duration_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+        telemetry::obs::EmitHistogram("generation_duration_ms", duration_ms, "ms", "generator",
+                                      {{"dataset_id", run_id_}});
     }
 }

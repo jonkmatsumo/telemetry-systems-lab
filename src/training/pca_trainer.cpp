@@ -2,7 +2,9 @@
 #include <tuple>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <stdexcept>
@@ -12,6 +14,7 @@
 #include <pqxx/strconv>
 
 #include "contract.h"
+#include "obs/metrics.h"
 
 namespace telemetry {
 namespace training {
@@ -230,7 +233,32 @@ PcaArtifact TrainPcaFromDb(const std::string& db_conn_str,
     auto for_each = [&](const std::function<void(const linalg::Vector&)>& cb) {
         stream_samples(db_conn_str, dataset_id, cb);
     };
-    return TrainPcaFromStream(for_each, telemetry::anomaly::FeatureVector::kSize, n_components, percentile);
+    auto start = std::chrono::steady_clock::now();
+    auto artifact = TrainPcaFromStream(for_each, telemetry::anomaly::FeatureVector::kSize, n_components, percentile);
+    auto end = std::chrono::steady_clock::now();
+    double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    telemetry::obs::EmitHistogram("train_duration_ms", duration_ms, "ms", "trainer",
+                                  {{"dataset_id", dataset_id}});
+
+    try {
+        auto count_start = std::chrono::steady_clock::now();
+        pqxx::connection conn(db_conn_str);
+        pqxx::nontransaction N(conn);
+        auto res = N.exec_params(
+            "SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1 AND is_anomaly = false",
+            dataset_id);
+        auto count_end = std::chrono::steady_clock::now();
+        double query_ms = std::chrono::duration<double, std::milli>(count_end - count_start).count();
+        long rows = res.empty() ? 0 : res[0][0].as<long>();
+        telemetry::obs::EmitHistogram("train_db_query_duration_ms", query_ms, "ms", "trainer",
+                                      {{"dataset_id", dataset_id}});
+        telemetry::obs::EmitCounter("train_rows_processed", rows, "rows", "trainer",
+                                    {{"dataset_id", dataset_id}});
+    } catch (const std::exception&) {
+        // Best-effort metrics only; training output must remain unchanged.
+    }
+
+    return artifact;
 }
 
 PcaArtifact TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
@@ -274,6 +302,15 @@ void WriteArtifactJson(const PcaArtifact& artifact, const std::string& output_pa
         throw std::runtime_error("Failed to open output path: " + output_path);
     }
     out << j.dump(4);
+    out.flush();
+    out.close();
+
+    std::error_code ec;
+    auto size = std::filesystem::file_size(output_path, ec);
+    if (!ec) {
+        telemetry::obs::EmitCounter("train_bytes_written", static_cast<long>(size), "bytes", "trainer",
+                                    {}, {{"artifact_path", output_path}});
+    }
 }
 
 } // namespace training

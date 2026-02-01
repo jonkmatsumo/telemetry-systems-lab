@@ -14,6 +14,7 @@
 #include "preprocessing.h"
 #include "detector_config.h"
 #include "metrics.h"
+#include "obs/metrics.h"
 #include "obs/error_codes.h"
 #include "obs/http_log.h"
 
@@ -842,6 +843,12 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
         if (!inference_id.empty()) {
             db_client_->UpdateInferenceRunStatus(inference_id, "COMPLETED", anomaly_count, results, latency_ms);
         }
+        telemetry::obs::EmitHistogram("infer_duration_ms", latency_ms, "ms", "model",
+                                      {{"model_run_id", model_run_id}},
+                                      {{"inference_run_id", inference_id}});
+        telemetry::obs::EmitCounter("infer_rows_scored", static_cast<long>(results.size()), "rows", "model",
+                                    {{"model_run_id", model_run_id}},
+                                    {{"inference_run_id", inference_id}});
 
         nlohmann::json resp;
         resp["results"] = results;
