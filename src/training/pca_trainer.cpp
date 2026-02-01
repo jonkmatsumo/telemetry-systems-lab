@@ -51,27 +51,24 @@ static void stream_samples(const std::string& db_conn_str,
                            const std::string& dataset_id,
                            const std::function<void(const linalg::Vector&)>& on_sample) {
     pqxx::connection conn(db_conn_str);
-    pqxx::work txn(conn);
+    pqxx::nontransaction N(conn);
 
-    std::string query =
-        "SELECT cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate "
-        "FROM host_telemetry_archival WHERE run_id = " + txn.quote(dataset_id) + " AND is_anomaly = false";
-    pqxx::stream_from stream(txn, query);
+    auto result = N.exec_params(
+        "SELECT cpu_usage, memory_usage, disk_utilization, "
+        "network_rx_rate, network_tx_rate "
+        "FROM host_telemetry_archival "
+        "WHERE run_id = $1 AND is_anomaly = false",
+        dataset_id);
 
-    std::tuple<double, double, double, double, double> row_data;
-    while (stream >> row_data) {
-        auto [cpu, mem, disk, rx, tx] = row_data;
+    for (const auto& row : result) {
         linalg::Vector x(telemetry::anomaly::FeatureVector::kSize, 0.0);
-        x[0] = cpu;
-        x[1] = mem;
-        x[2] = disk;
-        x[3] = rx;
-        x[4] = tx;
+        x[0] = row[0].as<double>();
+        x[1] = row[1].as<double>();
+        x[2] = row[2].as<double>();
+        x[3] = row[3].as<double>();
+        x[4] = row[4].as<double>();
         on_sample(x);
     }
-
-    stream.complete();
-    txn.commit();
 }
 
 static linalg::Vector vec_sub(const linalg::Vector& a, const linalg::Vector& b) {
