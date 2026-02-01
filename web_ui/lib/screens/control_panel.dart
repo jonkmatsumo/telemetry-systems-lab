@@ -92,22 +92,26 @@ class _ControlPanelState extends State<ControlPanel> {
     _checkPendingInference();
   }
   
-  void _checkPendingInference() async {
+  void _checkPendingInference() {
     final appState = context.read<AppState>();
     final pending = appState.pendingInference;
     
-    if (pending != null) {
+    if (pending == null) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+
       // Clear it immediately to prevent loops, but keep local ref
       appState.clearPendingInference();
-      
+
       // Ensure we are in the right context (should be handled by nav, but double check)
       if (appState.datasetId != pending.datasetId || appState.modelRunId != pending.modelId) {
-        // Mismatch context, just ignore or log? 
+        // Mismatch context, just ignore or log?
         // For this task, we assume context is set by the caller (ScoringResultsScreen)
       }
 
       Map<String, dynamic>? payload = pending.recordPayload;
-      
+
       // If payload missing, fetch it (though we expect it passed)
       if (payload == null) {
         try {
@@ -123,16 +127,16 @@ class _ControlPanelState extends State<ControlPanel> {
           return;
         }
       }
-      
+
       if (payload != null) {
-         setState(() {
-           _pendingInferenceMessage = 'Loaded record ${pending.recordId} from results.';
-         });
-         
-         // Run inference
-         _inferWithSample(payload);
+        setState(() {
+          _pendingInferenceMessage = 'Loaded record ${pending.recordId} from results.';
+        });
+
+        // Run inference
+        _inferWithSample(payload);
       }
-    }
+    });
   }
 
   Future<void> _fetchSamples() async {
