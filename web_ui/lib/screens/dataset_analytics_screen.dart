@@ -19,9 +19,13 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   Future<HistogramData>? _metricHistFuture;
   Future<List<TimeSeriesPoint>>? _metricTsFuture;
 
+  Future<HistogramData>? _comparisonHistFuture;
+  Future<List<TimeSeriesPoint>>? _comparisonTsFuture;
+
   List<Map<String, String>> _availableMetrics = [];
   bool _loadingSchema = false;
   String? _loadError;
+  String? _comparisonMetric;
 
   @override
   void initState() {
@@ -70,6 +74,14 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       setState(() => _loadError = 'Metric "$metric" is not supported.');
       throw e;
     });
+
+    if (_comparisonMetric != null) {
+      _comparisonHistFuture =
+          service.getHistogram(datasetId, metric: _comparisonMetric!, bins: 30).catchError((_) => null);
+      _comparisonTsFuture = service
+          .getTimeSeries(datasetId, metrics: [_comparisonMetric!], aggs: ['mean'], bucket: '1h').catchError(
+              (_) => null);
+    }
   }
 
   @override
@@ -337,19 +349,38 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             itemCount: _availableMetrics.length,
             itemBuilder: (context, index) {
               final m = _availableMetrics[index];
-              final isSelected = m['key'] == selectedMetric;
+              final isPrimary = m['key'] == selectedMetric;
+              final isSecondary = m['key'] == _comparisonMetric;
               return ListTile(
                 title: Text(m['label']!,
                     style: TextStyle(
                         fontSize: 13,
-                        color: isSelected ? const Color(0xFF38BDF8) : Colors.white70)),
+                        color: isPrimary
+                            ? const Color(0xFF38BDF8)
+                            : (isSecondary ? const Color(0xFF818CF8) : Colors.white70))),
                 onTap: () {
                   appState.setSelectedMetric(datasetId, m['key']!);
                   setState(() {
                     _load(datasetId, m['key']!);
                   });
                 },
-                selected: isSelected,
+                trailing: isPrimary
+                    ? null
+                    : IconButton(
+                        icon: Icon(isSecondary ? Icons.compare_arrows : Icons.add_circle_outline,
+                            size: 16, color: isSecondary ? const Color(0xFF818CF8) : Colors.white24),
+                        onPressed: () {
+                          setState(() {
+                            if (isSecondary) {
+                              _comparisonMetric = null;
+                            } else {
+                              _comparisonMetric = m['key'];
+                            }
+                            _load(datasetId, selectedMetric);
+                          });
+                        },
+                      ),
+                selected: isPrimary,
                 dense: true,
               );
             },
@@ -361,58 +392,24 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildQuickStats(datasetId, selectedMetric),
-                const SizedBox(height: 24),
-                Wrap(
-                  spacing: 16,
-                  runSpacing: 16,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(
-                      width: 500,
-                      child: ChartCard(
-                        title: 'Distribution (Histogram)',
-                        child: FutureBuilder<HistogramData>(
-                          future: _metricHistFuture,
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState == ConnectionState.waiting) {
-                              return const Center(child: CircularProgressIndicator());
-                            }
-                            if (snapshot.hasError) {
-                              return InlineAlert(message: 'Failed to load histogram: ${snapshot.error}');
-                            }
-                            final hist = snapshot.data;
-                            final values = hist?.counts.map((e) => e.toDouble()).toList() ?? [];
-                            if (values.isEmpty) return const Center(child: Text('No data'));
-                            return BarChart(values: values);
-                          },
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 500,
-                      child: ChartCard(
-                        title: 'Trend (1h Mean)',
-                        child: FutureBuilder<List<TimeSeriesPoint>>(
-                          future: _metricTsFuture,
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState == ConnectionState.waiting) {
-                              return const Center(child: CircularProgressIndicator());
-                            }
-                            if (snapshot.hasError) {
-                              return InlineAlert(message: 'Failed to load trend: ${snapshot.error}');
-                            }
-                            final points = snapshot.data ?? [];
-                            if (points.isEmpty) return const Center(child: Text('No data'));
-                            final xs = List<double>.generate(points.length, (i) => i.toDouble());
-                            final ys =
-                                points.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
-                            return LineChart(x: xs, y: ys);
-                          },
-                        ),
-                      ),
-                    ),
+                    Expanded(child: _buildQuickStats(datasetId, selectedMetric)),
+                    if (_comparisonMetric != null) ...[
+                      const SizedBox(width: 16),
+                      Expanded(
+                          child: _buildQuickStats(datasetId, _comparisonMetric!,
+                              color: const Color(0xFF818CF8))),
+                    ],
                   ],
                 ),
+                const SizedBox(height: 24),
+                _buildChartRow('Distribution (Histogram)', selectedMetric, _metricHistFuture,
+                    _comparisonMetric, _comparisonHistFuture, true),
+                const SizedBox(height: 24),
+                _buildChartRow('Trend (1h Mean)', selectedMetric, _metricTsFuture, _comparisonMetric,
+                    _comparisonTsFuture, false),
               ],
             ),
           ),
@@ -421,7 +418,61 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     );
   }
 
-  Widget _buildQuickStats(String datasetId, String metric) {
+  Widget _buildChartRow(String title, String m1, Future? f1, String? m2, Future? f2, bool isHist) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: ChartCard(
+                title: m1,
+                child: _buildChart(f1, isHist, m1),
+              ),
+            ),
+            if (m2 != null) ...[
+              const SizedBox(width: 16),
+              Expanded(
+                child: ChartCard(
+                  title: m2,
+                  child: _buildChart(f2, isHist, m2, color: const Color(0xFF818CF8)),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChart(Future? future, bool isHist, String metric, {Color? color}) {
+    return FutureBuilder(
+      future: future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError || snapshot.data == null) {
+          return const Center(child: Text('Failed to load'));
+        }
+        if (isHist) {
+          final hist = snapshot.data as HistogramData;
+          final values = hist.counts.map((e) => e.toDouble()).toList();
+          return BarChart(values: values, barColor: color ?? const Color(0xFF818CF8));
+        } else {
+          final points = snapshot.data as List<TimeSeriesPoint>;
+          if (points.isEmpty) return const Center(child: Text('No data'));
+          final xs = List<double>.generate(points.length, (i) => i.toDouble());
+          final ys = points.map((e) => e.values['${metric}_mean'] ?? 0.0).toList();
+          return LineChart(x: xs, y: ys, lineColor: color ?? const Color(0xFF38BDF8));
+        }
+      },
+    );
+  }
+
+  Widget _buildQuickStats(String datasetId, String metric, {Color color = const Color(0xFF38BDF8)}) {
     return FutureBuilder<Map<String, dynamic>>(
       future: context.read<TelemetryService>().getMetricStats(datasetId, metric),
       builder: (context, snapshot) {
@@ -435,14 +486,15 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
         return Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
+            color: color.withOpacity(0.05),
             borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withOpacity(0.2)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('Summary Statistics for $metric',
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF38BDF8))),
+                  style: TextStyle(fontWeight: FontWeight.bold, color: color)),
               const SizedBox(height: 12),
               Wrap(
                 spacing: 24,
