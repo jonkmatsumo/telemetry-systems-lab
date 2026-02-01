@@ -181,10 +181,21 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
              "is_anomaly",
              "anomaly_type"});
 #else
-        const std::string_view columns =
-            "ingestion_time,metric_timestamp,host_id,project_id,region,cpu_usage,"
-            "memory_usage,disk_utilization,network_rx_rate,network_tx_rate,labels,run_id,"
-            "is_anomaly,anomaly_type";
+        const std::vector<std::string> columns = {
+            "ingestion_time",
+            "metric_timestamp",
+            "host_id",
+            "project_id",
+            "region",
+            "cpu_usage",
+            "memory_usage",
+            "disk_utilization",
+            "network_rx_rate",
+            "network_tx_rate",
+            "labels",
+            "run_id",
+            "is_anomaly",
+            "anomaly_type"};
         pqxx::stream_to stream(W, "host_telemetry_archival", columns);
 #endif
 

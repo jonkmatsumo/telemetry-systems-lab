@@ -3,6 +3,7 @@
 #include "route_registry.h"
 #include <spdlog/spdlog.h>
 #include <cstdlib>
+#include <optional>
 
 using namespace telemetry::api;
 
@@ -27,7 +28,7 @@ protected:
 
 TEST_F(ApiRouteTest, ProbesAllRequiredRoutes) {
     for (const auto& route : kRequiredRoutes) {
-        httplib::Result res;
+        std::optional<httplib::Result> res;
         
         // Use a dummy ID for patterns with groups
         std::string path = route.pattern;
@@ -48,10 +49,13 @@ TEST_F(ApiRouteTest, ProbesAllRequiredRoutes) {
             res = client->Get(path.c_str());
         } else if (route.method == "POST") {
             res = client->Post(path.c_str(), "{}", "application/json");
+        } else {
+            FAIL() << "Unsupported method " << route.method << " for route " << path;
+            continue;
         }
 
-        if (res) {
-            EXPECT_NE(res->status, 404) << "Route " << route.method << " " << path << " returned 404";
+        if (*res) {
+            EXPECT_NE((*res)->status, 404) << "Route " << route.method << " " << path << " returned 404";
         } else {
             // If we can't connect, skip instead of failing if not in CI?
             // For now, fail to be strict.
