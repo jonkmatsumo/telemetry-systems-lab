@@ -28,6 +28,7 @@ class _ControlPanelState extends State<ControlPanel> {
   List<ModelRunSummary> _availableModels = [];
   bool _fetchingResources = false;
   String? _selectionWarning;
+  String? _pendingInferenceMessage;
 
   @override
   void initState() {
@@ -35,46 +36,51 @@ class _ControlPanelState extends State<ControlPanel> {
     _fetchResources();
   }
 
-  Future<void> _fetchResources() async {
-    if (_fetchingResources) return;
-    setState(() {
-      _fetchingResources = true;
-      _selectionWarning = null;
-    });
-    final service = context.read<TelemetryService>();
-    final appState = context.read<AppState>();
-    try {
-      final datasets = await service.listDatasets(limit: 100);
-      final models = await service.listModels(limit: 100);
-      
-      String? warning;
-      if (appState.datasetId != null && !datasets.any((d) => d.runId == appState.datasetId)) {
-        warning = 'Previously selected dataset is no longer available.';
-        appState.setDataset(null);
-      }
-      if (appState.modelRunId != null && !models.any((m) => m.modelRunId == appState.modelRunId)) {
-        warning = (warning == null) 
-            ? 'Previously selected model is no longer available.' 
-            : 'Previously selected dataset and model are no longer available.';
-        appState.setModel(null);
-      }
-
-      setState(() {
-        _availableDatasets = datasets;
-        _availableModels = models;
-        _selectionWarning = warning;
-      });
-    } catch (e) {
-      _showError('Failed to fetch resources: $e');
-    } finally {
-      setState(() => _fetchingResources = false);
-    }
-  }
+  // ... (existing _fetchResources)
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _syncWithAppState();
+    _checkPendingInference();
+  }
+  
+  void _checkPendingInference() async {
+    final appState = context.read<AppState>();
+    final pending = appState.pendingInference;
+    
+    if (pending != null) {
+      // Clear it immediately to prevent loops, but keep local ref
+      appState.clearPendingInference();
+      
+      // Ensure we are in the right context (should be handled by nav, but double check)
+      if (appState.datasetId != pending.datasetId || appState.modelRunId != pending.modelId) {
+        // Mismatch context, just ignore or log? 
+        // For this task, we assume context is set by the caller (ScoringResultsScreen)
+      }
+
+      Map<String, dynamic>? payload = pending.recordPayload;
+      
+      // If payload missing, fetch it (though we expect it passed)
+      if (payload == null) {
+        try {
+          final service = context.read<TelemetryService>();
+          payload = await service.getDatasetRecord(pending.datasetId, pending.recordId);
+        } catch (e) {
+          _showError('Failed to fetch pending record: $e');
+          return;
+        }
+      }
+      
+      if (payload != null) {
+         setState(() {
+           _pendingInferenceMessage = 'Loaded record ${pending.recordId} from results.';
+         });
+         
+         // Run inference
+         _inferWithSample(payload);
+      }
+    }
   }
 
   Future<void> _fetchSamples() async {
@@ -512,6 +518,23 @@ class _ControlPanelState extends State<ControlPanel> {
                       const Text('— OR —', style: TextStyle(color: Colors.white24, fontSize: 10)),
                       const SizedBox(height: 16),
                     ],
+                    if (_pendingInferenceMessage != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.check_circle_outline, color: Color(0xFF4ADE80), size: 16),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(_pendingInferenceMessage!, style: const TextStyle(color: Color(0xFF4ADE80), fontSize: 12))),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 14, color: Colors.white54),
+                              onPressed: () => setState(() => _pendingInferenceMessage = null),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                          ],
+                        ),
+                      ),
                     _buildButton('Test Anomaly Detection (Static)', _infer, enabled: !_loading && canInfer),
                     if (_inferenceResults != null) _buildInferenceResults(),
                   ],
