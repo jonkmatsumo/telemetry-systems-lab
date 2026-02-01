@@ -23,7 +23,7 @@ RUN cd web_ui && flutter build web --release
 # Stage 1b: Flutter Dev Environment
 FROM web-builder AS dev-web
 USER root
-RUN apt-get update && apt-get install -y procps && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y procps python3 && rm -rf /var/lib/apt/lists/*
 USER flutteruser
 CMD ["tail", "-f", "/dev/null"]
 

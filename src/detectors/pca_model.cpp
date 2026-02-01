@@ -3,9 +3,14 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
+
+#include "obs/metrics.h"
+#include "obs/error_codes.h"
 
 namespace telemetry {
 namespace anomaly {
@@ -34,8 +39,21 @@ static linalg::Vector vec_div(const linalg::Vector& a, const linalg::Vector& b) 
 }
 
 void PcaModel::Load(const std::string& artifact_path) {
+    auto start = std::chrono::steady_clock::now();
+    nlohmann::json start_fields = {{"artifact_path", artifact_path}};
+    if (telemetry::obs::HasContext()) {
+        const auto& ctx = telemetry::obs::GetContext();
+        if (!ctx.request_id.empty()) start_fields["request_id"] = ctx.request_id;
+        if (!ctx.model_run_id.empty()) start_fields["model_run_id"] = ctx.model_run_id;
+        if (!ctx.inference_run_id.empty()) start_fields["inference_run_id"] = ctx.inference_run_id;
+    }
+    telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "model_load_start", "model", start_fields);
     std::ifstream f(artifact_path);
     if (!f.is_open()) {
+        nlohmann::json error_fields = start_fields;
+        error_fields["error_code"] = telemetry::obs::kErrModelLoadFailed;
+        error_fields["error"] = "Failed to open artifact";
+        telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "model_load_error", "model", error_fields);
         throw std::runtime_error("Failed to open artifact: " + artifact_path);
     }
     
@@ -78,6 +96,20 @@ void PcaModel::Load(const std::string& artifact_path) {
     loaded_ = true;
     spdlog::info("PcaModel loaded from {}. Dimensions: {}x{}, Threshold: {}", 
         artifact_path, k, d, threshold_);
+
+    auto end = std::chrono::steady_clock::now();
+    double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    telemetry::obs::EmitHistogram("model_load_duration_ms", duration_ms, "ms", "model",
+                                  {}, {{"artifact_path", artifact_path}});
+    std::error_code ec;
+    auto size = std::filesystem::file_size(artifact_path, ec);
+    if (!ec) {
+        telemetry::obs::EmitCounter("model_bytes_read", static_cast<long>(size), "bytes", "model",
+                                    {}, {{"artifact_path", artifact_path}});
+    }
+    nlohmann::json end_fields = start_fields;
+    end_fields["duration_ms"] = duration_ms;
+    telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "model_load_end", "model", end_fields);
 }
 
 PcaScore PcaModel::Score(const FeatureVector& vec) const {

@@ -51,12 +51,14 @@ private:
     void HandleModelEval(const httplib::Request& req, httplib::Response& res);
     void HandleModelErrorDistribution(const httplib::Request& req, httplib::Response& res);
 
+    void ValidateRoutes();
+
     // Helpers
     void SendJson(httplib::Response& res, nlohmann::json j, int status = 200, const std::string& request_id = "");
     void SendError(httplib::Response& res, 
                    const std::string& msg, 
                    int status = 400,
-                   const std::string& code = "INTERNAL_ERROR",
+                   const std::string& code = "E_INTERNAL",
                    const std::string& request_id = "");
     static int GetIntParam(const httplib::Request& req, const std::string& key, int def);
     static double GetDoubleParam(const httplib::Request& req, const std::string& key, double def);

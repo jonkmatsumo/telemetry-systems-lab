@@ -28,6 +28,8 @@ public:
     // Ensures a partition exists for the given timestamp.
     void EnsurePartition(std::chrono::system_clock::time_point tp);
 
+    void DeleteDatasetWithScores(const std::string& dataset_id);
+
     void CreateRun(const std::string& run_id, 
                    const telemetry::GenerateRequest& config, 
                    const std::string& status,

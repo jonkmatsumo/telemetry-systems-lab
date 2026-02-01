@@ -1,5 +1,10 @@
 #include "db_client.h"
 #include <spdlog/spdlog.h>
+#include <chrono>
+#include <string_view>
+#include <vector>
+#include "obs/metrics.h"
+#include "obs/context.h"
 #include <google/protobuf/util/json_util.h>
 #include <fmt/chrono.h>
 #include <algorithm>
@@ -157,10 +162,46 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
         
-        pqxx::stream_to stream{W, "host_telemetry_archival", std::vector<std::string>{
-            "ingestion_time", "metric_timestamp", "host_id", "project_id", "region",
-            "cpu_usage", "memory_usage", "disk_utilization", "network_rx_rate", "network_tx_rate",
-            "labels", "run_id", "is_anomaly", "anomaly_type"}};
+#if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
+        // Use explicit std::vector<std::string> to avoid pqxx iterator overload
+        // ambiguity that can treat const char* as char iterator range.
+        const std::vector<std::string> columns = {
+            "ingestion_time",
+            "metric_timestamp",
+            "host_id",
+            "project_id",
+            "region",
+            "cpu_usage",
+            "memory_usage",
+            "disk_utilization",
+            "network_rx_rate",
+            "network_tx_rate",
+            "labels",
+            "run_id",
+            "is_anomaly",
+            "anomaly_type"};
+        auto stream = pqxx::stream_to::table(
+            W,
+            pqxx::table_path{"host_telemetry_archival"},
+            columns);
+#else
+        const std::vector<std::string> columns = {
+            "ingestion_time",
+            "metric_timestamp",
+            "host_id",
+            "project_id",
+            "region",
+            "cpu_usage",
+            "memory_usage",
+            "disk_utilization",
+            "network_rx_rate",
+            "network_tx_rate",
+            "labels",
+            "run_id",
+            "is_anomaly",
+            "anomaly_type"};
+        pqxx::stream_to stream(W, "host_telemetry_archival", columns);
+#endif
 
         auto to_iso = [](std::chrono::system_clock::time_point tp) {
             return fmt::format("{:%Y-%m-%d %H:%M:%S%z}", tp);
@@ -1168,16 +1209,55 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
                                    const std::string& model_run_id,
                                    const std::vector<std::pair<long, std::pair<double, bool>>>& scores) {
     if (scores.empty()) return;
+    auto start = std::chrono::steady_clock::now();
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        pqxx::stream_to stream{W, "dataset_scores", std::vector<std::string>{
-            "dataset_id", "model_run_id", "record_id", "reconstruction_error", "predicted_is_anomaly"}};
+#if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
+        // Use explicit std::vector<std::string> to avoid pqxx iterator overload
+        // ambiguity that can treat const char* as char iterator range.
+        const std::vector<std::string> columns = {
+            "dataset_id",
+            "model_run_id",
+            "record_id",
+            "reconstruction_error",
+            "predicted_is_anomaly"};
+        auto stream = pqxx::stream_to::table(
+            W,
+            pqxx::table_path{"dataset_scores"},
+            columns);
+#else
+        const std::vector<std::string> columns = {
+            "dataset_id",
+            "model_run_id",
+            "record_id",
+            "reconstruction_error",
+            "predicted_is_anomaly"};
+        pqxx::stream_to stream(W, "dataset_scores", columns);
+#endif
         for (const auto& entry : scores) {
             stream << std::make_tuple(dataset_id, model_run_id, entry.first, entry.second.first, entry.second.second);
         }
         stream.complete();
         W.commit();
+        auto end = std::chrono::steady_clock::now();
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        telemetry::obs::EmitCounter("scores_insert_rows", static_cast<long>(scores.size()), "rows", "db",
+                                    {{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
+        telemetry::obs::EmitHistogram("scores_insert_duration_ms", duration_ms, "ms", "db",
+                                      {{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
+        nlohmann::json fields = {
+            {"dataset_id", dataset_id},
+            {"model_run_id", model_run_id},
+            {"rows", static_cast<long>(scores.size())},
+            {"duration_ms", duration_ms}
+        };
+        if (telemetry::obs::HasContext()) {
+            const auto& ctx = telemetry::obs::GetContext();
+            if (!ctx.request_id.empty()) fields["request_id"] = ctx.request_id;
+            if (!ctx.score_job_id.empty()) fields["score_job_id"] = ctx.score_job_id;
+        }
+        telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "db_insert", "db", fields);
     } catch (const std::exception& e) {
         spdlog::error("Failed to insert dataset scores: {}", e.what());
     }
@@ -1192,6 +1272,7 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
                                    double max_score) {
     nlohmann::json out = nlohmann::json::object();
     out["items"] = nlohmann::json::array();
+    auto start = std::chrono::steady_clock::now();
     try {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
@@ -1228,6 +1309,20 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
 
         auto count_res = N.exec("SELECT COUNT(*) FROM dataset_scores s " + where);
         out["total"] = count_res.empty() ? 0 : count_res[0][0].as<long>();
+
+        // Orphan detection: scores where record_id is missing from host_telemetry_archival
+        std::string orphan_query = 
+            "SELECT COUNT(*) FROM dataset_scores s "
+            "LEFT JOIN host_telemetry_archival h ON s.record_id = h.record_id "
+            "WHERE s.dataset_id = " + N.quote(dataset_id) + " AND s.model_run_id = " + N.quote(model_run_id) +
+            " AND h.record_id IS NULL";
+        auto orphan_res = N.exec(orphan_query);
+        long orphan_count = orphan_res.empty() ? 0 : orphan_res[0][0].as<long>();
+        if (orphan_count > 0) {
+            spdlog::warn("Detected {} orphaned scores for dataset {} and model {}", orphan_count, dataset_id, model_run_id);
+            telemetry::obs::EmitCounter("scores_orphan_count", orphan_count, "count", "db_client", 
+                                        {{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
+        }
         
         // Fetch global min/max for the dataset+model (ignoring filters) to drive UI sliders
         std::string range_query = "SELECT MIN(reconstruction_error), MAX(reconstruction_error) FROM dataset_scores WHERE dataset_id = " + N.quote(dataset_id) + " AND model_run_id = " + N.quote(model_run_id);
@@ -1246,6 +1341,21 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
     } catch (const std::exception& e) {
         spdlog::error("Failed to get scores: {}", e.what());
     }
+    auto end = std::chrono::steady_clock::now();
+    double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    telemetry::obs::EmitHistogram("scores_query_duration_ms", duration_ms, "ms", "db",
+                                  {{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
+    nlohmann::json fields = {
+        {"dataset_id", dataset_id},
+        {"model_run_id", model_run_id},
+        {"duration_ms", duration_ms},
+        {"rows", out["items"].size()}
+    };
+    if (telemetry::obs::HasContext()) {
+        const auto& ctx = telemetry::obs::GetContext();
+        if (!ctx.request_id.empty()) fields["request_id"] = ctx.request_id;
+    }
+    telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "db_query", "db", fields);
     return out;
 }
 
@@ -1356,4 +1466,35 @@ nlohmann::json DbClient::GetErrorDistribution(const std::string& dataset_id,
         throw;
     }
     return out;
+}
+
+void DbClient::DeleteDatasetWithScores(const std::string& dataset_id) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+
+        // 1. Delete scores
+        W.exec_params("DELETE FROM dataset_scores WHERE dataset_id = $1", dataset_id);
+        
+        // 2. Delete score jobs
+        W.exec_params("DELETE FROM dataset_score_jobs WHERE dataset_id = $1", dataset_id);
+        
+        // 3. Delete telemetry (archival)
+        W.exec_params("DELETE FROM host_telemetry_archival WHERE run_id = $1", dataset_id);
+        
+        // 4. Delete alerts
+        W.exec_params("DELETE FROM alerts WHERE run_id = $1", dataset_id);
+
+        // 5. Delete model runs
+        W.exec_params("DELETE FROM model_runs WHERE dataset_id = $1", dataset_id);
+
+        // 6. Delete the run itself
+        W.exec_params("DELETE FROM generation_runs WHERE run_id = $1", dataset_id);
+
+        W.commit();
+        spdlog::info("Successfully deleted dataset {} and all associated data.", dataset_id);
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to delete dataset {}: {}", dataset_id, e.what());
+        throw;
+    }
 }
