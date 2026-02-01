@@ -28,12 +28,27 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   String? _loadError;
   String? _comparisonMetric;
   Map<String, dynamic>? _metricsSummary;
+  
+  String? _loadedMetric;
 
   @override
   void initState() {
     super.initState();
     _fetchSchema();
   }
+// ...
+  void _load(String datasetId, String metric) {
+    _loadedMetric = metric;
+    final service = context.read<TelemetryService>();
+    _loadError = null;
+    _summaryFuture = service.getDatasetSummary(datasetId).catchError((e) {
+      // Defer setState to avoid build-phase errors if called from build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _loadError = 'Failed to load summary: $e');
+      });
+      throw e;
+    });
+    // ...
 
   Future<void> _fetchSchema() async {
     final appState = context.read<AppState>();
@@ -65,21 +80,28 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   }
 
   void _load(String datasetId, String metric) {
+    _loadedMetric = metric;
     final service = context.read<TelemetryService>();
     _loadError = null;
     _summaryFuture = service.getDatasetSummary(datasetId).catchError((e) {
-      setState(() => _loadError = 'Failed to load summary: $e');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _loadError = 'Failed to load summary: $e');
+      });
       throw e;
     });
     _topRegionsFuture = service.getTopK(datasetId, 'region', k: 10);
     _topAnomalyFuture = service.getTopK(datasetId, 'anomaly_type', k: 10, isAnomaly: 'true');
     _metricHistFuture = service.getHistogram(datasetId, metric: metric, bins: 30).catchError((e) {
-      setState(() => _loadError = 'Metric "$metric" is not supported.');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _loadError = 'Metric "$metric" is not supported.');
+      });
       throw e;
     });
     _metricTsFuture =
         service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: '1h').catchError((e) {
-      setState(() => _loadError = 'Metric "$metric" is not supported.');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _loadError = 'Metric "$metric" is not supported.');
+      });
       throw e;
     });
 
@@ -102,7 +124,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
     final selectedMetric = appState.getSelectedMetric(datasetId);
 
-    if (_summaryFuture == null) {
+    if (_summaryFuture == null || _loadedMetric != selectedMetric) {
       _load(datasetId, selectedMetric);
     }
 
