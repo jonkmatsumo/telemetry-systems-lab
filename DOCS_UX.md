@@ -3,7 +3,7 @@
 This document serves as a guide for manual verification of UX improvements in the Telemetry Anomaly Detection System (TADS).
 
 ## Known issues fixed in this PR (Repro Notes)
-- [ ] **RD-01:** "Load into Inference Preview" fails to pass record data.
+- [x] **RD-01:** "Load into Inference Preview" fails to pass record data.
   *   *Repro:* Open Results → record drawer → Click "Load into Inference Preview". Verify dataset/model is selected but record values are not populated in the Control tab.
 - [ ] **SR-01:** Min score slider has hardcoded max of 10.
   *   *Repro:* Open Scoring Results for a dataset with high scores. Verify slider cannot filter scores > 10.
@@ -51,6 +51,7 @@ This document serves as a guide for manual verification of UX improvements in th
 - [ ] **Job Drawer Actions:** Verify that "Dataset" and "Model" buttons in the Jobs drawer correctly navigate and set the application context.
 - [ ] **Clear Completed Jobs:** Verify that the "Clear Completed" button in the Jobs drawer correctly hides finished jobs.
 - [ ] **Inference Preview with Real Data:** In the `Control` tab, once a model is trained and a dataset is selected, you should be able to pick a real record from a dropdown to test anomaly detection.
+- [x] **Inference Handoff:** Open Results → record drawer → “Load into Inference Preview”. Verify dataset/model selected, record loaded (message shown), and inference results displayed.
 
 ## 7. Dataset Schema & Explorer
 - [ ] **Feature List:** In `Runs` detail, click the "Features" tab. You should see a list of available metrics with descriptions, types, and units.
