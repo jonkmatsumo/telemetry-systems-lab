@@ -5,7 +5,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "metrics.h"
+#include "../metrics.h"
 #include "obs/logging.h"
 
 namespace telemetry {
@@ -17,7 +17,7 @@ inline void EmitCounter(const std::string& name,
                         const std::string& component,
                         const std::map<std::string, std::string>& labels = {},
                         const nlohmann::json& fields = nlohmann::json::object()) {
-    telemetry::metrics::MetricsRegistry::Instance().Increment(name, labels, value);
+    ::telemetry::metrics::MetricsRegistry::Instance().Increment(name, labels, value);
     nlohmann::json payload = fields;
     payload["metric_name"] = name;
     payload["value"] = value;
@@ -38,7 +38,7 @@ inline void EmitHistogram(const std::string& name,
                           const std::string& component,
                           const std::map<std::string, std::string>& labels = {},
                           const nlohmann::json& fields = nlohmann::json::object()) {
-    telemetry::metrics::MetricsRegistry::Instance().RecordLatency(name, labels, value);
+    ::telemetry::metrics::MetricsRegistry::Instance().RecordLatency(name, labels, value);
     nlohmann::json payload = fields;
     payload["metric_name"] = name;
     payload["value"] = value;
