@@ -17,7 +17,7 @@ class FakeTelemetryService extends TelemetryService {
       String? createdTo}) async {
     return [
       DatasetRun(
-        runId: 'ds-1',
+        runId: 'dataset-1234',
         status: 'COMPLETED',
         insertedRows: 10,
         createdAt: 'now',
@@ -40,8 +40,8 @@ class FakeTelemetryService extends TelemetryService {
       String? createdTo}) async {
     return [
       ModelRunSummary(
-        modelRunId: 'model-1',
-        datasetId: 'ds-1',
+        modelRunId: 'model-1234',
+        datasetId: 'dataset-1234',
         name: 'model',
         status: 'COMPLETED',
         artifactPath: '/tmp/model.json',
@@ -60,7 +60,7 @@ class FakeTelemetryService extends TelemetryService {
   Future<ModelStatus> getModelStatus(String id) async {
     return ModelStatus(
       modelRunId: id,
-      datasetId: 'ds-1',
+      datasetId: 'dataset-1234',
       name: 'model',
       status: 'COMPLETED',
     );
@@ -100,12 +100,12 @@ void main() {
   testWidgets('inference handoff hydrates pending record and runs inference',
       (WidgetTester tester) async {
     final appState = AppState();
-    appState.setDataset('ds-1');
-    appState.setModel('model-1');
+    appState.setDataset('dataset-1234');
+    appState.setModel('model-1234');
     appState.setPendingInference(
       PendingInferenceRequest(
-        datasetId: 'ds-1',
-        modelId: 'model-1',
+        datasetId: 'dataset-1234',
+        modelId: 'model-1234',
         recordId: '1',
       ),
     );
