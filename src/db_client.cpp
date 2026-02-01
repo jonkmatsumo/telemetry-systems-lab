@@ -1224,6 +1224,18 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
 
         auto count_res = N.exec("SELECT COUNT(*) FROM dataset_scores s " + where);
         out["total"] = count_res.empty() ? 0 : count_res[0][0].as<long>();
+        
+        // Fetch global min/max for the dataset+model (ignoring filters) to drive UI sliders
+        std::string range_query = "SELECT MIN(reconstruction_error), MAX(reconstruction_error) FROM dataset_scores WHERE dataset_id = " + N.quote(dataset_id) + " AND model_run_id = " + N.quote(model_run_id);
+        auto range_res = N.exec(range_query);
+        if (!range_res.empty() && !range_res[0][0].is_null()) {
+             out["min_score"] = range_res[0][0].as<double>();
+             out["max_score"] = range_res[0][1].as<double>();
+        } else {
+             out["min_score"] = 0.0;
+             out["max_score"] = 10.0; // Default fallback
+        }
+
         out["limit"] = limit;
         out["offset"] = offset;
 
