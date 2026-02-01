@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
@@ -73,6 +74,27 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1E293B),
         title: Text('Scoring Results — ${widget.modelRunId.substring(0, 8)} on ${widget.datasetId.substring(0, 8)}'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.link),
+            tooltip: 'Copy Link',
+            onPressed: () {
+              final uri = Uri.base;
+              final link = uri.replace(queryParameters: {
+                ...uri.queryParameters,
+                'resultsDatasetId': widget.datasetId,
+                'resultsModelId': widget.modelRunId,
+                'minScore': _minScore.toString(),
+                'onlyAnomalies': _onlyAnomalies.toString(),
+              }).toString();
+              Clipboard.setData(ClipboardData(text: link));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Results link copied to clipboard')),
+              );
+            },
+          ),
+          const SizedBox(width: 16),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(24),
