@@ -887,6 +887,45 @@ nlohmann::json DbClient::GetMetricStats(const std::string& run_id, const std::st
     return j;
 }
 
+nlohmann::json DbClient::GetDatasetMetricsSummary(const std::string& run_id) {
+    static const std::vector<std::string> kMetrics = {
+        "cpu_usage", "memory_usage", "disk_utilization", "network_rx_rate", "network_tx_rate"
+    };
+    nlohmann::json out = nlohmann::json::object();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        std::string select;
+        for (size_t i = 0; i < kMetrics.size(); ++i) {
+            select += "STDDEV(" + kMetrics[i] + ") AS " + kMetrics[i] + "_stddev";
+            if (i + 1 < kMetrics.size()) select += ", ";
+        }
+        auto res = W.exec_params("SELECT " + select + " FROM host_telemetry_archival WHERE run_id = $1", run_id);
+        if (!res.empty()) {
+            std::vector<std::pair<std::string, double>> stddevs;
+            for (const auto& m : kMetrics) {
+                double val = res[0][m + "_stddev"].is_null() ? 0.0 : res[0][m + "_stddev"].as<double>();
+                stddevs.push_back({m, val});
+            }
+            // Sort by stddev descending
+            std::sort(stddevs.begin(), stddevs.end(), [](const auto& a, const auto& b) {
+                return a.second > b.second;
+            });
+            nlohmann::json high_variance = nlohmann::json::array();
+            for (const auto& p : stddevs) {
+                high_variance.push_back({{"key", p.first}, {"stddev", p.second}});
+            }
+            out["high_variance"] = high_variance;
+            out["high_missingness"] = nlohmann::json::array(); // Not applicable with NOT NULL schema
+        }
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get dataset metrics summary for {}: {}", run_id, e.what());
+        throw;
+    }
+    return out;
+}
+
 std::string DbClient::CreateScoreJob(const std::string& dataset_id, 
                                     const std::string& model_run_id,
                                     const std::string& request_id) {

@@ -579,6 +579,15 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
+  Future<Map<String, dynamic>> getDatasetMetricsSummary(String runId) async {
+    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/metrics/summary'));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    _handleError(response, 'Failed to get dataset metrics summary');
+    throw Exception('Unreachable');
+  }
+
   Future<DatasetSummary> getDatasetSummary(String runId, {int topk = 5}) async {
     final params = {'topk': '$topk'};
     final key = _cacheKey('/datasets/$runId/summary', params);
