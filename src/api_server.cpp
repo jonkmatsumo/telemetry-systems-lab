@@ -14,6 +14,7 @@
 #include "preprocessing.h"
 #include "detector_config.h"
 #include "metrics.h"
+#include "obs/error_codes.h"
 #include "obs/http_log.h"
 
 #include <uuid/uuid.h>
@@ -177,7 +178,7 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
             res.status = 200;
             res.set_content("{\"status\":\"READY\"}", "application/json");
         } catch (const std::exception& e) {
-            log.RecordError("DB_ERROR", e.what(), 503);
+            log.RecordError(telemetry::obs::kErrDbConnectFailed, e.what(), 503);
             res.status = 503;
             res.set_content("{\"status\":\"UNREADY\", \"reason\":\"DB_CONNECTION_FAILED\"}", "application/json");
         }
@@ -274,12 +275,12 @@ void ApiServer::HandleGenerateData(const httplib::Request& req, httplib::Respons
             log.AddFields({{"dataset_id", g_res.run_id()}});
             SendJson(res, resp, 202, rid);
         } else {
-            log.RecordError("GRPC_ERROR", status.error_message(), 500);
-            SendError(res, "gRPC Error: " + status.error_message(), 500, "GRPC_ERROR", rid);
+            log.RecordError(telemetry::obs::kErrHttpGrpcError, status.error_message(), 500);
+            SendError(res, "gRPC Error: " + status.error_message(), 500, telemetry::obs::kErrHttpGrpcError, rid);
         }
     } catch (const std::exception& e) {
-        log.RecordError("BAD_REQUEST", e.what(), 400);
-        SendError(res, std::string("Error: ") + e.what(), 400, "BAD_REQUEST", rid);
+        log.RecordError(telemetry::obs::kErrHttpBadRequest, e.what(), 400);
+        SendError(res, std::string("Error: ") + e.what(), 400, telemetry::obs::kErrHttpBadRequest, rid);
     }
 }
 
@@ -299,8 +300,8 @@ void ApiServer::HandleListDatasets(const httplib::Request& req, httplib::Respons
         resp["offset"] = offset;
         SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -334,8 +335,8 @@ void ApiServer::HandleGetDataset(const httplib::Request& req, httplib::Response&
         resp["error"] = g_res.error();
         SendJson(res, resp, 200, rid);
     } else {
-        log.RecordError("NOT_FOUND", status.error_message(), 404);
-        SendError(res, "gRPC Error: " + status.error_message(), 404, "NOT_FOUND", rid);
+        log.RecordError(telemetry::obs::kErrHttpNotFound, status.error_message(), 404);
+        SendError(res, "gRPC Error: " + status.error_message(), 404, telemetry::obs::kErrHttpNotFound, rid);
     }
 }
 
@@ -351,8 +352,8 @@ void ApiServer::HandleDatasetSummary(const httplib::Request& req, httplib::Respo
         auto summary = db_client_->GetDatasetSummary(run_id, topk);
         auto end = std::chrono::steady_clock::now();
         if (summary.empty()) {
-            log.RecordError("NOT_FOUND", "Dataset not found", 404);
-            SendError(res, "Dataset not found", 404, "NOT_FOUND", rid);
+            log.RecordError(telemetry::obs::kErrHttpNotFound, "Dataset not found", 404);
+            SendError(res, "Dataset not found", 404, telemetry::obs::kErrHttpNotFound, rid);
             return;
         }
         if (debug) {
@@ -362,8 +363,8 @@ void ApiServer::HandleDatasetSummary(const httplib::Request& req, httplib::Respo
         }
         SendJson(res, summary, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -386,8 +387,8 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         {"anomaly_type", "anomaly_type"}
     };
     if (allowed.find(column) == allowed.end()) {
-        log.RecordError("INVALID_ARGUMENT", "Invalid column", 400);
-        SendError(res, "Invalid column", 400, "INVALID_ARGUMENT", rid);
+        log.RecordError(telemetry::obs::kErrHttpInvalidArgument, "Invalid column", 400);
+        SendError(res, "Invalid column", 400, telemetry::obs::kErrHttpInvalidArgument, rid);
         return;
     }
     bool debug = GetStrParam(req, "debug") == "true";
@@ -405,11 +406,11 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         }
         SendJson(res, resp, 200, rid);
     } catch (const std::invalid_argument& e) {
-        log.RecordError("INVALID_ARGUMENT", e.what(), 400);
-        SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
+        log.RecordError(telemetry::obs::kErrHttpInvalidArgument, e.what(), 400);
+        SendError(res, e.what(), 400, telemetry::obs::kErrHttpInvalidArgument, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -434,8 +435,8 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         if (!token.empty()) metrics.push_back(token);
     }
     if (metrics.empty()) {
-        log.RecordError("INVALID_ARGUMENT", "metrics required", 400);
-        SendError(res, "metrics required", 400, "INVALID_ARGUMENT", rid);
+        log.RecordError(telemetry::obs::kErrHttpInvalidArgument, "metrics required", 400);
+        SendError(res, "metrics required", 400, telemetry::obs::kErrHttpInvalidArgument, rid);
         return;
     }
 
@@ -470,11 +471,11 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         }
         SendJson(res, resp, 200, rid);
     } catch (const std::invalid_argument& e) {
-        log.RecordError("INVALID_ARGUMENT", e.what(), 400);
-        SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
+        log.RecordError(telemetry::obs::kErrHttpInvalidArgument, e.what(), 400);
+        SendError(res, e.what(), 400, telemetry::obs::kErrHttpInvalidArgument, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -485,8 +486,8 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
     log.AddFields({{"dataset_id", run_id}});
     std::string metric = GetStrParam(req, "metric");
     if (metric.empty()) {
-        log.RecordError("INVALID_ARGUMENT", "metric required", 400);
-        SendError(res, "metric required", 400, "INVALID_ARGUMENT", rid);
+        log.RecordError(telemetry::obs::kErrHttpInvalidArgument, "metric required", 400);
+        SendError(res, "metric required", 400, telemetry::obs::kErrHttpInvalidArgument, rid);
         return;
     }
     int bins = GetIntParam(req, "bins", 40);
@@ -519,11 +520,11 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         }
         SendJson(res, data, 200, rid);
     } catch (const std::invalid_argument& e) {
-        log.RecordError("INVALID_ARGUMENT", e.what(), 400);
-        SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
+        log.RecordError(telemetry::obs::kErrHttpInvalidArgument, e.what(), 400);
+        SendError(res, e.what(), 400, telemetry::obs::kErrHttpInvalidArgument, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -539,8 +540,8 @@ void ApiServer::HandleGetDatasetSamples(const httplib::Request& req, httplib::Re
         resp["items"] = data;
         SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -553,14 +554,14 @@ void ApiServer::HandleGetDatasetRecord(const httplib::Request& req, httplib::Res
     try {
         auto data = db_client_->GetDatasetRecord(run_id, record_id);
         if (data.empty()) {
-            log.RecordError("NOT_FOUND", "Record not found", 404);
-            SendError(res, "Record not found", 404, "NOT_FOUND", rid);
+            log.RecordError(telemetry::obs::kErrHttpNotFound, "Record not found", 404);
+            SendError(res, "Record not found", 404, telemetry::obs::kErrHttpNotFound, rid);
             return;
         }
         SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -574,11 +575,11 @@ void ApiServer::HandleGetDatasetMetricStats(const httplib::Request& req, httplib
         auto data = db_client_->GetMetricStats(run_id, metric);
         SendJson(res, data, 200, rid);
     } catch (const std::invalid_argument& e) {
-        log.RecordError("INVALID_ARGUMENT", e.what(), 400);
-        SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
+        log.RecordError(telemetry::obs::kErrHttpInvalidArgument, e.what(), 400);
+        SendError(res, e.what(), 400, telemetry::obs::kErrHttpInvalidArgument, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -591,8 +592,8 @@ void ApiServer::HandleGetDatasetMetricsSummary(const httplib::Request& req, http
         auto data = db_client_->GetDatasetMetricsSummary(run_id);
         SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -605,8 +606,8 @@ void ApiServer::HandleGetDatasetModels(const httplib::Request& req, httplib::Res
         auto data = db_client_->GetModelsForDataset(run_id);
         SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -622,8 +623,8 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         // 1. Create DB entry
         std::string model_run_id = db_client_->CreateModelRun(dataset_id, name, rid);
         if (model_run_id.empty()) {
-            log.RecordError("DB_ERROR", "Failed to create model run in DB", 500);
-            SendError(res, "Failed to create model run in DB", 500, "DB_ERROR", rid);
+            log.RecordError(telemetry::obs::kErrDbInsertFailed, "Failed to create model run in DB", 500);
+            SendError(res, "Failed to create model run in DB", 500, telemetry::obs::kErrDbInsertFailed, rid);
             return;
         }
         log.AddFields({{"model_run_id", model_run_id}});
@@ -657,11 +658,11 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
     } catch (const std::exception& e) {
         std::string err = e.what();
         if (err.find("Job queue full") != std::string::npos) {
-            log.RecordError("RESOURCE_EXHAUSTED", err, 503);
-            SendError(res, err, 503, "RESOURCE_EXHAUSTED", rid);
+            log.RecordError(telemetry::obs::kErrHttpResourceExhausted, err, 503);
+            SendError(res, err, 503, telemetry::obs::kErrHttpResourceExhausted, rid);
         } else {
-            log.RecordError("BAD_REQUEST", err, 400);
-            SendError(res, std::string("Error: ") + err, 400, "BAD_REQUEST", rid);
+            log.RecordError(telemetry::obs::kErrHttpBadRequest, err, 400);
+            SendError(res, std::string("Error: ") + err, 400, telemetry::obs::kErrHttpBadRequest, rid);
         }
     }
 }
@@ -673,8 +674,8 @@ void ApiServer::HandleGetTrainStatus(const httplib::Request& req, httplib::Respo
     log.AddFields({{"model_run_id", model_run_id}});
     auto j = db_client_->GetModelRun(model_run_id);
     if (j.empty()) {
-        log.RecordError("NOT_FOUND", "Model run not found", 404);
-        SendError(res, "Model run not found", 404, "NOT_FOUND", rid);
+        log.RecordError(telemetry::obs::kErrHttpNotFound, "Model run not found", 404);
+        SendError(res, "Model run not found", 404, telemetry::obs::kErrHttpNotFound, rid);
     } else {
         SendJson(res, j, 200, rid);
     }
@@ -697,8 +698,8 @@ void ApiServer::HandleListModels(const httplib::Request& req, httplib::Response&
         resp["offset"] = offset;
         SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -710,8 +711,8 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
     try {
         auto j = db_client_->GetModelRun(model_run_id);
         if (j.empty()) {
-            log.RecordError("NOT_FOUND", "Model run not found", 404);
-            SendError(res, "Model run not found", 404, "NOT_FOUND", rid);
+            log.RecordError(telemetry::obs::kErrHttpNotFound, "Model run not found", 404);
+            SendError(res, "Model run not found", 404, telemetry::obs::kErrHttpNotFound, rid);
             return;
         }
         std::string artifact_path = j.value("artifact_path", "");
@@ -731,8 +732,8 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
         }
         SendJson(res, j, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -745,8 +746,8 @@ void ApiServer::HandleGetModelScoredDatasets(const httplib::Request& req, httpli
         auto data = db_client_->GetScoredDatasetsForModel(model_run_id);
         SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -763,8 +764,8 @@ void ApiServer::HandleGetScores(const httplib::Request& req, httplib::Response& 
     double max_score = GetDoubleParam(req, "max_score", 0.0);
 
     if (dataset_id.empty() || model_run_id.empty()) {
-        log.RecordError("BAD_REQUEST", "dataset_id and model_run_id required", 400);
-        SendError(res, "dataset_id and model_run_id required", 400, "BAD_REQUEST", rid);
+        log.RecordError(telemetry::obs::kErrHttpBadRequest, "dataset_id and model_run_id required", 400);
+        SendError(res, "dataset_id and model_run_id required", 400, telemetry::obs::kErrHttpBadRequest, rid);
         return;
     }
 
@@ -772,8 +773,8 @@ void ApiServer::HandleGetScores(const httplib::Request& req, httplib::Response& 
         auto data = db_client_->GetScores(dataset_id, model_run_id, limit, offset, only_anomalies, min_score, max_score);
         SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -790,15 +791,15 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
         // 1. Get Model Info
         auto model_info = db_client_->GetModelRun(model_run_id);
         if (model_info.empty()) {
-            log.RecordError("NOT_FOUND", "Model not found", 404);
-            SendError(res, "Model not found", 404, "NOT_FOUND", rid);
+            log.RecordError(telemetry::obs::kErrHttpNotFound, "Model not found", 404);
+            SendError(res, "Model not found", 404, telemetry::obs::kErrHttpNotFound, rid);
             return;
         }
 
         std::string artifact_path = model_info.value("artifact_path", "");
         if (artifact_path.empty()) {
-            log.RecordError("BAD_REQUEST", "Model is not yet complete or has no artifact", 400);
-            SendError(res, "Model is not yet complete or has no artifact", 400, "BAD_REQUEST", rid);
+            log.RecordError(telemetry::obs::kErrHttpBadRequest, "Model is not yet complete or has no artifact", 400);
+            SendError(res, "Model is not yet complete or has no artifact", 400, telemetry::obs::kErrHttpBadRequest, rid);
             return;
         }
 
@@ -807,8 +808,8 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
         try {
             pca.Load(artifact_path);
         } catch (const std::exception& e) {
-            log.RecordError("LOAD_ERROR", e.what(), 500);
-            SendError(res, "Failed to load PCA model artifact: " + std::string(e.what()), 500, "LOAD_ERROR", rid);
+            log.RecordError(telemetry::obs::kErrModelLoadFailed, e.what(), 500);
+            SendError(res, "Failed to load PCA model artifact: " + std::string(e.what()), 500, telemetry::obs::kErrModelLoadFailed, rid);
             return;
         }
 
@@ -850,8 +851,8 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
         SendJson(res, resp, 200, rid);
 
     } catch (const std::exception& e) {
-        log.RecordError("BAD_REQUEST", e.what(), 400);
-        SendError(res, std::string("Error: ") + e.what(), 400, "BAD_REQUEST", rid);
+        log.RecordError(telemetry::obs::kErrHttpBadRequest, e.what(), 400);
+        SendError(res, std::string("Error: ") + e.what(), 400, telemetry::obs::kErrHttpBadRequest, rid);
     }
 }
 
@@ -874,8 +875,8 @@ void ApiServer::HandleListInferenceRuns(const httplib::Request& req, httplib::Re
         resp["offset"] = offset;
         SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -887,14 +888,14 @@ void ApiServer::HandleGetInferenceRun(const httplib::Request& req, httplib::Resp
     try {
         auto j = db_client_->GetInferenceRun(inference_id);
         if (j.empty()) {
-            log.RecordError("NOT_FOUND", "Inference run not found", 404);
-            SendError(res, "Inference run not found", 404, "NOT_FOUND", rid);
+            log.RecordError(telemetry::obs::kErrHttpNotFound, "Inference run not found", 404);
+            SendError(res, "Inference run not found", 404, telemetry::obs::kErrHttpNotFound, rid);
             return;
         }
         SendJson(res, j, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -917,8 +918,8 @@ void ApiServer::HandleListJobs(const httplib::Request& req, httplib::Response& r
         resp["offset"] = offset;
         SendJson(res, resp, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -933,16 +934,16 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
 
         std::string job_id = db_client_->CreateScoreJob(dataset_id, model_run_id, rid);
         if (job_id.empty()) {
-            log.RecordError("DB_ERROR", "Failed to create job", 500);
-            SendError(res, "Failed to create job", 500, "DB_ERROR", rid);
+            log.RecordError(telemetry::obs::kErrDbInsertFailed, "Failed to create job", 500);
+            SendError(res, "Failed to create job", 500, telemetry::obs::kErrDbInsertFailed, rid);
             return;
         }
         log.AddFields({{"score_job_id", job_id}});
 
         auto job = db_client_->GetScoreJob(job_id);
         if (job.empty()) {
-            log.RecordError("DB_ERROR", "Failed to load job status", 500);
-            SendError(res, "Failed to load job status", 500, "DB_ERROR", rid);
+            log.RecordError(telemetry::obs::kErrDbQueryFailed, "Failed to load job status", 500);
+            SendError(res, "Failed to load job status", 500, telemetry::obs::kErrDbQueryFailed, rid);
             return;
         }
 
@@ -1031,11 +1032,11 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
     } catch (const std::exception& e) {
         std::string err = e.what();
         if (err.find("Job queue full") != std::string::npos) {
-            log.RecordError("RESOURCE_EXHAUSTED", err, 503);
-            SendError(res, err, 503, "RESOURCE_EXHAUSTED", rid);
+            log.RecordError(telemetry::obs::kErrHttpResourceExhausted, err, 503);
+            SendError(res, err, 503, telemetry::obs::kErrHttpResourceExhausted, rid);
         } else {
-            log.RecordError("BAD_REQUEST", err, 400);
-            SendError(res, std::string("Error: ") + err, 400, "BAD_REQUEST", rid);
+            log.RecordError(telemetry::obs::kErrHttpBadRequest, err, 400);
+            SendError(res, std::string("Error: ") + err, 400, telemetry::obs::kErrHttpBadRequest, rid);
         }
     }
 }
@@ -1048,14 +1049,14 @@ void ApiServer::HandleGetJobStatus(const httplib::Request& req, httplib::Respons
     try {
         auto j = db_client_->GetScoreJob(job_id);
         if (j.empty()) {
-            log.RecordError("NOT_FOUND", "Job not found", 404);
-            SendError(res, "Job not found", 404, "NOT_FOUND", rid);
+            log.RecordError(telemetry::obs::kErrHttpNotFound, "Job not found", 404);
+            SendError(res, "Job not found", 404, telemetry::obs::kErrHttpNotFound, rid);
             return;
         }
         SendJson(res, j, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -1067,14 +1068,14 @@ void ApiServer::HandleGetJobProgress(const httplib::Request& req, httplib::Respo
     try {
         auto j = db_client_->GetScoreJob(job_id);
         if (j.empty()) {
-            log.RecordError("NOT_FOUND", "Job not found", 404);
-            SendError(res, "Job not found", 404, "NOT_FOUND", rid);
+            log.RecordError(telemetry::obs::kErrHttpNotFound, "Job not found", 404);
+            SendError(res, "Job not found", 404, telemetry::obs::kErrHttpNotFound, rid);
             return;
         }
         SendJson(res, j, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -1088,8 +1089,8 @@ void ApiServer::HandleModelEval(const httplib::Request& req, httplib::Response& 
     int max_samples = GetIntParam(req, "max_samples", 20000);
     bool debug = GetStrParam(req, "debug") == "true";
     if (dataset_id.empty()) {
-        log.RecordError("BAD_REQUEST", "dataset_id required", 400);
-        SendError(res, "dataset_id required", 400, "BAD_REQUEST", rid);
+        log.RecordError(telemetry::obs::kErrHttpBadRequest, "dataset_id required", 400);
+        SendError(res, "dataset_id required", 400, telemetry::obs::kErrHttpBadRequest, rid);
         return;
     }
     try {
@@ -1106,8 +1107,8 @@ void ApiServer::HandleModelEval(const httplib::Request& req, httplib::Response& 
         }
         SendJson(res, eval, 200, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 
@@ -1120,8 +1121,8 @@ void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httpli
     log.AddFields({{"model_run_id", model_run_id}, {"dataset_id", dataset_id}});
     bool debug = GetStrParam(req, "debug") == "true";
     if (dataset_id.empty() || group_by.empty()) {
-        log.RecordError("BAD_REQUEST", "dataset_id and group_by required", 400);
-        SendError(res, "dataset_id and group_by required", 400, "BAD_REQUEST", rid);
+        log.RecordError(telemetry::obs::kErrHttpBadRequest, "dataset_id and group_by required", 400);
+        SendError(res, "dataset_id and group_by required", 400, telemetry::obs::kErrHttpBadRequest, rid);
         return;
     }
     std::unordered_map<std::string, std::string> allowed = {
@@ -1130,8 +1131,8 @@ void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httpli
         {"project_id", "h.project_id"}
     };
     if (allowed.find(group_by) == allowed.end()) {
-        log.RecordError("INVALID_ARGUMENT", "Invalid group_by", 400);
-        SendError(res, "Invalid group_by", 400, "INVALID_ARGUMENT", rid);
+        log.RecordError(telemetry::obs::kErrHttpInvalidArgument, "Invalid group_by", 400);
+        SendError(res, "Invalid group_by", 400, telemetry::obs::kErrHttpInvalidArgument, rid);
         return;
     }
     try {
@@ -1148,11 +1149,11 @@ void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httpli
         }
         SendJson(res, resp, 200, rid);
     } catch (const std::invalid_argument& e) {
-        log.RecordError("INVALID_ARGUMENT", e.what(), 400);
-        SendError(res, e.what(), 400, "INVALID_ARGUMENT", rid);
+        log.RecordError(telemetry::obs::kErrHttpInvalidArgument, e.what(), 400);
+        SendError(res, e.what(), 400, telemetry::obs::kErrHttpInvalidArgument, rid);
     } catch (const std::exception& e) {
-        log.RecordError("DB_ERROR", e.what(), 500);
-        SendError(res, e.what(), 500, "DB_ERROR", rid);
+        log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+        SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
     }
 }
 

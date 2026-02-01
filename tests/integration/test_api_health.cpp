@@ -48,3 +48,18 @@ TEST_F(ApiHealthTest, ReadyzReturns200Or503) {
         GTEST_SKIP() << "API server not running at " << api_url;
     }
 }
+
+TEST_F(ApiHealthTest, ErrorResponseIncludesRequestIdAndErrorCode) {
+    httplib::Client cli(api_url.c_str());
+    httplib::Headers headers = {{"X-Request-ID", "test-request-id"}};
+    auto res = cli.Get("/models/test/error_distribution", headers);
+    if (res) {
+        EXPECT_EQ(res->status, 400);
+        auto j = nlohmann::json::parse(res->body);
+        ASSERT_TRUE(j.contains("error"));
+        EXPECT_EQ(j["error"]["code"], "E_HTTP_BAD_REQUEST");
+        EXPECT_EQ(j["error"]["request_id"], "test-request-id");
+    } else {
+        GTEST_SKIP() << "API server not running at " << api_url;
+    }
+}

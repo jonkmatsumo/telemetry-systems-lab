@@ -56,7 +56,7 @@ private:
     void SendError(httplib::Response& res, 
                    const std::string& msg, 
                    int status = 400,
-                   const std::string& code = "INTERNAL_ERROR",
+                   const std::string& code = "E_INTERNAL",
                    const std::string& request_id = "");
     static int GetIntParam(const httplib::Request& req, const std::string& key, int def);
     static double GetDoubleParam(const httplib::Request& req, const std::string& key, double def);
