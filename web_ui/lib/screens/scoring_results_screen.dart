@@ -146,20 +146,88 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
                   rows: items.map((item) {
                     final isAnomaly = item['is_anomaly'] == true;
                     return DataRow(
-                      onSelectChanged: (_) {
-                        // Phase 4.3: Open detail drawer
-                      },
+                      onSelectChanged: (_) => _showDetail(item),
                       cells: [
                         DataCell(Text(item['record_id'].toString())),
                         DataCell(Text(item['host_id'].toString().substring(0, 8) + '...')),
                         DataCell(Text(item['timestamp'].toString().substring(11, 19))),
                         DataCell(Text(item['score'].toStringAsFixed(4),
-                            style: TextStyle(color: isAnomaly ? Colors.redAccent : Colors.greenAccent, fontWeight: FontWeight.bold))),
+                            style: TextStyle(
+                                color: isAnomaly ? Colors.redAccent : Colors.greenAccent,
+                                fontWeight: FontWeight.bold))),
                         DataCell(Text(isAnomaly ? 'ANOMALY' : 'NORMAL')),
                         DataCell(Text(item['label'] == true ? 'ANOMALY' : 'NORMAL')),
                       ],
                     );
                   }).toList(),
+...
+  void _showDetail(Map<String, dynamic> item) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E293B),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Record ${item['record_id']} Detail',
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _detailRow('Host ID', item['host_id']),
+              _detailRow('Timestamp', item['timestamp']),
+              _detailRow('Anomaly Score', item['score'].toStringAsFixed(6)),
+              _detailRow('Prediction', item['is_anomaly'] ? 'ANOMALY' : 'NORMAL'),
+              _detailRow('Ground Truth', item['label'] ? 'ANOMALY' : 'NORMAL'),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    final appState = context.read<AppState>();
+                    appState.setDataset(widget.datasetId);
+                    appState.setModel(widget.modelRunId);
+                    appState.setTabIndex(0); // Go to Control/Inference
+                    Navigator.pop(context); // Close bottom sheet
+                    Navigator.pop(context); // Go back from results browser
+                  },
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Load into Inference Preview'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF38BDF8),
+                    foregroundColor: const Color(0xFF0F172A),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _detailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.white54)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
                 ),
               ),
             ),
