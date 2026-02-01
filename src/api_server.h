@@ -51,6 +51,8 @@ private:
     void HandleModelEval(const httplib::Request& req, httplib::Response& res);
     void HandleModelErrorDistribution(const httplib::Request& req, httplib::Response& res);
 
+    void ValidateRoutes();
+
     // Helpers
     void SendJson(httplib::Response& res, nlohmann::json j, int status = 200, const std::string& request_id = "");
     void SendError(httplib::Response& res, 

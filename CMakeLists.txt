@@ -275,3 +275,18 @@ target_link_libraries(metrics_integration_tests
 if(HTTPLIB_FOUND)
     target_link_libraries(metrics_integration_tests PkgConfig::HTTPLIB)
 endif()
+
+# API Route Probing Test
+add_executable(api_route_tests
+    tests/integration/test_api_routes.cpp
+    src/route_registry.cpp
+)
+target_include_directories(api_route_tests PRIVATE src)
+target_link_libraries(api_route_tests
+    GTest::GTest
+    GTest::Main
+    nlohmann_json::nlohmann_json
+)
+if(HTTPLIB_FOUND)
+    target_link_libraries(api_route_tests PkgConfig::HTTPLIB)
+endif()

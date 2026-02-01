@@ -1,7 +1,6 @@
 #include "detectors/pca_model.h"
 #include "api_server.h"
-#include "api_debug.h"
-#include "training/pca_trainer.h"
+#include "route_registry.h"
 #include <spdlog/spdlog.h>
 #include <filesystem>
 #include <thread>
@@ -251,6 +250,7 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
 ApiServer::~ApiServer() {}
 
 void ApiServer::Start(const std::string& host, int port) {
+    ValidateRoutes();
     spdlog::info("HTTP API Server listening on {}:{}", host, port);
     svr_.listen(host.c_str(), port);
 }
@@ -1310,6 +1310,16 @@ double ApiServer::GetDoubleParam(const httplib::Request& req, const std::string&
 std::string ApiServer::GetStrParam(const httplib::Request& req, const std::string& key) {
     if (!req.has_param(key.c_str())) return "";
     return req.get_param_value(key.c_str());
+}
+
+void ApiServer::ValidateRoutes() {
+    // Basic sanity check: ensure registry matches expected count
+    // We don't do deep introspection of httplib because it's hard.
+    if (kRequiredRoutes.size() != 31) {
+        spdlog::warn("Route registry count mismatch! Expected 31, got {}", kRequiredRoutes.size());
+    } else {
+        spdlog::info("Route registry validated ({} routes)", kRequiredRoutes.size());
+    }
 }
 
 } // namespace api

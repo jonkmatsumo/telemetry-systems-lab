@@ -1272,6 +1272,20 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
 
         auto count_res = N.exec("SELECT COUNT(*) FROM dataset_scores s " + where);
         out["total"] = count_res.empty() ? 0 : count_res[0][0].as<long>();
+
+        // Orphan detection: scores where record_id is missing from host_telemetry_archival
+        std::string orphan_query = 
+            "SELECT COUNT(*) FROM dataset_scores s "
+            "LEFT JOIN host_telemetry_archival h ON s.record_id = h.record_id "
+            "WHERE s.dataset_id = " + N.quote(dataset_id) + " AND s.model_run_id = " + N.quote(model_run_id) +
+            " AND h.record_id IS NULL";
+        auto orphan_res = N.exec(orphan_query);
+        long orphan_count = orphan_res.empty() ? 0 : orphan_res[0][0].as<long>();
+        if (orphan_count > 0) {
+            spdlog::warn("Detected {} orphaned scores for dataset {} and model {}", orphan_count, dataset_id, model_run_id);
+            telemetry::obs::EmitCounter("scores_orphan_count", orphan_count, "count", "db_client", 
+                                        {{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
+        }
         
         // Fetch global min/max for the dataset+model (ignoring filters) to drive UI sliders
         std::string range_query = "SELECT MIN(reconstruction_error), MAX(reconstruction_error) FROM dataset_scores WHERE dataset_id = " + N.quote(dataset_id) + " AND model_run_id = " + N.quote(model_run_id);
@@ -1415,4 +1429,35 @@ nlohmann::json DbClient::GetErrorDistribution(const std::string& dataset_id,
         throw;
     }
     return out;
+}
+
+void DbClient::DeleteDatasetWithScores(const std::string& dataset_id) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+
+        // 1. Delete scores
+        W.exec_params("DELETE FROM dataset_scores WHERE dataset_id = $1", dataset_id);
+        
+        // 2. Delete score jobs
+        W.exec_params("DELETE FROM dataset_score_jobs WHERE dataset_id = $1", dataset_id);
+        
+        // 3. Delete telemetry (archival)
+        W.exec_params("DELETE FROM host_telemetry_archival WHERE run_id = $1", dataset_id);
+        
+        // 4. Delete alerts
+        W.exec_params("DELETE FROM alerts WHERE run_id = $1", dataset_id);
+
+        // 5. Delete model runs
+        W.exec_params("DELETE FROM model_runs WHERE dataset_id = $1", dataset_id);
+
+        // 6. Delete the run itself
+        W.exec_params("DELETE FROM generation_runs WHERE run_id = $1", dataset_id);
+
+        W.commit();
+        spdlog::info("Successfully deleted dataset {} and all associated data.", dataset_id);
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to delete dataset {}: {}", dataset_id, e.what());
+        throw;
+    }
 }
