@@ -36,7 +36,27 @@ class _ControlPanelState extends State<ControlPanel> {
     _fetchResources();
   }
 
-  // ... (existing _fetchResources)
+  Future<void> _fetchResources() async {
+    if (_fetchingResources) return;
+    setState(() => _fetchingResources = true);
+    final service = context.read<TelemetryService>();
+    try {
+      final datasets = await service.listDatasets(limit: 50, offset: 0);
+      final models = await service.listModels(limit: 50, offset: 0);
+      if (!mounted) return;
+      setState(() {
+        _availableDatasets = datasets;
+        _availableModels = models;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      _showError('Failed to fetch resources: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _fetchingResources = false);
+      }
+    }
+  }
 
   @override
   void didChangeDependencies() {
