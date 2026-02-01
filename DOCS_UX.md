@@ -11,7 +11,7 @@ This document serves as a guide for manual verification of UX improvements in th
   *   *Repro:* Copy analytics link with `&metric=network_tx_rate`, reload page. Verify metric reverts to default (`cpu_usage`).
 - [x] **DL-02:** Scoring Results screen does not support deep linking.
   *   *Repro:* Refresh while on Scoring Results screen. Verify it redirects to home/default state instead of restoring results view.
-- [ ] **ERR-01:** Silent error handling masking failures.
+- [x] **ERR-01:** Silent error handling masking failures.
   *   *Repro:* Disconnect server or API. Observe UI swallows errors in polling/hydration without user feedback.
 
 ## 1. Unified Context & State Persistence
@@ -77,3 +77,4 @@ This document serves as a guide for manual verification of UX improvements in th
 - [x] **Copy Link:** Click "Copy Link" in any detail or analytics screen.
 - [x] **Hydration:** Paste the link into a new tab (or refresh). Verify that the app restores the selected dataset, model, and metric automatically.
 - [x] **Results Link:** Open Scoring Results, apply filters, copy link. Open new tab. Verify Results screen restores with same filters.
+- [x] **Error Handling:** Kill API/server. Verify UI shows error messages (snackbars/logs) instead of silent failure.
