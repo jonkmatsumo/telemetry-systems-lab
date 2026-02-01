@@ -15,6 +15,7 @@
 #include "detector_config.h"
 #include "metrics.h"
 #include "obs/metrics.h"
+#include "obs/context.h"
 #include "obs/error_codes.h"
 #include "obs/http_log.h"
 
@@ -36,6 +37,17 @@ std::string GetRequestId(const httplib::Request& req) {
         return req.get_header_value("X-Request-ID");
     }
     return GenerateUuid();
+}
+
+static const char* ClassifyTrainError(const std::string& msg) {
+    if (msg.find("Not enough samples") != std::string::npos ||
+        msg.find("No samples") != std::string::npos) {
+        return telemetry::obs::kErrTrainNoData;
+    }
+    if (msg.find("Failed to open output path") != std::string::npos) {
+        return telemetry::obs::kErrTrainArtifactWriteFailed;
+    }
+    return telemetry::obs::kErrInternal;
 }
 
 ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_str)
@@ -632,6 +644,14 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
 
         // 2. Spawn training via JobManager
         job_manager_->StartJob("train-" + model_run_id, rid, [this, model_run_id, dataset_id, rid](const std::atomic<bool>* stop_flag) {
+            telemetry::obs::Context ctx;
+            ctx.request_id = rid;
+            ctx.dataset_id = dataset_id;
+            ctx.model_run_id = model_run_id;
+            telemetry::obs::ScopedContext scope(ctx);
+            telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "train_start", "trainer",
+                                     {{"request_id", rid}, {"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
+            auto train_start = std::chrono::steady_clock::now();
             spdlog::info("Training started for model {} (req_id: {})", model_run_id, rid);
             db_client_->UpdateModelRunStatus(model_run_id, "RUNNING");
 
@@ -645,7 +665,25 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
 
                 spdlog::info("Training successful for model {}", model_run_id);
                 db_client_->UpdateModelRunStatus(model_run_id, "COMPLETED", output_path);
+                auto train_end = std::chrono::steady_clock::now();
+                double duration_ms = std::chrono::duration<double, std::milli>(train_end - train_start).count();
+                telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "train_end", "trainer",
+                                         {{"request_id", rid},
+                                          {"dataset_id", dataset_id},
+                                          {"model_run_id", model_run_id},
+                                          {"artifact_path", output_path},
+                                          {"duration_ms", duration_ms}});
             } catch (const std::exception& e) {
+                auto train_end = std::chrono::steady_clock::now();
+                double duration_ms = std::chrono::duration<double, std::milli>(train_end - train_start).count();
+                const char* error_code = ClassifyTrainError(e.what());
+                telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "train_error", "trainer",
+                                         {{"request_id", rid},
+                                          {"dataset_id", dataset_id},
+                                          {"model_run_id", model_run_id},
+                                          {"error_code", error_code},
+                                          {"error", e.what()},
+                                          {"duration_ms", duration_ms}});
                 spdlog::error("Training failed for model {}: {}", model_run_id, e.what());
                 db_client_->UpdateModelRunStatus(model_run_id, "FAILED", "", e.what());
                 throw; // JobManager will catch and log it too
@@ -758,6 +796,11 @@ void ApiServer::HandleGetScores(const httplib::Request& req, httplib::Response& 
     std::string dataset_id = GetStrParam(req, "dataset_id");
     std::string model_run_id = GetStrParam(req, "model_run_id");
     log.AddFields({{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
+    telemetry::obs::Context ctx;
+    ctx.request_id = rid;
+    ctx.dataset_id = dataset_id;
+    ctx.model_run_id = model_run_id;
+    telemetry::obs::ScopedContext scope(ctx);
     int limit = GetIntParam(req, "limit", 50);
     int offset = GetIntParam(req, "offset", 0);
     bool only_anomalies = GetStrParam(req, "only_anomalies") == "true";
@@ -788,6 +831,12 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
         std::string model_run_id = j.at("model_run_id");
         auto samples = j.at("samples");
         log.AddFields({{"model_run_id", model_run_id}});
+        telemetry::obs::Context ctx;
+        ctx.request_id = rid;
+        ctx.model_run_id = model_run_id;
+        telemetry::obs::ScopedContext scope(ctx);
+        telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "infer_start", "model",
+                                 {{"request_id", rid}, {"model_run_id", model_run_id}});
 
         // 1. Get Model Info
         auto model_info = db_client_->GetModelRun(model_run_id);
@@ -818,6 +867,8 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
         std::string inference_id = db_client_->CreateInferenceRun(model_run_id);
         if (!inference_id.empty()) {
             log.AddFields({{"inference_run_id", inference_id}});
+            ctx.inference_run_id = inference_id;
+            telemetry::obs::UpdateContext(ctx);
         }
         int anomaly_count = 0;
         nlohmann::json results = nlohmann::json::array();
@@ -849,15 +900,24 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
         telemetry::obs::EmitCounter("infer_rows_scored", static_cast<long>(results.size()), "rows", "model",
                                     {{"model_run_id", model_run_id}},
                                     {{"inference_run_id", inference_id}});
+        telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "infer_end", "model",
+                                 {{"request_id", rid},
+                                  {"model_run_id", model_run_id},
+                                  {"inference_run_id", inference_id},
+                                  {"rows", results.size()},
+                                  {"duration_ms", latency_ms}});
 
         nlohmann::json resp;
         resp["results"] = results;
         resp["model_run_id"] = model_run_id;
         resp["inference_id"] = inference_id;
+        resp["inference_run_id"] = inference_id;
         resp["anomaly_count"] = anomaly_count;
         SendJson(res, resp, 200, rid);
 
     } catch (const std::exception& e) {
+        telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "infer_error", "model",
+                                 {{"request_id", rid}, {"error_code", telemetry::obs::kErrHttpBadRequest}, {"error", e.what()}});
         log.RecordError(telemetry::obs::kErrHttpBadRequest, e.what(), 400);
         SendError(res, std::string("Error: ") + e.what(), 400, telemetry::obs::kErrHttpBadRequest, rid);
     }
@@ -962,6 +1022,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
         if (status == "RUNNING" || status == "COMPLETED") {
             nlohmann::json resp;
             resp["job_id"] = job_id;
+            resp["score_job_id"] = job_id;
             resp["status"] = status;
             resp["total_rows"] = total_rows;
             resp["processed_rows"] = processed_rows;
@@ -970,7 +1031,19 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
             return;
         }
 
-        job_manager_->StartJob("score-" + job_id, rid, [this, dataset_id, model_run_id, job_id](const std::atomic<bool>* stop_flag) {
+        job_manager_->StartJob("score-" + job_id, rid, [this, dataset_id, model_run_id, job_id, rid](const std::atomic<bool>* stop_flag) {
+            telemetry::obs::Context ctx;
+            ctx.request_id = rid;
+            ctx.dataset_id = dataset_id;
+            ctx.model_run_id = model_run_id;
+            ctx.score_job_id = job_id;
+            telemetry::obs::ScopedContext scope(ctx);
+            telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "score_job_start", "model",
+                                     {{"request_id", rid},
+                                      {"dataset_id", dataset_id},
+                                      {"model_run_id", model_run_id},
+                                      {"score_job_id", job_id}});
+            auto job_start = std::chrono::steady_clock::now();
             DbClient local_db(db_conn_str_);
             try {
                 auto job_info = local_db.GetScoreJob(job_id);
@@ -1019,8 +1092,26 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                 if (stop_flag->load()) {
                     spdlog::info("Job {} cancelled by request.", job_id);
                     local_db.UpdateScoreJob(job_id, "CANCELLED", total, processed, last_record);
+                    auto job_end = std::chrono::steady_clock::now();
+                    double duration_ms = std::chrono::duration<double, std::milli>(job_end - job_start).count();
+                    telemetry::obs::LogEvent(telemetry::obs::LogLevel::Warn, "score_job_end", "model",
+                                             {{"request_id", rid},
+                                              {"dataset_id", dataset_id},
+                                              {"model_run_id", model_run_id},
+                                              {"score_job_id", job_id},
+                                              {"status", "CANCELLED"},
+                                              {"duration_ms", duration_ms}});
                 } else {
                     local_db.UpdateScoreJob(job_id, "COMPLETED", total, processed, last_record);
+                    auto job_end = std::chrono::steady_clock::now();
+                    double duration_ms = std::chrono::duration<double, std::milli>(job_end - job_start).count();
+                    telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "score_job_end", "model",
+                                             {{"request_id", rid},
+                                              {"dataset_id", dataset_id},
+                                              {"model_run_id", model_run_id},
+                                              {"score_job_id", job_id},
+                                              {"status", "COMPLETED"},
+                                              {"duration_ms", duration_ms}});
                 }
             } catch (const std::exception& e) {
                 auto job_info = local_db.GetScoreJob(job_id);
@@ -1028,12 +1119,23 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                 long processed = job_info.value("processed_rows", 0L);
                 long last_record = job_info.value("last_record_id", 0L);
                 local_db.UpdateScoreJob(job_id, "FAILED", total, processed, last_record, e.what());
+                auto job_end = std::chrono::steady_clock::now();
+                double duration_ms = std::chrono::duration<double, std::milli>(job_end - job_start).count();
+                telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "score_job_error", "model",
+                                         {{"request_id", rid},
+                                          {"dataset_id", dataset_id},
+                                          {"model_run_id", model_run_id},
+                                          {"score_job_id", job_id},
+                                          {"error_code", telemetry::obs::kErrInferScoreFailed},
+                                          {"error", e.what()},
+                                          {"duration_ms", duration_ms}});
                 throw;
             }
         });
 
         nlohmann::json resp;
         resp["job_id"] = job_id;
+        resp["score_job_id"] = job_id;
         resp["status"] = "RUNNING";
         SendJson(res, resp, 202, rid);
     } catch (const std::exception& e) {

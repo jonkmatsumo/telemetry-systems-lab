@@ -1,6 +1,9 @@
 #include "generator.h"
 #include <spdlog/spdlog.h>
 #include "obs/metrics.h"
+#include "obs/context.h"
+#include "obs/error_codes.h"
+#include "obs/logging.h"
 #include <cmath>
 #include <random>
 #include <fmt/chrono.h>
@@ -187,6 +190,12 @@ void Generator::Run() {
     spdlog::info("Starting generation run {} (req_id: {})", run_id_, config_.request_id());
     auto start_time = std::chrono::steady_clock::now();
     long write_batches = 0;
+    telemetry::obs::Context ctx;
+    ctx.request_id = config_.request_id();
+    ctx.dataset_id = run_id_;
+    telemetry::obs::ScopedContext scope(ctx);
+    telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "generation_start", "generator",
+                             {{"request_id", config_.request_id()}, {"dataset_id", run_id_}});
     try {
         db_->CreateRun(run_id_, config_, "RUNNING", config_.request_id());
         
@@ -231,6 +240,11 @@ void Generator::Run() {
                                     {{"dataset_id", run_id_}});
         telemetry::obs::EmitCounter("generation_db_write_count", write_batches, "batches", "generator",
                                     {{"dataset_id", run_id_}});
+        telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "generation_end", "generator",
+                                 {{"request_id", config_.request_id()},
+                                  {"dataset_id", run_id_},
+                                  {"rows", total_rows},
+                                  {"duration_ms", duration_ms}});
         
     } catch (const std::exception& e) {
         spdlog::error("Generation run {} failed: {}", run_id_, e.what());
@@ -239,5 +253,11 @@ void Generator::Run() {
         double duration_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
         telemetry::obs::EmitHistogram("generation_duration_ms", duration_ms, "ms", "generator",
                                       {{"dataset_id", run_id_}});
+        telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "generation_error", "generator",
+                                 {{"request_id", config_.request_id()},
+                                  {"dataset_id", run_id_},
+                                  {"error_code", telemetry::obs::kErrInternal},
+                                  {"error", e.what()},
+                                  {"duration_ms", duration_ms}});
     }
 }

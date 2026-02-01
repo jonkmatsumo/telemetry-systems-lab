@@ -2,6 +2,7 @@
 #include <spdlog/spdlog.h>
 #include <chrono>
 #include "obs/metrics.h"
+#include "obs/context.h"
 #include <google/protobuf/util/json_util.h>
 #include <fmt/chrono.h>
 #include <algorithm>
@@ -1208,6 +1209,18 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
                                     {{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
         telemetry::obs::EmitHistogram("scores_insert_duration_ms", duration_ms, "ms", "db",
                                       {{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
+        nlohmann::json fields = {
+            {"dataset_id", dataset_id},
+            {"model_run_id", model_run_id},
+            {"rows", static_cast<long>(scores.size())},
+            {"duration_ms", duration_ms}
+        };
+        if (telemetry::obs::HasContext()) {
+            const auto& ctx = telemetry::obs::GetContext();
+            if (!ctx.request_id.empty()) fields["request_id"] = ctx.request_id;
+            if (!ctx.score_job_id.empty()) fields["score_job_id"] = ctx.score_job_id;
+        }
+        telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "db_insert", "db", fields);
     } catch (const std::exception& e) {
         spdlog::error("Failed to insert dataset scores: {}", e.what());
     }
@@ -1281,6 +1294,17 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
     double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
     telemetry::obs::EmitHistogram("scores_query_duration_ms", duration_ms, "ms", "db",
                                   {{"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
+    nlohmann::json fields = {
+        {"dataset_id", dataset_id},
+        {"model_run_id", model_run_id},
+        {"duration_ms", duration_ms},
+        {"rows", out["items"].size()}
+    };
+    if (telemetry::obs::HasContext()) {
+        const auto& ctx = telemetry::obs::GetContext();
+        if (!ctx.request_id.empty()) fields["request_id"] = ctx.request_id;
+    }
+    telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "db_query", "db", fields);
     return out;
 }
 
