@@ -1202,11 +1202,11 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
             where += " AND s.reconstruction_error >= " + std::to_string(min_score);
         }
 
-        std::string query = 
+        std::string query =
             "SELECT s.score_id, s.record_id, s.reconstruction_error, s.predicted_is_anomaly, s.scored_at, "
             "h.metric_timestamp, h.host_id, h.is_anomaly as label "
             "FROM dataset_scores s JOIN host_telemetry_archival h ON s.record_id = h.record_id "
-            + where + " ORDER BY s.reconstruction_error DESC LIMIT $1 OFFSET $2";
+            + where + " ORDER BY s.reconstruction_error DESC, s.score_id DESC LIMIT $1 OFFSET $2";
         
         auto res = N.exec_params(query, limit, offset);
         for (const auto& row : res) {
