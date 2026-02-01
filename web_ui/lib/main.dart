@@ -122,8 +122,16 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
         );
       }
     } catch (_) {
-      // If validation fails (e.g. network error), keep optimistic selection
-      // logic in DatasetAnalyticsScreen will handle load failures
+      debugPrint('Metric validation failed for "$metric"');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to validate metric. Using selected value.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
     }
   }
 

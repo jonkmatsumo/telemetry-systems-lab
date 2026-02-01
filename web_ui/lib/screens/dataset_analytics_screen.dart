@@ -26,6 +26,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   List<Map<String, String>> _availableMetrics = [];
   bool _loadingSchema = false;
   String? _loadError;
+  String? _schemaError;
   String? _comparisonMetric;
   Map<String, dynamic>? _metricsSummary;
   
@@ -42,6 +43,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     setState(() {
       _loadingSchema = true;
       _loadError = null;
+      _schemaError = null;
     });
     try {
       final schema = await context.read<TelemetryService>().getMetricsSchema();
@@ -51,7 +53,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             await context.read<TelemetryService>().getDatasetMetricsSummary(appState.datasetId!);
         setState(() => _metricsSummary = summary);
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Failed to load metrics schema: $e');
       setState(() {
         _availableMetrics = [
           {'key': 'cpu_usage', 'label': 'CPU Usage'},
@@ -60,6 +63,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
           {'key': 'network_rx_rate', 'label': 'Network RX Rate'},
           {'key': 'network_tx_rate', 'label': 'Network TX Rate'},
         ];
+        _schemaError = 'Failed to load metrics schema. Using fallback metrics.';
       });
     } finally {
       setState(() => _loadingSchema = false);
@@ -93,11 +97,18 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     });
 
     if (_comparisonMetric != null) {
-      _comparisonHistFuture =
-          service.getHistogram(datasetId, metric: _comparisonMetric!, bins: 30).catchError((_) => null);
+      _comparisonHistFuture = service
+          .getHistogram(datasetId, metric: _comparisonMetric!, bins: 30)
+          .catchError((e) {
+        debugPrint('Failed to load comparison histogram: $e');
+        return HistogramData(edges: const [], counts: const []);
+      });
       _comparisonTsFuture = service
-          .getTimeSeries(datasetId, metrics: [_comparisonMetric!], aggs: ['mean'], bucket: '1h').catchError(
-              (_) => null);
+          .getTimeSeries(datasetId, metrics: [_comparisonMetric!], aggs: ['mean'], bucket: '1h')
+          .catchError((e) {
+        debugPrint('Failed to load comparison time series: $e');
+        return <TimeSeriesPoint>[];
+      });
     }
   }
 
@@ -166,6 +177,13 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 ),
               ],
             ),
+            if (_schemaError != null) ...[
+              InlineAlert(
+                message: _schemaError!,
+                onRetry: _fetchSchema,
+              ),
+              const SizedBox(height: 16),
+            ],
             const SizedBox(height: 16),
             Expanded(
               child: TabBarView(
