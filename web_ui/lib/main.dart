@@ -63,42 +63,100 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
       }
     });
 
-    // Hydrate from URL
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _hydrateFromUrl();
+    });
+    _startJobPolling();
+  }
+
+  Future<void> _hydrateFromUrl() async {
     final uri = Uri.base;
+    final appState = context.read<AppState>();
+    final service = context.read<TelemetryService>();
+
     final dsId = uri.queryParameters['datasetId'];
     final mId = uri.queryParameters['modelId'];
     final metric = uri.queryParameters['metric'];
-    
-    if (dsId != null) appState.setDataset(dsId);
-    if (mId != null) appState.setModel(mId);
-    if (dsId != null && metric != null) {
-      _validateAndSetMetric(dsId, metric, appState);
+
+    bool datasetValid = false;
+    bool modelValid = false;
+
+    if (dsId != null) {
+      try {
+        await service.getDatasetStatus(dsId);
+        datasetValid = true;
+        appState.setDataset(dsId);
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Dataset from link not found: $dsId'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        appState.setDataset(null);
+      }
     }
-    
-    // Check for Scoring Results deep link
+
+    if (mId != null) {
+      try {
+        await service.getModelStatus(mId);
+        modelValid = true;
+        appState.setModel(mId);
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Model from link not found: $mId'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        appState.setModel(null);
+      }
+    }
+
+    if (dsId != null && metric != null && datasetValid) {
+      await _validateAndSetMetric(dsId, metric, appState);
+    }
+
     final resDsId = uri.queryParameters['resultsDatasetId'];
     final resMId = uri.queryParameters['resultsModelId'];
     if (resDsId != null && resMId != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        // Parse optional filters
-        final minScoreStr = uri.queryParameters['minScore'];
-        final onlyAnomStr = uri.queryParameters['onlyAnomalies'];
-        
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ScoringResultsScreen(
-              datasetId: resDsId,
-              modelRunId: resMId,
-              initialMinScore: minScoreStr != null ? double.tryParse(minScoreStr) : null,
-              initialOnlyAnomalies: onlyAnomStr == 'true',
-            ),
+      bool resultsValid = true;
+      try {
+        await service.getDatasetStatus(resDsId);
+        await service.getModelStatus(resMId);
+      } catch (e) {
+        resultsValid = false;
+      }
+      if (!mounted) return;
+      if (!resultsValid) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Results link is invalid or outdated.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
           ),
         );
-      });
-    }
+        return;
+      }
+      final minScoreStr = uri.queryParameters['minScore'];
+      final onlyAnomStr = uri.queryParameters['onlyAnomalies'];
 
-    _startJobPolling();
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ScoringResultsScreen(
+            datasetId: resDsId,
+            modelRunId: resMId,
+            initialMinScore: minScoreStr != null ? double.tryParse(minScoreStr) : null,
+            initialOnlyAnomalies: onlyAnomStr == 'true',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _validateAndSetMetric(String datasetId, String metric, AppState appState) async {
