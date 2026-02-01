@@ -42,8 +42,7 @@ class _RunsScreenState extends State<RunsScreen> {
     try {
       final stats = await context.read<TelemetryService>().getMetricStats(runId, metric);
       setState(() => _metricStats = stats);
-    } catch (_) {}
-    finally {
+    } catch (_) {} finally {
       setState(() => _loadingStats = false);
     }
   }
@@ -64,8 +63,7 @@ class _RunsScreenState extends State<RunsScreen> {
       final detail = await context.read<TelemetryService>().getDatasetDetail(run.runId);
       setState(() => _selectedDetail = detail);
       context.read<AppState>().setDataset(run.runId);
-    }
-    finally {
+    } finally {
       setState(() => _loadingDetail = false);
     }
   }
@@ -133,13 +131,14 @@ class _RunsScreenState extends State<RunsScreen> {
                         : _selectedDetail == null
                             ? const Center(child: Text('Select a run to view details'))
                             : DefaultTabController(
-                                length: 2,
+                                length: 3,
                                 child: Column(
                                   children: [
                                     const TabBar(
                                       tabs: [
                                         Tab(text: 'Overview'),
                                         Tab(text: 'Features'),
+                                        Tab(text: 'Models'),
                                       ],
                                     ),
                                     Expanded(
@@ -147,6 +146,7 @@ class _RunsScreenState extends State<RunsScreen> {
                                         children: [
                                           _buildOverview(_selectedDetail!),
                                           _buildFeatures(_selectedDetail!),
+                                          _buildModelsTab(_selectedDetail!),
                                         ],
                                       ),
                                     ),
@@ -245,6 +245,45 @@ class _RunsScreenState extends State<RunsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildModelsTab(Map<String, dynamic> detail) {
+    final runId = detail['run_id'];
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: context.read<TelemetryService>().getDatasetModels(runId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        }
+        final models = snapshot.data ?? [];
+        if (models.isEmpty) {
+          return const Center(child: Text('No models trained on this dataset yet.'));
+        }
+        return ListView.separated(
+          itemCount: models.length,
+          padding: const EdgeInsets.all(16),
+          separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+          itemBuilder: (context, index) {
+            final m = models[index];
+            return ListTile(
+              title: Text(m['name']),
+              subtitle: Text('Status: ${m['status']} • Created: ${m['created_at']}'),
+              trailing: ElevatedButton(
+                onPressed: () {
+                  final appState = context.read<AppState>();
+                  appState.setModel(m['model_run_id']);
+                  appState.setTabIndex(3); // Go to Models
+                },
+                child: const Text('View Model'),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
