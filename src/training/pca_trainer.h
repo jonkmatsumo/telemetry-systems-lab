@@ -23,6 +23,12 @@ PcaArtifact TrainPcaFromDb(const std::string& db_conn_str,
                            int n_components,
                            double percentile);
 
+PcaArtifact TrainPcaFromDbBatched(const std::string& db_conn_str,
+                                  const std::string& dataset_id,
+                                  int n_components,
+                                  double percentile,
+                                  size_t batch_size);
+
 PcaArtifact TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
                                 int n_components,
                                 double percentile);

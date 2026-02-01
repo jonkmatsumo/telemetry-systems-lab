@@ -1,4 +1,5 @@
 #include "training/pca_trainer.h"
+#include "training/telemetry_iterator.h"
 #include <tuple>
 
 #include <algorithm>
@@ -226,39 +227,56 @@ static PcaArtifact TrainPcaFromStream(const std::function<void(const std::functi
     return artifact;
 }
 
+PcaArtifact TrainPcaFromDbBatched(const std::string& db_conn_str,
+                                  const std::string& dataset_id,
+                                  int n_components,
+                                  double percentile,
+                                  size_t batch_size) {
+    auto start = std::chrono::steady_clock::now();
+    TelemetryBatchIterator iter(db_conn_str, dataset_id, batch_size);
+
+    auto for_each = [&](const std::function<void(const linalg::Vector&)>& cb) {
+        iter.Reset();
+        std::vector<linalg::Vector> batch;
+        size_t batch_count = 0;
+        while (iter.NextBatch(batch)) {
+            batch_count++;
+            if (batch_count % 10 == 0) {
+                spdlog::debug("Processed {} batches ({} rows)", batch_count, iter.TotalRowsProcessed());
+            }
+            for (const auto& v : batch) {
+                cb(v);
+            }
+        }
+    };
+
+    auto artifact = TrainPcaFromStream(for_each, telemetry::anomaly::FeatureVector::kSize, n_components, percentile);
+    auto end = std::chrono::steady_clock::now();
+    double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    
+    spdlog::info("PCA training completed: dataset_id={}, rows_processed={}, duration_ms={:.2f}",
+                 dataset_id, iter.TotalRowsProcessed(), duration_ms);
+}
+
 PcaArtifact TrainPcaFromDb(const std::string& db_conn_str,
                            const std::string& dataset_id,
                            int n_components,
                            double percentile) {
-    auto for_each = [&](const std::function<void(const linalg::Vector&)>& cb) {
-        stream_samples(db_conn_str, dataset_id, cb);
-    };
-    auto start = std::chrono::steady_clock::now();
-    auto artifact = TrainPcaFromStream(for_each, telemetry::anomaly::FeatureVector::kSize, n_components, percentile);
-    auto end = std::chrono::steady_clock::now();
-    double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
-    telemetry::obs::EmitHistogram("train_duration_ms", duration_ms, "ms", "trainer",
-                                  {{"dataset_id", dataset_id}});
-
-    try {
-        auto count_start = std::chrono::steady_clock::now();
-        pqxx::connection conn(db_conn_str);
-        pqxx::nontransaction N(conn);
-        auto res = N.exec_params(
-            "SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1 AND is_anomaly = false",
-            dataset_id);
-        auto count_end = std::chrono::steady_clock::now();
-        double query_ms = std::chrono::duration<double, std::milli>(count_end - count_start).count();
-        long rows = res.empty() ? 0 : res[0][0].as<long>();
-        telemetry::obs::EmitHistogram("train_db_query_duration_ms", query_ms, "ms", "trainer",
-                                      {{"dataset_id", dataset_id}});
-        telemetry::obs::EmitCounter("train_rows_processed", rows, "rows", "trainer",
-                                    {{"dataset_id", dataset_id}});
-    } catch (const std::exception&) {
-        // Best-effort metrics only; training output must remain unchanged.
+    size_t batch_size = 10000;
+    const char* env_batch_size = std::getenv("PCA_TRAIN_BATCH_SIZE");
+    if (env_batch_size) {
+        try {
+            batch_size = std::stoul(env_batch_size);
+            spdlog::info("Using PCA training batch size from env: {}", batch_size);
+        } catch (...) {
+            spdlog::warn("Invalid PCA_TRAIN_BATCH_SIZE: {}. Using default: 10000", env_batch_size);
+        }
     }
 
-    return artifact;
+    spdlog::info("Starting PCA training: dataset_id={}, n_components={}, batch_size={}", 
+                 dataset_id, n_components, batch_size);
+    
+    return TrainPcaFromDbBatched(db_conn_str, dataset_id, n_components, percentile, batch_size);
 }
 
 PcaArtifact TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,

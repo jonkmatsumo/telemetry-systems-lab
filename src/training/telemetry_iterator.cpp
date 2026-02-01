@@ -1,4 +1,6 @@
 #include "training/telemetry_iterator.h"
+#include <pqxx/pqxx>
+#include <spdlog/spdlog.h>
 
 namespace telemetry {
 namespace training {
@@ -14,8 +16,45 @@ TelemetryBatchIterator::TelemetryBatchIterator(const std::string& db_conn_str,
 
 bool TelemetryBatchIterator::NextBatch(std::vector<linalg::Vector>& out_batch) {
     out_batch.clear();
-    // Stubbed for now
-    return false;
+    try {
+        pqxx::connection C(db_conn_str_);
+        pqxx::read_transaction R(C);
+
+        // Using keyset pagination: ORDER BY record_id LIMIT N
+        // We filter by run_id (dataset_id) and record_id > last_record_id_
+        pqxx::result res = R.exec_params(
+            "SELECT record_id, cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate "
+            "FROM host_telemetry_archival "
+            "WHERE run_id = $1 AND record_id > $2 "
+            "ORDER BY record_id "
+            "LIMIT $3",
+            dataset_id_,
+            last_record_id_,
+            batch_size_
+        );
+
+        if (res.empty()) {
+            return false;
+        }
+
+        for (const auto& row : res) {
+            linalg::Vector v(5);
+            v[0] = row["cpu_usage"].as<double>();
+            v[1] = row["memory_usage"].as<double>();
+            v[2] = row["disk_utilization"].as<double>();
+            v[3] = row["network_rx_rate"].as<double>();
+            v[4] = row["network_tx_rate"].as<double>();
+            out_batch.push_back(std::move(v));
+            last_record_id_ = row["record_id"].as<int64_t>();
+        }
+
+        total_processed_ += out_batch.size();
+        return true;
+
+    } catch (const std::exception& e) {
+        spdlog::error("TelemetryBatchIterator error: {}", e.what());
+        return false;
+    }
 }
 
 void TelemetryBatchIterator::Reset() {
