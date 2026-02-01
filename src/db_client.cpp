@@ -1,6 +1,8 @@
 #include "db_client.h"
 #include <spdlog/spdlog.h>
 #include <chrono>
+#include <string_view>
+#include <vector>
 #include "obs/metrics.h"
 #include "obs/context.h"
 #include <google/protobuf/util/json_util.h>
@@ -160,10 +162,10 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
         
-        pqxx::table_path table{"host_telemetry_archival"};
+#if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
         auto stream = pqxx::stream_to::table(
             W,
-            table,
+            pqxx::table_path{"host_telemetry_archival"},
             {"ingestion_time",
              "metric_timestamp",
              "host_id",
@@ -178,6 +180,13 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
              "run_id",
              "is_anomaly",
              "anomaly_type"});
+#else
+        const std::string_view columns =
+            "ingestion_time,metric_timestamp,host_id,project_id,region,cpu_usage,"
+            "memory_usage,disk_utilization,network_rx_rate,network_tx_rate,labels,run_id,"
+            "is_anomaly,anomaly_type";
+        pqxx::stream_to stream(W, "host_telemetry_archival", columns);
+#endif
 
         auto to_iso = [](std::chrono::system_clock::time_point tp) {
             return fmt::format("{:%Y-%m-%d %H:%M:%S%z}", tp);
@@ -1189,15 +1198,20 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        pqxx::table_path table{"dataset_scores"};
+#if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
         auto stream = pqxx::stream_to::table(
             W,
-            table,
+            pqxx::table_path{"dataset_scores"},
             {"dataset_id",
              "model_run_id",
              "record_id",
              "reconstruction_error",
              "predicted_is_anomaly"});
+#else
+        const std::string_view columns =
+            "dataset_id,model_run_id,record_id,reconstruction_error,predicted_is_anomaly";
+        pqxx::stream_to stream(W, "dataset_scores", columns);
+#endif
         for (const auto& entry : scores) {
             stream << std::make_tuple(dataset_id, model_run_id, entry.first, entry.second.first, entry.second.second);
         }
