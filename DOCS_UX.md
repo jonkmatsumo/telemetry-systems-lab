@@ -5,7 +5,7 @@ This document serves as a guide for manual verification of UX improvements in th
 ## Known issues fixed in this PR (Repro Notes)
 - [x] **RD-01:** "Load into Inference Preview" fails to pass record data.
   *   *Repro:* Open Results → record drawer → Click "Load into Inference Preview". Verify dataset/model is selected but record values are not populated in the Control tab.
-- [ ] **SR-01:** Min score slider has hardcoded max of 10.
+- [x] **SR-01:** Min score slider has hardcoded max of 10.
   *   *Repro:* Open Scoring Results for a dataset with high scores. Verify slider cannot filter scores > 10.
 - [ ] **DL-01:** Deep link `metric` param is ignored.
   *   *Repro:* Copy analytics link with `&metric=network_tx_rate`, reload page. Verify metric reverts to default (`cpu_usage`).
@@ -70,7 +70,7 @@ This document serves as a guide for manual verification of UX improvements in th
 ## 10. Scoring Results Browser
 - [ ] **Open Results:** From a completed job in the Jobs drawer, or from the "Scored Datasets" tab in Models, navigate to the Results browser.
 - [ ] **Table View:** Verify that scored records are listed with their anomaly scores and predictions.
-- [ ] **Filters:** Toggle "Only Anomalies" and adjust the "Min Score" slider. The table should update to reflect the filters.
+- [x] **Filters:** Toggle "Only Anomalies" and adjust the "Min Score" slider. Verify slider range adapts to real data (e.g., >10) and filtering works.
 - [ ] **Record Detail:** Click a row to open the detail drawer. Verify the data and click "Load into Inference Preview" to ensure it navigates correctly.
 
 ## 11. Deep Links
