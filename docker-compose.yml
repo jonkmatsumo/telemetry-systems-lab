@@ -4,11 +4,12 @@ services:
       context: .
       target: runtime
     container_name: telemetry_api
+    env_file: .env
     environment:
-      DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:5432/telemetry"
-      GRPC_GENERATOR_TARGET: "telemetry-generator:50051"
+      DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:${DB_PORT_INTERNAL}/telemetry"
+      GRPC_GENERATOR_TARGET: "telemetry-generator:${GRPC_PORT_INTERNAL}"
     ports:
-      - "8280:8080"
+      - "${API_HTTP_PORT}:${API_HTTP_PORT_INTERNAL}"
     networks:
       - telemetry_net
     depends_on:
@@ -20,11 +21,12 @@ services:
       target: runtime
     container_name: telemetry_generator
     command: ["./telemetry-generator"]
+    env_file: .env
     environment:
-      DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:5432/telemetry"
-      SERVER_ADDRESS: "0.0.0.0:50051"
+      DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:${DB_PORT_INTERNAL}/telemetry"
+      SERVER_ADDRESS: "0.0.0.0:${GRPC_PORT_INTERNAL}"
     ports:
-      - "52051:50051"
+      - "${GRPC_PORT}:${GRPC_PORT_INTERNAL}"
     networks:
       - telemetry_net
     # Healthcheck dep is runtime specific, usually handled by orchestration or reliance on retries.
