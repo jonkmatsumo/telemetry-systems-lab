@@ -36,19 +36,6 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     super.initState();
     _fetchSchema();
   }
-// ...
-  void _load(String datasetId, String metric) {
-    _loadedMetric = metric;
-    final service = context.read<TelemetryService>();
-    _loadError = null;
-    _summaryFuture = service.getDatasetSummary(datasetId).catchError((e) {
-      // Defer setState to avoid build-phase errors if called from build
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _loadError = 'Failed to load summary: $e');
-      });
-      throw e;
-    });
-    // ...
 
   Future<void> _fetchSchema() async {
     final appState = context.read<AppState>();

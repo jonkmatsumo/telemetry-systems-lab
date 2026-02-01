@@ -196,7 +196,7 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
                       onSelectChanged: (_) => _showDetail(item),
                       cells: [
                         DataCell(Text(item['record_id'].toString())),
-                        DataCell(Text(item['host_id'].toString().substring(0, 8) + '...')),
+                        DataCell(Text('${item['host_id'].toString().substring(0, 8)}...')),
                         DataCell(Text(item['timestamp'].toString().substring(11, 19))),
                         DataCell(Text(item['score'].toStringAsFixed(4),
                             style: TextStyle(
@@ -207,7 +207,16 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
                       ],
                     );
                   }).toList(),
-...
+                ),
+              ),
+            ),
+            _buildPagination(total),
+          ],
+        );
+      },
+    );
+  }
+
   void _showDetail(Map<String, dynamic> item) async {
     final recordId = item['record_id'];
     final runId = widget.datasetId;
@@ -309,15 +318,6 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
           Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
-    );
-  }
-                ),
-              ),
-            ),
-            _buildPagination(total),
-          ],
-        );
-      },
     );
   }
 
