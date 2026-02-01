@@ -157,9 +157,10 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
         
+        pqxx::table_path table{"host_telemetry_archival"};
         auto stream = pqxx::stream_to::table(
             W,
-            "host_telemetry_archival",
+            table,
             {"ingestion_time",
              "metric_timestamp",
              "host_id",
@@ -1184,9 +1185,10 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
+        pqxx::table_path table{"dataset_scores"};
         auto stream = pqxx::stream_to::table(
             W,
-            "dataset_scores",
+            table,
             {"dataset_id",
              "model_run_id",
              "record_id",
