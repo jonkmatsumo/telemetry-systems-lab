@@ -47,7 +47,7 @@ services:
     container_name: telemetry_web_ui_dev
     # Note: flutter run requires an interactive terminal usually, 
     # but we can use web-server mode for headless serving.
-    command: [ "sh", "-c", "cd web_ui && flutter pub get && flutter build web --dart-define=API_BASE_URL=${API_BASE_URL} && python3 -m http.server ${UI_PORT} --directory build/web --bind 0.0.0.0" ]
+    command: [ "sh", "-c", "cd web_ui && flutter pub get && flutter build web --dart-define=API_BASE_URL=${API_BASE_URL_HOST} && python3 -m http.server ${UI_PORT} --directory build/web --bind 0.0.0.0" ]
     env_file: .env
     ports:
       - "${UI_PORT}:${UI_PORT}"
