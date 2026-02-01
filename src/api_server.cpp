@@ -193,13 +193,27 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         SendJson(res, resp, 200, rid);
     });
 
+    // Training routes
+    svr_.Post("/train", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleTrainModel(req, res);
+    });
+
+    svr_.Get("/train/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGetTrainStatus(req, res);
+    });
+
+    // Model listing route
+    svr_.Get("/models", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleListModels(req, res);
+    });
+
     // Serve Static Web UI
     svr_.set_mount_point("/", "./www");
 
     // CORS Support
     svr_.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
-        res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        res.set_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
         res.set_header("Access-Control-Allow-Headers", "Content-Type");
         if (req.method == "OPTIONS") {
             res.status = 204;
