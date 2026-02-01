@@ -189,6 +189,7 @@ add_executable(unit_tests
     tests/unit/test_api_debug.cpp
     tests/unit/test_db_client_security.cpp
     tests/unit/test_job_manager.cpp
+    tests/unit/test_obs_metrics.cpp
     src/generator.cpp
     src/db_client.cpp
     src/server.cpp
