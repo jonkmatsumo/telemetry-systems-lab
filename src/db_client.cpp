@@ -163,27 +163,23 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
         pqxx::work W(C);
         
 #if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
-        // Use explicit std::vector<std::string> to avoid pqxx iterator overload
-        // ambiguity that can treat const char* as char iterator range.
-        const std::vector<std::string> columns = {
-            "ingestion_time",
-            "metric_timestamp",
-            "host_id",
-            "project_id",
-            "region",
-            "cpu_usage",
-            "memory_usage",
-            "disk_utilization",
-            "network_rx_rate",
-            "network_tx_rate",
-            "labels",
-            "run_id",
-            "is_anomaly",
-            "anomaly_type"};
         auto stream = pqxx::stream_to::table(
             W,
             pqxx::table_path{"host_telemetry_archival"},
-            columns);
+            {"ingestion_time",
+             "metric_timestamp",
+             "host_id",
+             "project_id",
+             "region",
+             "cpu_usage",
+             "memory_usage",
+             "disk_utilization",
+             "network_rx_rate",
+             "network_tx_rate",
+             "labels",
+             "run_id",
+             "is_anomaly",
+             "anomaly_type"});
 #else
         const std::vector<std::string> columns = {
             "ingestion_time",
@@ -1231,18 +1227,14 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
 #if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
-        // Use explicit std::vector<std::string> to avoid pqxx iterator overload
-        // ambiguity that can treat const char* as char iterator range.
-        const std::vector<std::string> columns = {
-            "dataset_id",
-            "model_run_id",
-            "record_id",
-            "reconstruction_error",
-            "predicted_is_anomaly"};
         auto stream = pqxx::stream_to::table(
             W,
             pqxx::table_path{"dataset_scores"},
-            columns);
+            {"dataset_id",
+             "model_run_id",
+             "record_id",
+             "reconstruction_error",
+             "predicted_is_anomaly"});
 #else
         const std::vector<std::string> columns = {
             "dataset_id",
