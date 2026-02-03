@@ -24,7 +24,8 @@ class _CapturingTelemetryService extends TelemetryService {
       String? anomalyType,
       String? isAnomaly,
       String? startTime,
-      String? endTime}) async {
+      String? endTime,
+      String? hostId}) async {
     lastSortBy = sortBy;
     lastSortOrder = sortOrder;
     lastAnchorTime = anchorTime;
@@ -59,6 +60,11 @@ void main() {
               metric: 'cpu_usage',
               useUtc: true,
               contextSeed: ctx,
+              region: 'us-east',
+              anomalyType: 'spike',
+              isAnomaly: 'true',
+              startTime: '2026-02-03T00:00:00Z',
+              endTime: '2026-02-03T01:00:00Z',
             ),
           ),
         ),
@@ -128,7 +134,7 @@ void main() {
 
     await tester.pump();
     final nextButton = find.byIcon(Icons.chevron_right);
-    final iconButton = tester.widget<IconButton>(nextButton);
+    final iconButton = tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.chevron_right));
     expect(iconButton.onPressed, isNull);
   });
 }

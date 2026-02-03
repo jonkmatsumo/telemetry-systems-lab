@@ -9,17 +9,17 @@ class _FakeTelemetryService extends TelemetryService {
   _FakeTelemetryService() : super(baseUrl: 'http://example.com');
 
   @override
-  Future<DatasetSummary> getDatasetSummary(String runId, {bool forceRefresh = false}) async {
-    return DatasetSummary(
-      rowCount: 0,
-      anomalyRate: 0.0,
-      distinctCounts: const {},
-      minTs: '',
-      maxTs: '',
-      ingestionLatencyP50: 0,
-      ingestionLatencyP95: 0,
-      anomalyRateTrend: const [],
-    );
+  Future<DatasetSummary> getDatasetSummary(String runId, {int topk = 5, bool forceRefresh = false}) async {
+    return DatasetSummary.fromJson({
+      'row_count': 0,
+      'time_range': {'min_ts': '', 'max_ts': ''},
+      'anomaly_rate': 0.0,
+      'distinct_counts': {'host_id': 0, 'project_id': 0, 'region': 0},
+      'anomaly_type_counts': [],
+      'ingestion_latency_p50': 0,
+      'ingestion_latency_p95': 0,
+      'anomaly_rate_trend': [],
+    });
   }
 
   @override
@@ -67,6 +67,18 @@ class _FakeTelemetryService extends TelemetryService {
   }
 
   @override
+  Future<Map<String, dynamic>> getMetricStats(String runId, String metric) async {
+    return {
+      'mean': 0.0,
+      'min': 0.0,
+      'max': 0.0,
+      'p50': 0.0,
+      'p95': 0.0,
+      'count': 0,
+    };
+  }
+
+  @override
   Future<TimeSeriesResponse> getTimeSeries(String runId,
       {required List<String> metrics,
       List<String> aggs = const ['mean'],
@@ -76,6 +88,7 @@ class _FakeTelemetryService extends TelemetryService {
       String? anomalyType,
       String? startTime,
       String? endTime,
+      String? compareMode,
       bool forceRefresh = false}) async {
     return TimeSeriesResponse(items: const [], meta: ResponseMeta(limit: 0, returned: 0, truncated: false, reason: ''), bucketSeconds: 3600);
   }

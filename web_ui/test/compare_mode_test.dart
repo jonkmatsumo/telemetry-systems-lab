@@ -140,13 +140,18 @@ void main() {
           Provider<TelemetryService>(create: (_) => service),
           ChangeNotifierProvider(create: (_) => appState),
         ],
-        child: const MaterialApp(home: DatasetAnalyticsScreen()),
+        child: const MaterialApp(
+          home: Scaffold(
+            body: DatasetAnalyticsScreen(),
+          ),
+        ),
       ),
     );
 
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('compare-mode-switch')), findsOneWidget);
 
+    await tester.ensureVisible(find.byKey(const Key('compare-mode-switch')));
     await tester.tap(find.byKey(const Key('compare-mode-switch')));
     await tester.pumpAndSettle();
     expect(service.lastCompareMode, 'previous_period');

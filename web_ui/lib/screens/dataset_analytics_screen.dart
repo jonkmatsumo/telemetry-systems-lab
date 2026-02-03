@@ -477,8 +477,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text('Dataset Analytics — $datasetId',
                     style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
@@ -493,6 +495,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                   ],
                 ),
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Row(
                       children: [
@@ -1762,19 +1765,23 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Records Browser', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  Text(
-                    '${widget.region ?? "All Regions"} • ${widget.anomalyType ?? "All Types"} • ${widget.startTime != null ? "Time Filtered" : "All Time"}',
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
-                  ),
-                ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Records Browser', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    Text(
+                      '${widget.region ?? "All Regions"} • ${widget.anomalyType ?? "All Types"} • ${widget.startTime != null ? "Time Filtered" : "All Time"}',
+                      style: const TextStyle(color: Colors.white54, fontSize: 12),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   TextButton.icon(
                     onPressed: () => Navigator.pop(context),
