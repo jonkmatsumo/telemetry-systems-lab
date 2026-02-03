@@ -863,7 +863,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       debugPanel: _buildDebugPanel(meta, _debugParams(meta, {
                         'endpoint': 'histogram',
                         'metric': selectedMetric,
-                        if (bins > 0) 'bins': '$bins',
+                        if (binsRequested > 0) 'bins': '$binsRequested',
                         if (appState.filterRegion != null) 'region': appState.filterRegion!,
                         if (appState.filterAnomalyType != null) 'anomaly_type': appState.filterAnomalyType!,
                       })),
