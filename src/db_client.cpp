@@ -857,6 +857,7 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
                 else if (agg == "p95") select += ", PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY " + col + ") AS " + alias;
             }
         }
+        select += ", COUNT(*) AS bucket_count";
 
         std::string query = "SELECT " + select + " FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id);
         if (!is_anomaly.empty()) {
@@ -884,6 +885,7 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
                     col_idx++;
                 }
             }
+            j["count"] = row[col_idx].as<long>();
             out.push_back(j);
         }
         W.commit();

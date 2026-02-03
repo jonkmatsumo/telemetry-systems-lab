@@ -31,6 +31,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   Map<String, dynamic>? _metricsSummary;
   
   String? _loadedMetric;
+  DateTimeRange? _timeRange;
 
   @override
   void initState() {
@@ -38,58 +39,35 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     _fetchSchema();
   }
 
-  Future<void> _fetchSchema() async {
-    final appState = context.read<AppState>();
-    setState(() {
-      _loadingSchema = true;
-      _loadError = null;
-      _schemaError = null;
-    });
-    try {
-      final schema = await context.read<TelemetryService>().getMetricsSchema();
-      setState(() => _availableMetrics = schema);
-      if (appState.datasetId != null) {
-        final summary =
-            await context.read<TelemetryService>().getDatasetMetricsSummary(appState.datasetId!);
-        setState(() => _metricsSummary = summary);
-      }
-    } catch (e) {
-      debugPrint('Failed to load metrics schema: $e');
-      setState(() {
-        _availableMetrics = [
-          {'key': 'cpu_usage', 'label': 'CPU Usage'},
-          {'key': 'memory_usage', 'label': 'Memory Usage'},
-          {'key': 'disk_utilization', 'label': 'Disk Utilization'},
-          {'key': 'network_rx_rate', 'label': 'Network RX Rate'},
-          {'key': 'network_tx_rate', 'label': 'Network TX Rate'},
-        ];
-        _schemaError = 'Failed to load metrics schema. Using fallback metrics.';
-      });
-    } finally {
-      setState(() => _loadingSchema = false);
-    }
-  }
+  String _iso(DateTime dt) => dt.toIso8601String();
 
   void _load(String datasetId, String metric) {
     _loadedMetric = metric;
     final service = context.read<TelemetryService>();
     _loadError = null;
+    
+    String? start, end;
+    if (_timeRange != null) {
+      start = _iso(_timeRange!.start);
+      end = _iso(_timeRange!.end);
+    }
+
     _summaryFuture = service.getDatasetSummary(datasetId).catchError((e) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _loadError = 'Failed to load summary: $e');
       });
       throw e;
     });
-    _topRegionsFuture = service.getTopK(datasetId, 'region', k: 10);
-    _topAnomalyFuture = service.getTopK(datasetId, 'anomaly_type', k: 10, isAnomaly: 'true');
-    _metricHistFuture = service.getHistogram(datasetId, metric: metric, bins: 30).catchError((e) {
+    _topRegionsFuture = service.getTopK(datasetId, 'region', k: 10, startTime: start, endTime: end);
+    _topAnomalyFuture = service.getTopK(datasetId, 'anomaly_type', k: 10, isAnomaly: 'true', startTime: start, endTime: end);
+    _metricHistFuture = service.getHistogram(datasetId, metric: metric, bins: 30, startTime: start, endTime: end).catchError((e) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _loadError = 'Metric "$metric" is not supported.');
       });
       throw e;
     });
     _metricTsFuture =
-        service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: '1h').catchError((e) {
+        service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: '1h', startTime: start, endTime: end).catchError((e) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _loadError = 'Metric "$metric" is not supported.');
       });
@@ -98,13 +76,13 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
     if (_comparisonMetric != null) {
       _comparisonHistFuture = service
-          .getHistogram(datasetId, metric: _comparisonMetric!, bins: 30)
+          .getHistogram(datasetId, metric: _comparisonMetric!, bins: 30, startTime: start, endTime: end)
           .catchError((e) {
         debugPrint('Failed to load comparison histogram: $e');
         return HistogramData(edges: const [], counts: const []);
       });
       _comparisonTsFuture = service
-          .getTimeSeries(datasetId, metrics: [_comparisonMetric!], aggs: ['mean'], bucket: '1h')
+          .getTimeSeries(datasetId, metrics: [_comparisonMetric!], aggs: ['mean'], bucket: '1h', startTime: start, endTime: end)
           .catchError((e) {
         debugPrint('Failed to load comparison time series: $e');
         return <TimeSeriesPoint>[];
@@ -150,6 +128,25 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 ),
                 Row(
                   children: [
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                         final picked = await showDateRangePicker(
+                           context: context,
+                           firstDate: DateTime(2023),
+                           lastDate: DateTime.now().add(const Duration(days: 1)),
+                           initialDateRange: _timeRange,
+                         );
+                         if (picked != null) {
+                           setState(() {
+                             _timeRange = picked;
+                             _load(datasetId, selectedMetric);
+                           });
+                         }
+                      },
+                      icon: const Icon(Icons.date_range),
+                      label: Text(_timeRange == null ? 'All Time' : '${_timeRange!.start.month}/${_timeRange!.start.day} - ${_timeRange!.end.month}/${_timeRange!.end.day}'),
+                    ),
+                    const SizedBox(width: 8),
                     IconButton(
                       onPressed: () {
                         setState(() {
@@ -292,7 +289,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       }
                       final items = snapshot.data ?? [];
                       if (items.isEmpty) return const SizedBox.shrink();
-                      return BarChart(values: items.map((e) => e.count.toDouble()).toList());
+                      return BarChart(
+                        values: items.map((e) => e.count.toDouble()).toList(),
+                        labels: items.map((e) => e.label).toList(),
+                      );
                     },
                   ),
                 ),
@@ -312,7 +312,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       }
                       final items = snapshot.data ?? [];
                       if (items.isEmpty) return const SizedBox.shrink();
-                      return BarChart(values: items.map((e) => e.count.toDouble()).toList());
+                      return BarChart(
+                        values: items.map((e) => e.count.toDouble()).toList(),
+                        labels: items.map((e) => e.label).toList(),
+                      );
                     },
                   ),
                 ),
@@ -333,7 +336,13 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       final hist = snapshot.data;
                       final values = hist?.counts.map((e) => e.toDouble()).toList() ?? [];
                       if (values.isEmpty) return const SizedBox.shrink();
-                      return BarChart(values: values);
+                      final labels = List.generate(values.length, (i) {
+                         if (i < hist!.edges.length) {
+                           return hist.edges[i].toStringAsFixed(1);
+                         }
+                         return "";
+                      });
+                      return BarChart(values: values, labels: labels);
                     },
                   ),
                 ),
@@ -355,7 +364,21 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       if (trend.isEmpty) return const SizedBox.shrink();
                       final xs = List<double>.generate(trend.length, (i) => i.toDouble());
                       final ys = trend.map((e) => e.anomalyRate).toList();
-                      return LineChart(x: xs, y: ys);
+                      return LineChart(
+                        x: xs, 
+                        y: ys,
+                        xLabelBuilder: (val) {
+                          int idx = val.round();
+                          if (idx >= 0 && idx < trend.length) {
+                             try {
+                               final dt = DateTime.parse(trend[idx].ts).toLocal();
+                               return "${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}";
+                             } catch (_) {}
+                          }
+                          return "";
+                        },
+                        yLabelBuilder: (val) => val.toStringAsFixed(2),
+                      );
                     },
                   ),
                 ),
@@ -381,7 +404,26 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                   if (points.isEmpty) return const SizedBox.shrink();
                   final xs = List<double>.generate(points.length, (i) => i.toDouble());
                   final ys = points.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
-                  return LineChart(x: xs, y: ys);
+                  
+                  final maxCount = points.isEmpty ? 0 : points.map((e) => e.count).reduce((a, b) => a > b ? a : b);
+                  final partial = points.map((e) => e.count < maxCount * 0.9).toList();
+
+                  return LineChart(
+                    x: xs, 
+                    y: ys,
+                    partial: partial,
+                    xLabelBuilder: (val) {
+                      int idx = val.round();
+                      if (idx >= 0 && idx < points.length) {
+                         try {
+                           final dt = DateTime.parse(points[idx].ts).toLocal();
+                           return "${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}";
+                         } catch (_) {}
+                      }
+                      return "";
+                    },
+                    yLabelBuilder: (val) => val.toStringAsFixed(1),
+                  );
                 },
               ),
             ),
@@ -554,13 +596,39 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
         if (isHist) {
           final hist = snapshot.data as HistogramData;
           final values = hist.counts.map((e) => e.toDouble()).toList();
-          return BarChart(values: values, barColor: color ?? const Color(0xFF818CF8));
+          final labels = List.generate(values.length, (i) {
+             if (i < hist.edges.length) {
+               return hist.edges[i].toStringAsFixed(1);
+             }
+             return "";
+          });
+          return BarChart(values: values, labels: labels, barColor: color ?? const Color(0xFF818CF8));
         } else {
           final points = snapshot.data as List<TimeSeriesPoint>;
           if (points.isEmpty) return const Center(child: Text('No data'));
           final xs = List<double>.generate(points.length, (i) => i.toDouble());
           final ys = points.map((e) => e.values['${metric}_mean'] ?? 0.0).toList();
-          return LineChart(x: xs, y: ys, lineColor: color ?? const Color(0xFF38BDF8));
+          
+          final maxCount = points.map((e) => e.count).reduce((a, b) => a > b ? a : b);
+          final partial = points.map((e) => e.count < maxCount * 0.9).toList();
+
+          return LineChart(
+            x: xs, 
+            y: ys, 
+            lineColor: color ?? const Color(0xFF38BDF8),
+            partial: partial,
+            xLabelBuilder: (val) {
+              int idx = val.round();
+              if (idx >= 0 && idx < points.length) {
+                 try {
+                   final dt = DateTime.parse(points[idx].ts).toLocal();
+                   return "${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}";
+                 } catch (_) {}
+              }
+              return "";
+            },
+            yLabelBuilder: (val) => val.toStringAsFixed(1),
+          );
         }
       },
     );

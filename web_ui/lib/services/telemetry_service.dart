@@ -121,17 +121,22 @@ class TopKEntry {
 class TimeSeriesPoint {
   final String ts;
   final Map<String, double> values;
+  final int count;
 
-  TimeSeriesPoint({required this.ts, required this.values});
+  TimeSeriesPoint({required this.ts, required this.values, required this.count});
 
   factory TimeSeriesPoint.fromJson(Map<String, dynamic> json) {
     final values = <String, double>{};
     json.forEach((key, value) {
-      if (key != 'ts') {
+      if (key != 'ts' && key != 'count') {
         values[key] = (value ?? 0.0).toDouble();
       }
     });
-    return TimeSeriesPoint(ts: json['ts'] ?? '', values: values);
+    return TimeSeriesPoint(
+      ts: json['ts'] ?? '', 
+      values: values,
+      count: json['count'] ?? 0,
+    );
   }
 }
 

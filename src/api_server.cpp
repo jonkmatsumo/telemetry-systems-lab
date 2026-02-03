@@ -413,6 +413,8 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         auto end = std::chrono::steady_clock::now();
         nlohmann::json resp;
         resp["items"] = data;
+        resp["meta"]["start_time"] = start_time;
+        resp["meta"]["end_time"] = end_time;
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
@@ -476,6 +478,8 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         nlohmann::json resp;
         resp["items"] = data;
         resp["bucket_seconds"] = bucket_seconds;
+        resp["meta"]["start_time"] = start_time;
+        resp["meta"]["end_time"] = end_time;
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
@@ -523,6 +527,8 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         auto start = std::chrono::steady_clock::now();
         auto data = db_client_->GetHistogram(run_id, metric, bins, min_val, max_val, is_anomaly, anomaly_type, start_time, end_time);
         auto end = std::chrono::steady_clock::now();
+        data["meta"]["start_time"] = start_time;
+        data["meta"]["end_time"] = end_time;
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             long row_count = data.value("counts", nlohmann::json::array()).size();
