@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 class LineChart extends StatelessWidget {
   final List<double> x;
   final List<double> y;
+  final List<double>? overlayY;
   final Color lineColor;
+  final Color overlayColor;
   final double strokeWidth;
+  final double overlayStrokeWidth;
   final String Function(double)? xLabelBuilder;
   final String Function(double)? yLabelBuilder;
   final List<bool>? partial;
@@ -14,8 +17,11 @@ class LineChart extends StatelessWidget {
     super.key,
     required this.x,
     required this.y,
+    this.overlayY,
     this.lineColor = const Color(0xFF38BDF8),
+    this.overlayColor = const Color(0xFF94A3B8),
     this.strokeWidth = 2.0,
+    this.overlayStrokeWidth = 2.0,
     this.xLabelBuilder,
     this.yLabelBuilder,
     this.partial,
@@ -59,8 +65,11 @@ class LineChart extends StatelessWidget {
             painter: _LineChartPainter(
               x: x,
               y: y,
+              overlayY: overlayY,
               lineColor: lineColor,
+              overlayColor: overlayColor,
               strokeWidth: strokeWidth,
+              overlayStrokeWidth: overlayStrokeWidth,
               xLabelBuilder: xLabelBuilder,
               yLabelBuilder: yLabelBuilder,
               partial: partial,
@@ -75,8 +84,11 @@ class LineChart extends StatelessWidget {
 class _LineChartPainter extends CustomPainter {
   final List<double> x;
   final List<double> y;
+  final List<double>? overlayY;
   final Color lineColor;
+  final Color overlayColor;
   final double strokeWidth;
+  final double overlayStrokeWidth;
   final String Function(double)? xLabelBuilder;
   final String Function(double)? yLabelBuilder;
   final List<bool>? partial;
@@ -84,8 +96,11 @@ class _LineChartPainter extends CustomPainter {
   _LineChartPainter({
     required this.x,
     required this.y,
+    this.overlayY,
     required this.lineColor,
+    required this.overlayColor,
     required this.strokeWidth,
+    required this.overlayStrokeWidth,
     this.xLabelBuilder,
     this.yLabelBuilder,
     this.partial,
@@ -97,8 +112,14 @@ class _LineChartPainter extends CustomPainter {
 
     final minX = x.reduce((a, b) => a < b ? a : b);
     final maxX = x.reduce((a, b) => a > b ? a : b);
-    final minY = y.reduce((a, b) => a < b ? a : b);
-    final maxY = y.reduce((a, b) => a > b ? a : b);
+    double minY = y.reduce((a, b) => a < b ? a : b);
+    double maxY = y.reduce((a, b) => a > b ? a : b);
+    if (overlayY != null && overlayY!.isNotEmpty) {
+      final minOverlay = overlayY!.reduce((a, b) => a < b ? a : b);
+      final maxOverlay = overlayY!.reduce((a, b) => a > b ? a : b);
+      if (minOverlay < minY) minY = minOverlay;
+      if (maxOverlay > maxY) maxY = maxOverlay;
+    }
 
     // Margins for axes
     final double bottomMargin = (xLabelBuilder != null) ? 24.0 : 0.0;
@@ -203,6 +224,25 @@ class _LineChartPainter extends CustomPainter {
       prevPy = py;
     }
     canvas.drawPath(path, paint);
+
+    if (overlayY != null && overlayY!.isNotEmpty && overlayY!.length == x.length) {
+      final overlayPaint = Paint()
+        ..color = overlayColor
+        ..strokeWidth = overlayStrokeWidth
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+      final overlayPath = Path();
+      for (int i = 0; i < x.length; i++) {
+        final px = leftMargin + (x[i] - minX) / dx * w;
+        final py = h - (overlayY![i] - minY) / dy * h;
+        if (i == 0) {
+          overlayPath.moveTo(px, py);
+        } else {
+          overlayPath.lineTo(px, py);
+        }
+      }
+      canvas.drawPath(overlayPath, overlayPaint);
+    }
     canvas.restore();
   }
 
@@ -226,7 +266,12 @@ class _LineChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _LineChartPainter oldDelegate) {
-    return oldDelegate.x != x || oldDelegate.y != y || oldDelegate.lineColor != lineColor || oldDelegate.partial != partial;
+    return oldDelegate.x != x ||
+        oldDelegate.y != y ||
+        oldDelegate.overlayY != overlayY ||
+        oldDelegate.lineColor != lineColor ||
+        oldDelegate.overlayColor != overlayColor ||
+        oldDelegate.partial != partial;
   }
 }
 

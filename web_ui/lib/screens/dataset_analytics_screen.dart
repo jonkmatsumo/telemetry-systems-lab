@@ -39,6 +39,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   DateTimeRange? _timeRange;
   DateTime? _lastUpdated;
   bool _showAnomalyOverlay = false;
+  bool _comparePreviousPeriod = false;
   String _bucketLabel = '1h';
   int _bucketSeconds = 3600;
 
@@ -331,7 +332,18 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
     _metricTsFuture = _trackWidget(
       _keyMetricTs,
-      service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: _bucketLabel, region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
+      service.getTimeSeries(
+        datasetId,
+        metrics: [metric],
+        aggs: ['mean'],
+        bucket: _bucketLabel,
+        region: regionFilter,
+        anomalyType: anomalyFilter,
+        startTime: start,
+        endTime: end,
+        compareMode: _comparePreviousPeriod ? 'previous_period' : null,
+        forceRefresh: forceRefresh,
+      ),
       forceRefresh: forceRefresh,
       startTime: start,
       endTime: end,
@@ -357,7 +369,18 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       });
       _comparisonTsFuture = _trackWidget(
         _keyComparisonTs,
-        service.getTimeSeries(datasetId, metrics: [_comparisonMetric!], aggs: ['mean'], bucket: _bucketLabel, region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
+        service.getTimeSeries(
+          datasetId,
+          metrics: [_comparisonMetric!],
+          aggs: ['mean'],
+          bucket: _bucketLabel,
+          region: regionFilter,
+          anomalyType: anomalyFilter,
+          startTime: start,
+          endTime: end,
+          compareMode: _comparePreviousPeriod ? 'previous_period' : null,
+          forceRefresh: forceRefresh,
+        ),
         forceRefresh: forceRefresh,
         startTime: start,
         endTime: end,
@@ -968,14 +991,20 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     }
                     final xs = List<double>.generate(points.length, (i) => i.toDouble());
                     final ys = points.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
-                    
+                    final baseline = snapshot.data?.baseline ?? const [];
+                    final baselineYs = baseline.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
+                    final canOverlay = baselineYs.isNotEmpty && baselineYs.length == ys.length;
+                    final baselineSummary = _buildBaselineSummary(snapshot.data?.meta, ys, baselineYs);
+
                     final maxCount = points.isEmpty ? 0 : points.map((e) => e.count).reduce((a, b) => a > b ? a : b);
                     final partial = points.map((e) => e.count < maxCount * 0.9).toList();
                     final hasPartial = partial.any((p) => p);
 
                     final chart = LineChart(
-                      x: xs, 
+                      x: xs,
                       y: ys,
+                      overlayY: canOverlay ? baselineYs : null,
+                      overlayColor: const Color(0xFF94A3B8),
                       partial: partial,
                       xLabelBuilder: (val) {
                         int idx = val.round();
@@ -1003,16 +1032,29 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                         }
                       },
                     );
-                    if (!hasPartial) return chart;
                     return Column(
                       children: [
-                        const AnalyticsStatePanel(
-                          state: AnalyticsState.partial,
-                          title: 'Partial data',
-                          message: 'Partial data: latest bucket incomplete.',
-                        ),
+                        _buildCompareControls(),
+                        if (baselineSummary != null) ...[
+                          const SizedBox(height: 6),
+                          Text(baselineSummary, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                        ],
                         const SizedBox(height: 8),
-                        Expanded(child: chart),
+                        Expanded(
+                          child: hasPartial
+                              ? Column(
+                                  children: [
+                                    const AnalyticsStatePanel(
+                                      state: AnalyticsState.partial,
+                                      title: 'Partial data',
+                                      message: 'Partial data: latest bucket incomplete.',
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Expanded(child: chart),
+                                  ],
+                                )
+                              : chart,
+                        ),
                       ],
                     );
                   }),
@@ -1055,6 +1097,43 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       ));
     }
     return chips;
+  }
+
+  Widget _buildCompareControls() {
+    final appState = context.read<AppState>();
+    final hasRange = _timeRange != null ||
+        (appState.filterBucketStart != null && appState.filterBucketEnd != null);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        const Text('Compare to previous period', style: TextStyle(color: Colors.white54, fontSize: 12)),
+        Switch(
+          value: _comparePreviousPeriod,
+          onChanged: hasRange ? (value) {
+            setState(() {
+              _comparePreviousPeriod = value;
+              if (appState.datasetId != null) {
+                _load(appState.datasetId!, appState.getSelectedMetric(appState.datasetId!));
+              }
+            });
+          } : null,
+        ),
+      ],
+    );
+  }
+
+  String? _buildBaselineSummary(ResponseMeta? meta, List<double> current, List<double> baseline) {
+    if (!_comparePreviousPeriod || baseline.isEmpty || current.isEmpty) return null;
+    double avg(List<double> values) => values.reduce((a, b) => a + b) / values.length;
+    final currentAvg = avg(current);
+    final baselineAvg = avg(baseline);
+    final delta = currentAvg - baselineAvg;
+    final deltaSign = delta >= 0 ? '+' : '';
+    final pct = baselineAvg == 0 ? 'n/a' : '${(delta / baselineAvg * 100).toStringAsFixed(1)}%';
+    final window = (meta?.baselineStartTime != null && meta?.baselineEndTime != null)
+        ? '${meta!.baselineStartTime} → ${meta.baselineEndTime}'
+        : 'previous period';
+    return 'Baseline: $window • Δ ${deltaSign}${delta.toStringAsFixed(2)} ($pct)';
   }
 
   Widget _filterChip(String label, VoidCallback onClear) {
