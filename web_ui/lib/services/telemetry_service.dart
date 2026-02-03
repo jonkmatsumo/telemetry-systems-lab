@@ -50,7 +50,6 @@ class DatasetSummary {
   final double ingestionLatencyP50;
   final double ingestionLatencyP95;
   final List<AnomalyRatePoint> anomalyRateTrend;
-
   DatasetSummary({
     required this.rowCount,
     required this.minTs,
@@ -104,6 +103,44 @@ class AnomalyRatePoint {
   }
 }
 
+class ResponseMeta {
+  final int limit;
+  final int returned;
+  final bool truncated;
+  final int? totalDistinct;
+  final String reason;
+  final String? startTime;
+  final String? endTime;
+  final int? binsRequested;
+  final int? binsReturned;
+
+  ResponseMeta({
+    required this.limit,
+    required this.returned,
+    required this.truncated,
+    this.totalDistinct,
+    required this.reason,
+    this.startTime,
+    this.endTime,
+    this.binsRequested,
+    this.binsReturned,
+  });
+
+  factory ResponseMeta.fromJson(Map<String, dynamic> json) {
+    return ResponseMeta(
+      limit: json['limit'] ?? 0,
+      returned: json['returned'] ?? 0,
+      truncated: json['truncated'] ?? false,
+      totalDistinct: json['total_distinct'],
+      reason: json['reason'] ?? '',
+      startTime: json['start_time'],
+      endTime: json['end_time'],
+      binsRequested: json['bins_requested'],
+      binsReturned: json['bins_returned'],
+    );
+  }
+}
+
 class TopKEntry {
   final String label;
   final int count;
@@ -114,6 +151,22 @@ class TopKEntry {
     return TopKEntry(
       label: json['label'] ?? '',
       count: json['count'] ?? 0,
+    );
+  }
+}
+
+class TopKResponse {
+  final List<TopKEntry> items;
+  final ResponseMeta meta;
+
+  TopKResponse({required this.items, required this.meta});
+
+  factory TopKResponse.fromJson(Map<String, dynamic> json) {
+    return TopKResponse(
+      items: (json['items'] as List? ?? [])
+          .map((e) => TopKEntry.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      meta: ResponseMeta.fromJson(json['meta'] ?? {}),
     );
   }
 }
@@ -143,8 +196,9 @@ class TimeSeriesPoint {
 class HistogramData {
   final List<double> edges;
   final List<int> counts;
+  final ResponseMeta meta;
 
-  HistogramData({required this.edges, required this.counts});
+  HistogramData({required this.edges, required this.counts, required this.meta});
 
   factory HistogramData.fromJson(Map<String, dynamic> json) {
     return HistogramData(
@@ -152,6 +206,7 @@ class HistogramData {
           .map<double>((e) => (e ?? 0.0).toDouble())
           .toList(),
       counts: (json['counts'] as List? ?? []).map((e) => e as int).toList(),
+      meta: ResponseMeta.fromJson(json['meta'] ?? {}),
     );
   }
 }
@@ -704,12 +759,13 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<List<TopKEntry>> getTopK(String runId, String column,
+  Future<TopKResponse> getTopK(String runId, String column,
       {int k = 10,
       String? isAnomaly,
       String? anomalyType,
       String? startTime,
       String? endTime,
+      bool includeTotalDistinct = false,
       bool forceRefresh = false}) async {
     final params = <String, String>{
       'column': column,
@@ -719,18 +775,18 @@ class TelemetryService {
     if (anomalyType != null) params['anomaly_type'] = anomalyType;
     if (startTime != null) params['start_time'] = startTime;
     if (endTime != null) params['end_time'] = endTime;
+    if (includeTotalDistinct) params['include_total_distinct'] = 'true';
+
     final key = _cacheKey('/datasets/$runId/topk', params);
     if (!forceRefresh) {
-      final cached = _readCache<List<TopKEntry>>(key);
+      final cached = _readCache<TopKResponse>(key);
       if (cached != null) return cached;
     }
     final response = await _client.get(_buildUri('/datasets/$runId/topk', params));
     if (response.statusCode == 200) {
-      final items = (jsonDecode(response.body)['items'] as List? ?? [])
-          .map((e) => TopKEntry.fromJson(e as Map<String, dynamic>))
-          .toList();
-      _writeCache(key, items);
-      return items;
+      final data = TopKResponse.fromJson(jsonDecode(response.body));
+      _writeCache(key, data);
+      return data;
     }
     _handleError(response, 'Failed to get topk');
     throw Exception('Unreachable');

@@ -348,12 +348,20 @@ class ChartCard extends StatelessWidget {
   final String title;
   final Widget child;
   final double height;
+  final bool truncated;
+  final String? subtitle;
+  final String? pillLabel;
+  final String? truncationLabel;
 
   const ChartCard({
     super.key,
     required this.title,
     required this.child,
     this.height = 220,
+    this.truncated = false,
+    this.subtitle,
+    this.pillLabel,
+    this.truncationLabel,
   });
 
   @override
@@ -368,10 +376,99 @@ class ChartCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                    if (subtitle != null)
+                      Text(subtitle!, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11)),
+                  ],
+                ),
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (pillLabel != null) ChartPill(text: pillLabel!),
+                  if (truncated)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: TruncationBadge(
+                        label: truncationLabel ?? 'Truncated',
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           SizedBox(height: height, child: child),
         ],
+      ),
+    );
+  }
+}
+
+class TruncationBadge extends StatelessWidget {
+  final String label;
+
+  const TruncationBadge({
+    super.key,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.orange.withOpacity(0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.warning_amber_rounded, size: 12, color: Colors.orange),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.orange[300],
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ChartPill extends StatelessWidget {
+  final String text;
+
+  const ChartPill({super.key, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.blueGrey.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.blueGrey.withOpacity(0.5)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: Colors.blueGrey[200],
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }

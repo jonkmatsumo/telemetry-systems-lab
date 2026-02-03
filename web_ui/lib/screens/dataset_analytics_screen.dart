@@ -15,8 +15,8 @@ class DatasetAnalyticsScreen extends StatefulWidget {
 
 class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   Future<DatasetSummary>? _summaryFuture;
-  Future<List<TopKEntry>>? _topRegionsFuture;
-  Future<List<TopKEntry>>? _topAnomalyFuture;
+  Future<TopKResponse>? _topRegionsFuture;
+  Future<TopKResponse>? _topAnomalyFuture;
   Future<HistogramData>? _metricHistFuture;
   Future<HistogramData>? _metricHistAnomalyFuture;
   Future<List<TimeSeriesPoint>>? _metricTsFuture;
@@ -336,115 +336,147 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             children: [
               SizedBox(
                 width: 420,
-                child: ChartCard(
-                  title: 'Top Regions',
-                  child: FutureBuilder<List<TopKEntry>>(
-                    future: _topRegionsFuture,
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      if (snapshot.hasError) {
-                        return Text('Error: ${snapshot.error}');
-                      }
-                      final items = snapshot.data ?? [];
-                      if (items.isEmpty) return const SizedBox.shrink();
-                      return BarChart(
-                        values: items.map((e) => e.count.toDouble()).toList(),
-                        labels: items.map((e) => e.label).toList(),
-                        onTap: (i) {
-                          if (items.length > i) {
-                            _showRecordsBrowser(region: items[i].label);
-                          }
-                        },
-                      );
-                    },
-                  ),
+                child: FutureBuilder<TopKResponse>(
+                  future: _topRegionsFuture,
+                  builder: (context, snapshot) {
+                    final meta = snapshot.data?.meta;
+                    final truncated = meta?.truncated ?? false;
+                    final total = meta?.totalDistinct;
+                    final returned = meta?.returned ?? 0;
+                    final limit = meta?.limit ?? 0;
+                    
+                    return ChartCard(
+                      title: 'Top Regions',
+                      pillLabel: limit > 0 ? 'Top $limit' : null,
+                      truncated: truncated,
+                      subtitle: total != null ? 'Showing $returned of $total' : null,
+                      truncationLabel: 'Truncated',
+                      child: Builder(builder: (context) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Text('Error: ${snapshot.error}');
+                        }
+                        final items = snapshot.data?.items ?? [];
+                        if (items.isEmpty) return const SizedBox.shrink();
+                        return BarChart(
+                          values: items.map((e) => e.count.toDouble()).toList(),
+                          labels: items.map((e) => e.label).toList(),
+                          onTap: (i) {
+                            if (items.length > i) {
+                              _showRecordsBrowser(region: items[i].label);
+                            }
+                          },
+                        );
+                      }),
+                    );
+                  },
                 ),
               ),
               SizedBox(
                 width: 420,
-                child: ChartCard(
-                  title: 'Anomaly Types',
-                  child: FutureBuilder<List<TopKEntry>>(
-                    future: _topAnomalyFuture,
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      if (snapshot.hasError) {
-                        return Text('Error: ${snapshot.error}');
-                      }
-                      final items = snapshot.data ?? [];
-                      if (items.isEmpty) return const SizedBox.shrink();
-                      return BarChart(
-                        values: items.map((e) => e.count.toDouble()).toList(),
-                        labels: items.map((e) => e.label).toList(),
-                        onTap: (i) {
-                          if (items.length > i) {
-                            _showRecordsBrowser(anomalyType: items[i].label, isAnomaly: 'true');
-                          }
-                        },
-                      );
-                    },
-                  ),
+                child: FutureBuilder<TopKResponse>(
+                  future: _topAnomalyFuture,
+                  builder: (context, snapshot) {
+                    final meta = snapshot.data?.meta;
+                    final truncated = meta?.truncated ?? false;
+                    final total = meta?.totalDistinct;
+                    final returned = meta?.returned ?? 0;
+                    final limit = meta?.limit ?? 0;
+
+                    return ChartCard(
+                      title: 'Anomaly Types',
+                      pillLabel: limit > 0 ? 'Top $limit' : null,
+                      truncated: truncated,
+                      subtitle: total != null ? 'Showing $returned of $total' : null,
+                      truncationLabel: 'Truncated',
+                      child: Builder(builder: (context) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Text('Error: ${snapshot.error}');
+                        }
+                        final items = snapshot.data?.items ?? [];
+                        if (items.isEmpty) return const SizedBox.shrink();
+                        return BarChart(
+                          values: items.map((e) => e.count.toDouble()).toList(),
+                          labels: items.map((e) => e.label).toList(),
+                          onTap: (i) {
+                            if (items.length > i) {
+                              _showRecordsBrowser(anomalyType: items[i].label, isAnomaly: 'true');
+                            }
+                          },
+                        );
+                      }),
+                    );
+                  },
                 ),
               ),
               SizedBox(
                 width: 420,
-                child: ChartCard(
-                  title: '$selectedMetric Histogram',
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
+                child: FutureBuilder<HistogramData>(
+                  future: _metricHistFuture,
+                  builder: (context, snapshot) {
+                    final meta = snapshot.data?.meta;
+                    final truncated = meta?.truncated ?? false;
+                    final bins = meta?.limit ?? 0;
+                    return ChartCard(
+                      title: '$selectedMetric Histogram',
+                      truncated: truncated,
+                      subtitle: truncated && bins > 0 ? 'Bins capped at $bins' : null,
+                      truncationLabel: 'Bins capped',
+                      child: Column(
                         children: [
-                          const Text('Anomalies', style: TextStyle(fontSize: 10, color: Colors.white54)),
-                          SizedBox(
-                            height: 24,
-                            child: Switch(
-                              value: _showAnomalyOverlay, 
-                              onChanged: (v) { setState(() { _showAnomalyOverlay = v; _load(datasetId, selectedMetric); }); }
-                            ),
-                          )
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              const Text('Anomalies', style: TextStyle(fontSize: 10, color: Colors.white54)),
+                              SizedBox(
+                                height: 24,
+                                child: Switch(
+                                  value: _showAnomalyOverlay, 
+                                  onChanged: (v) { setState(() { _showAnomalyOverlay = v; _load(datasetId, selectedMetric); }); }
+                                ),
+                              )
+                            ],
+                          ),
+                          Expanded(
+                            child: Builder(builder: (context) {
+                              if (snapshot.connectionState == ConnectionState.waiting) {
+                                return const Center(child: CircularProgressIndicator());
+                              }
+                              if (snapshot.hasError) {
+                                return const SizedBox.shrink();
+                              }
+                              final hist = snapshot.data;
+                              final values = hist?.counts.map((e) => e.toDouble()).toList() ?? [];
+                              if (values.isEmpty) return const SizedBox.shrink();
+                              final labels = List.generate(values.length, (i) {
+                                if (i < hist!.edges.length) {
+                                  return hist.edges[i].toStringAsFixed(1);
+                                }
+                                return "";
+                              });
+                              
+                              if (_showAnomalyOverlay && _metricHistAnomalyFuture != null) {
+                                return FutureBuilder<HistogramData>(
+                                    future: _metricHistAnomalyFuture,
+                                    builder: (context, snapshotOverlay) {
+                                      final overlayHist = snapshotOverlay.data;
+                                      final overlayValues = overlayHist?.counts.map((e) => e.toDouble()).toList();
+                                      return BarChart(values: values, labels: labels, overlayValues: overlayValues);
+                                    }
+                                );
+                              }
+                              return BarChart(values: values, labels: labels);
+                            }),
+                          ),
                         ],
                       ),
-                      Expanded(
-                        child: FutureBuilder<HistogramData>(
-                          future: _metricHistFuture,
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState == ConnectionState.waiting) {
-                              return const Center(child: CircularProgressIndicator());
-                            }
-                            if (snapshot.hasError) {
-                              return const SizedBox.shrink();
-                            }
-                            final hist = snapshot.data;
-                            final values = hist?.counts.map((e) => e.toDouble()).toList() ?? [];
-                            if (values.isEmpty) return const SizedBox.shrink();
-                            final labels = List.generate(values.length, (i) {
-                               if (i < hist!.edges.length) {
-                                 return hist.edges[i].toStringAsFixed(1);
-                               }
-                               return "";
-                            });
-                            
-                            if (_showAnomalyOverlay && _metricHistAnomalyFuture != null) {
-                               return FutureBuilder<HistogramData>(
-                                  future: _metricHistAnomalyFuture,
-                                  builder: (context, snapshotOverlay) {
-                                     final overlayHist = snapshotOverlay.data;
-                                     final overlayValues = overlayHist?.counts.map((e) => e.toDouble()).toList();
-                                     return BarChart(values: values, labels: labels, overlayValues: overlayValues);
-                                  }
-                               );
-                            }
-                            return BarChart(values: values, labels: labels);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
+                    );
+                  }
                 ),
               ),
               SizedBox(
