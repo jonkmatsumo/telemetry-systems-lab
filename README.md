@@ -209,6 +209,15 @@ Top-K and histogram responses include a `meta` object:
 `total_distinct` is nullable because counting distinct values can be expensive; the API omits it unless explicitly requested.
 Pass `include_total_distinct=true` to compute and return it.
 
+#### Pagination Contract
+Paginated endpoints return:
+- `items`: records for the page
+- `limit`: page size requested
+- `offset`: page offset
+- `returned`: number of records in this page
+- `total`: total record count (nullable when not computed)
+- `has_more`: `true` when more pages are available
+
 #### Time Semantics (Analytics UI)
 - The dashboard shows an explicit timezone indicator (UTC or Local) on time-based charts.
 - Bucket size is labeled (e.g., `1h buckets`) and drill-down uses exact bucket boundaries.
