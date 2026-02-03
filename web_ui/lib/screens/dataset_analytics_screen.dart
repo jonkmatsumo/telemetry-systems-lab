@@ -5,42 +5,7 @@ import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
 import '../widgets/charts.dart';
 import '../widgets/inline_alert.dart';
-
-class WidgetFreshness {
-  final DateTime? requestStart;
-  final DateTime? requestEnd;
-  final DateTime? serverTime;
-  final bool forceRefresh;
-  final String? startTime;
-  final String? endTime;
-
-  const WidgetFreshness({
-    this.requestStart,
-    this.requestEnd,
-    this.serverTime,
-    this.forceRefresh = false,
-    this.startTime,
-    this.endTime,
-  });
-
-  WidgetFreshness copyWith({
-    DateTime? requestStart,
-    DateTime? requestEnd,
-    DateTime? serverTime,
-    bool? forceRefresh,
-    String? startTime,
-    String? endTime,
-  }) {
-    return WidgetFreshness(
-      requestStart: requestStart ?? this.requestStart,
-      requestEnd: requestEnd ?? this.requestEnd,
-      serverTime: serverTime ?? this.serverTime,
-      forceRefresh: forceRefresh ?? this.forceRefresh,
-      startTime: startTime ?? this.startTime,
-      endTime: endTime ?? this.endTime,
-    );
-  }
-}
+import '../utils/freshness.dart';
 
 class DatasetAnalyticsScreen extends StatefulWidget {
   const DatasetAnalyticsScreen({super.key});
@@ -207,6 +172,46 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     });
   }
 
+  Widget? _buildFreshnessBanner(String datasetId, String metric) {
+    if (!shouldShowFreshnessBanner(_freshness.values)) return null;
+    final delta = maxFreshnessDelta(_freshness.values);
+    final details = <String>[];
+    if (delta != null && delta.inSeconds > 60) {
+      details.add('Max delta ${delta.inSeconds}s');
+    }
+    if (hasMixedRefreshMode(_freshness.values)) {
+      details.add('Mixed cache/refresh');
+    }
+    final detailText = details.isEmpty ? '' : ' (${details.join(' • ')})';
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Widgets are out of sync$detailText',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () {
+              setState(() => _load(datasetId, metric, forceRefresh: true));
+            },
+            icon: const Icon(Icons.refresh, size: 16, color: Colors.orange),
+            label: const Text('Refresh all', style: TextStyle(color: Colors.orange)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _load(String datasetId, String metric, {bool forceRefresh = false}) {
     _loadedMetric = metric;
     final service = context.read<TelemetryService>();
@@ -332,6 +337,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       _load(datasetId, selectedMetric);
     }
 
+    final freshnessBanner = _buildFreshnessBanner(datasetId, selectedMetric);
+
     return Padding(
       padding: const EdgeInsets.all(24),
       child: DefaultTabController(
@@ -418,6 +425,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 message: _schemaError!,
                 onRetry: _fetchSchema,
               ),
+              const SizedBox(height: 16),
+            ],
+            if (freshnessBanner != null) ...[
+              freshnessBanner,
               const SizedBox(height: 16),
             ],
             const SizedBox(height: 16),
