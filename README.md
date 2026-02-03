@@ -190,6 +190,7 @@ See the [Production Hardening Runbook](docs/production_hardening.md) for details
 - `GET /datasets/:id/topk?column=region|project_id|host_id|anomaly_type`
   - Optional: `include_total_distinct=true` to compute `meta.total_distinct`
 - `GET /datasets/:id/timeseries?metrics=cpu_usage&aggs=mean&bucket=1h`
+  - Optional: `compare_mode=previous_period` to return `baseline` series and baseline window metadata
 - `GET /datasets/:id/histogram?metric=cpu_usage&bins=40&range=minmax`
 - `GET /datasets/:id/samples?limit=50&offset=0&sort_by=metric_timestamp&sort_order=desc&anchor_time=2026-02-03T00:00:00Z`
   - Optional: `start_time`, `end_time`, `is_anomaly`, `anomaly_type`, `host_id`, `region`

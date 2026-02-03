@@ -124,6 +124,9 @@ class ResponseMeta {
   final int? binsReturned;
   final int? bucketSeconds;
   final String? resolution;
+  final String? compareMode;
+  final String? baselineStartTime;
+  final String? baselineEndTime;
   final double? durationMs;
   final int? rowsScanned;
   final int? rowsReturned;
@@ -142,6 +145,9 @@ class ResponseMeta {
     this.binsReturned,
     this.bucketSeconds,
     this.resolution,
+    this.compareMode,
+    this.baselineStartTime,
+    this.baselineEndTime,
     this.durationMs,
     this.rowsScanned,
     this.rowsReturned,
@@ -162,6 +168,9 @@ class ResponseMeta {
       binsReturned: json['bins_returned'],
       bucketSeconds: json['bucket_seconds'],
       resolution: json['resolution'],
+      compareMode: json['compare_mode'],
+      baselineStartTime: json['baseline_start_time'],
+      baselineEndTime: json['baseline_end_time'],
       durationMs: (json['duration_ms'] as num?)?.toDouble(),
       rowsScanned: json['rows_scanned'],
       rowsReturned: json['rows_returned'],
@@ -224,15 +233,19 @@ class TimeSeriesPoint {
 
 class TimeSeriesResponse {
   final List<TimeSeriesPoint> items;
+  final List<TimeSeriesPoint> baseline;
   final ResponseMeta meta;
   final int? bucketSeconds;
 
-  TimeSeriesResponse({required this.items, required this.meta, this.bucketSeconds});
+  TimeSeriesResponse({required this.items, required this.meta, this.bucketSeconds, this.baseline = const []});
 
   factory TimeSeriesResponse.fromJson(Map<String, dynamic> json) {
     final meta = ResponseMeta.fromJson(json['meta'] ?? {});
     return TimeSeriesResponse(
       items: (json['items'] as List? ?? [])
+          .map((e) => TimeSeriesPoint.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      baseline: (json['baseline'] as List? ?? [])
           .map((e) => TimeSeriesPoint.fromJson(e as Map<String, dynamic>))
           .toList(),
       meta: meta,
@@ -857,6 +870,7 @@ class TelemetryService {
       String? anomalyType,
       String? startTime,
       String? endTime,
+      String? compareMode,
       bool forceRefresh = false}) async {
     final params = <String, String>{
       'metrics': metrics.join(','),
@@ -868,6 +882,7 @@ class TelemetryService {
     if (anomalyType != null) params['anomaly_type'] = anomalyType;
     if (startTime != null) params['start_time'] = startTime;
     if (endTime != null) params['end_time'] = endTime;
+    if (compareMode != null) params['compare_mode'] = compareMode;
     final key = _cacheKey('/datasets/$runId/timeseries', params);
     if (!forceRefresh) {
       final cached = _readCache<TimeSeriesResponse>(key);
