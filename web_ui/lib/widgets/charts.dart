@@ -401,6 +401,7 @@ class ChartCard extends StatelessWidget {
   final String? truncationTooltip;
   final String? footerText;
   final String? infoText;
+  final Widget? debugPanel;
 
   const ChartCard({
     super.key,
@@ -415,6 +416,7 @@ class ChartCard extends StatelessWidget {
     this.truncationTooltip,
     this.footerText,
     this.infoText,
+    this.debugPanel,
   });
 
   @override
@@ -474,6 +476,10 @@ class ChartCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           SizedBox(height: height, child: child),
+          if (debugPanel != null) ...[
+            const SizedBox(height: 8),
+            debugPanel!,
+          ],
           if (footerText != null) ...[
             const SizedBox(height: 8),
             Text(

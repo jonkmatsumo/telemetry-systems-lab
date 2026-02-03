@@ -5,6 +5,7 @@ import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
 import '../state/investigation_context.dart';
 import '../widgets/analytics_state_panel.dart';
+import '../widgets/analytics_debug_panel.dart';
 import '../widgets/charts.dart';
 import '../widgets/inline_alert.dart';
 import '../utils/freshness.dart';
@@ -150,6 +151,29 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     }
     if (parts.isEmpty) return null;
     return parts.join(' • ');
+  }
+
+  Widget _buildDebugPanel(ResponseMeta? meta, Map<String, String> params) {
+    final summary = params.entries.map((e) => '${e.key}=${e.value}').join(', ');
+    return AnalyticsDebugPanel(
+      requestId: meta?.requestId,
+      paramsSummary: summary.isEmpty ? null : summary,
+      durationMs: meta?.durationMs,
+      cacheHit: meta?.cacheHit,
+      serverTime: meta?.serverTime,
+    );
+  }
+
+  Map<String, String> _debugParams(ResponseMeta? meta, Map<String, String> extra) {
+    final params = <String, String>{};
+    if (meta?.startTime != null && meta!.startTime!.isNotEmpty) {
+      params['start_time'] = meta.startTime!;
+    }
+    if (meta?.endTime != null && meta!.endTime!.isNotEmpty) {
+      params['end_time'] = meta.endTime!;
+    }
+    params.addAll(extra);
+    return params;
   }
 
   String? _asOfLabel(String key, {required bool useUtc}) {
@@ -673,6 +697,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 child: FutureBuilder<TopKResponse>(
                   future: _topRegionsFuture,
                   builder: (context, snapshot) {
+                    final appState = context.read<AppState>();
                     final meta = snapshot.data?.meta;
                     final truncated = meta?.truncated ?? false;
                     final total = meta?.totalDistinct;
@@ -688,6 +713,13 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       truncationTooltip: 'This chart is showing the Top $limit values. Refine filters to see more.',
                       footerText: _asOfLabel(_keyTopRegions, useUtc: useUtc),
                       infoText: _buildCostInfo(meta),
+                      debugPanel: _buildDebugPanel(meta, _debugParams(meta, {
+                        'endpoint': 'topk',
+                        'column': 'region',
+                        if (limit > 0) 'k': '$limit',
+                        if (appState.filterAnomalyType != null) 'anomaly_type': appState.filterAnomalyType!,
+                        if (appState.filterRegion != null) 'region': appState.filterRegion!,
+                      })),
                       child: Builder(builder: (context) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const AnalyticsStatePanel(
@@ -737,6 +769,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 child: FutureBuilder<TopKResponse>(
                   future: _topAnomalyFuture,
                   builder: (context, snapshot) {
+                    final appState = context.read<AppState>();
                     final meta = snapshot.data?.meta;
                     final truncated = meta?.truncated ?? false;
                     final total = meta?.totalDistinct;
@@ -752,6 +785,14 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       truncationTooltip: 'This chart is showing the Top $limit values. Refine filters to see more.',
                       footerText: _asOfLabel(_keyTopAnomaly, useUtc: useUtc),
                       infoText: _buildCostInfo(meta),
+                      debugPanel: _buildDebugPanel(meta, _debugParams(meta, {
+                        'endpoint': 'topk',
+                        'column': 'anomaly_type',
+                        'is_anomaly': 'true',
+                        if (limit > 0) 'k': '$limit',
+                        if (appState.filterRegion != null) 'region': appState.filterRegion!,
+                        if (appState.filterAnomalyType != null) 'anomaly_type': appState.filterAnomalyType!,
+                      })),
                       child: Builder(builder: (context) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const AnalyticsStatePanel(
@@ -801,6 +842,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 child: FutureBuilder<HistogramData>(
                   future: _metricHistFuture,
                   builder: (context, snapshot) {
+                    final appState = context.read<AppState>();
                     final meta = snapshot.data?.meta;
                     final truncated = meta?.truncated ?? false;
                     final bins = meta?.limit ?? 0;
@@ -812,6 +854,13 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       truncationTooltip: 'Requested bins exceeded the cap; histogram was downsampled.',
                       footerText: _asOfLabel(_keyMetricHist, useUtc: useUtc),
                       infoText: _buildCostInfo(meta),
+                      debugPanel: _buildDebugPanel(meta, _debugParams(meta, {
+                        'endpoint': 'histogram',
+                        'metric': selectedMetric,
+                        if (bins > 0) 'bins': '$bins',
+                        if (appState.filterRegion != null) 'region': appState.filterRegion!,
+                        if (appState.filterAnomalyType != null) 'anomaly_type': appState.filterAnomalyType!,
+                      })),
                       child: Column(
                         children: [
                           Row(
@@ -895,6 +944,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       ],
                       footerText: _asOfLabel(_keySummary, useUtc: useUtc),
                       infoText: _buildCostInfo(snapshot.data?.meta),
+                      debugPanel: _buildDebugPanel(snapshot.data?.meta, _debugParams(snapshot.data?.meta, {
+                        'endpoint': 'summary',
+                        'bucket': _bucketLabel,
+                      })),
                       child: Builder(builder: (context) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const AnalyticsStatePanel(
@@ -962,6 +1015,13 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                   ],
                   footerText: _asOfLabel(_keyMetricTs, useUtc: useUtc),
                   infoText: _buildCostInfo(snapshot.data?.meta),
+                  debugPanel: _buildDebugPanel(snapshot.data?.meta, _debugParams(snapshot.data?.meta, {
+                    'endpoint': 'timeseries',
+                    'metric': selectedMetric,
+                    'agg': 'mean',
+                    'bucket': _bucketLabel,
+                    if (_comparePreviousPeriod) 'compare_mode': 'previous_period',
+                  })),
                   child: Builder(builder: (context) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const AnalyticsStatePanel(
