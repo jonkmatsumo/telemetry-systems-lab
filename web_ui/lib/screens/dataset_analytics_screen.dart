@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
+import '../state/investigation_context.dart';
 import '../widgets/analytics_state_panel.dart';
 import '../widgets/charts.dart';
 import '../widgets/inline_alert.dart';
@@ -333,6 +334,36 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     });
   }
 
+  InvestigationContext _buildContext({
+    required String datasetId,
+    required String metric,
+    required bool useUtc,
+    String? region,
+    String? anomalyType,
+    String? isAnomaly,
+    String? startTime,
+    String? endTime,
+    String? bucketStart,
+    String? bucketEnd,
+    int? offset,
+    int? limit,
+  }) {
+    return InvestigationContext(
+      datasetId: datasetId,
+      metric: metric,
+      useUtc: useUtc,
+      region: region,
+      anomalyType: anomalyType,
+      isAnomaly: isAnomaly,
+      startTime: startTime,
+      endTime: endTime,
+      bucketStart: bucketStart,
+      bucketEnd: bucketEnd,
+      offset: offset,
+      limit: limit,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
@@ -423,10 +454,12 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     OutlinedButton.icon(
                       onPressed: () {
                         final uri = Uri.base;
+                        final ctxParams = appState.investigationContext?.toQueryParams() ?? {};
                         final link = uri.replace(queryParameters: {
                           ...uri.queryParameters,
                           'datasetId': datasetId,
                           'metric': selectedMetric,
+                          ...ctxParams,
                         }).toString();
                         Clipboard.setData(ClipboardData(text: link));
                         ScaffoldMessenger.of(context)
@@ -1284,13 +1317,33 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
   void _showRecordsBrowser({String? region, String? anomalyType, String? isAnomaly, String? startTime, String? endTime}) {
      final appState = context.read<AppState>();
+     final datasetId = appState.datasetId!;
+     final metric = appState.getSelectedMetric(datasetId);
+     final useUtc = appState.useUtc;
+     final ctx = _buildContext(
+       datasetId: datasetId,
+       metric: metric,
+       useUtc: useUtc,
+       region: region,
+       anomalyType: anomalyType,
+       isAnomaly: isAnomaly,
+       startTime: startTime,
+       endTime: endTime,
+       bucketStart: startTime,
+       bucketEnd: endTime,
+     );
+     appState.setInvestigationContext(ctx);
      showModalBottomSheet(
         context: context,
         isScrollControlled: true,
         backgroundColor: const Color(0xFF0F172A),
         shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
         builder: (_) => RecordsBrowser(
-           datasetId: appState.datasetId!,
+           datasetId: datasetId,
+           metric: metric,
+           useUtc: useUtc,
+           contextSeed: ctx,
+           onContextChanged: appState.setInvestigationContext,
            region: region,
            anomalyType: anomalyType,
            isAnomaly: isAnomaly,
@@ -1303,6 +1356,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
 class RecordsBrowser extends StatefulWidget {
   final String datasetId;
+  final String metric;
+  final bool useUtc;
+  final InvestigationContext? contextSeed;
+  final ValueChanged<InvestigationContext?>? onContextChanged;
   final String? region;
   final String? anomalyType;
   final String? isAnomaly;
@@ -1312,6 +1369,10 @@ class RecordsBrowser extends StatefulWidget {
   const RecordsBrowser({
     super.key,
     required this.datasetId,
+    required this.metric,
+    required this.useUtc,
+    this.contextSeed,
+    this.onContextChanged,
     this.region,
     this.anomalyType,
     this.isAnomaly,
@@ -1330,10 +1391,15 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
   List<Map<String, dynamic>> _items = [];
   bool _loading = false;
   String? _error;
+  InvestigationContext? _context;
 
   @override
   void initState() {
     super.initState();
+    if (widget.contextSeed != null) {
+      _context = widget.contextSeed;
+      _offset = widget.contextSeed!.offset ?? 0;
+    }
     _load();
   }
 
@@ -1357,6 +1423,28 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
           _items = (data['items'] as List).map((e) => Map<String, dynamic>.from(e)).toList();
           _total = data['total'] ?? 0;
           _loading = false;
+          _context = _context?.copyWith(
+                offset: _offset,
+                limit: _limit,
+                region: widget.region,
+                anomalyType: widget.anomalyType,
+                isAnomaly: widget.isAnomaly,
+                startTime: widget.startTime,
+                endTime: widget.endTime,
+              ) ??
+              InvestigationContext(
+                datasetId: widget.datasetId,
+                metric: widget.metric,
+                useUtc: widget.useUtc,
+                offset: _offset,
+                limit: _limit,
+                region: widget.region,
+                anomalyType: widget.anomalyType,
+                isAnomaly: widget.isAnomaly,
+                startTime: widget.startTime,
+                endTime: widget.endTime,
+              );
+          widget.onContextChanged?.call(_context);
         });
       }
     }).catchError((e) {
