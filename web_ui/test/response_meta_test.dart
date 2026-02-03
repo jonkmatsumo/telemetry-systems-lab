@@ -22,4 +22,22 @@ void main() {
     expect(meta.binsRequested, 100);
     expect(meta.binsReturned, 10);
   });
+
+  test('ResponseMeta parses cost fields', () {
+    final json = {
+      'limit': 0,
+      'returned': 0,
+      'truncated': false,
+      'reason': '',
+      'duration_ms': 123.45,
+      'rows_scanned': 1000,
+      'rows_returned': 50,
+      'cache_hit': true,
+    };
+    final meta = ResponseMeta.fromJson(json);
+    expect(meta.durationMs, 123.45);
+    expect(meta.rowsScanned, 1000);
+    expect(meta.rowsReturned, 50);
+    expect(meta.cacheHit, true);
+  });
 }
