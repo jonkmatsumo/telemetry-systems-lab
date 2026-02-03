@@ -23,6 +23,10 @@ class AppState extends ChangeNotifier {
   String? endTime;
   bool? isAnomaly;
   String? anomalyType;
+  String? filterRegion;
+  String? filterAnomalyType;
+  String? filterBucketStart;
+  String? filterBucketEnd;
 
   int currentTabIndex = 0;
   bool useUtc = false;
@@ -115,6 +119,30 @@ class AppState extends ChangeNotifier {
 
   void setAnomalyType(String? value) {
     anomalyType = value;
+    notifyListeners();
+  }
+
+  void setFilterRegion(String? value) {
+    filterRegion = value;
+    notifyListeners();
+  }
+
+  void setFilterAnomalyType(String? value) {
+    filterAnomalyType = value;
+    notifyListeners();
+  }
+
+  void setFilterBucket(String? start, String? end) {
+    filterBucketStart = start;
+    filterBucketEnd = end;
+    notifyListeners();
+  }
+
+  void clearFilters() {
+    filterRegion = null;
+    filterAnomalyType = null;
+    filterBucketStart = null;
+    filterBucketEnd = null;
     notifyListeners();
   }
 }

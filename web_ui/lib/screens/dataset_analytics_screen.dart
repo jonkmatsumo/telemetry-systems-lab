@@ -544,6 +544,14 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
               },
             ),
           ],
+          if (_buildFilterChips(appState).isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _buildFilterChips(appState),
+            ),
+          ],
           const SizedBox(height: 16),
           FutureBuilder<DatasetSummary>(
             future: _summaryFuture,
@@ -949,6 +957,60 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 },
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildFilterChips(AppState appState) {
+    final chips = <Widget>[];
+    if (appState.filterRegion != null) {
+      chips.add(_filterChip('region=${appState.filterRegion}', () {
+        appState.setFilterRegion(null);
+        _load(appState.datasetId!, appState.getSelectedMetric(appState.datasetId!));
+      }));
+    }
+    if (appState.filterAnomalyType != null) {
+      chips.add(_filterChip('type=${appState.filterAnomalyType}', () {
+        appState.setFilterAnomalyType(null);
+        _load(appState.datasetId!, appState.getSelectedMetric(appState.datasetId!));
+      }));
+    }
+    if (appState.filterBucketStart != null || appState.filterBucketEnd != null) {
+      chips.add(_filterChip('bucket', () {
+        appState.setFilterBucket(null, null);
+        _load(appState.datasetId!, appState.getSelectedMetric(appState.datasetId!));
+      }));
+    }
+    if (chips.length > 1) {
+      chips.add(TextButton(
+        onPressed: () {
+          appState.clearFilters();
+          _load(appState.datasetId!, appState.getSelectedMetric(appState.datasetId!));
+        },
+        child: const Text('Clear all'),
+      ));
+    }
+    return chips;
+  }
+
+  Widget _filterChip(String label, VoidCallback onClear) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11, color: Colors.white70)),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: onClear,
+            child: const Icon(Icons.close, size: 12, color: Colors.white60),
           ),
         ],
       ),
