@@ -19,4 +19,16 @@ void main() {
     final mm = local.minute.toString().padLeft(2, '0');
     expect(formatBucketLabel(dt, useUtc: false), '$hh:$mm');
   });
+
+  test('selectBucketLabel matches backend logic', () {
+    expect(selectBucketLabel(const Duration(hours: 1)), '5m');
+    expect(selectBucketLabel(const Duration(hours: 6)), '5m');
+    expect(selectBucketLabel(const Duration(hours: 7)), '1h');
+    expect(selectBucketLabel(const Duration(days: 2)), '1h');
+    expect(selectBucketLabel(const Duration(days: 3)), '6h');
+    expect(selectBucketLabel(const Duration(days: 30)), '6h');
+    expect(selectBucketLabel(const Duration(days: 31)), '1d');
+    expect(selectBucketLabel(const Duration(days: 180)), '1d');
+    expect(selectBucketLabel(const Duration(days: 181)), '7d');
+  });
 }
