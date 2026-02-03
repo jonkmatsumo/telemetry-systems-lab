@@ -117,6 +117,8 @@ class ResponseMeta {
   final String? serverTime;
   final int? binsRequested;
   final int? binsReturned;
+  final int? bucketSeconds;
+  final String? resolution;
 
   ResponseMeta({
     required this.limit,
@@ -129,6 +131,8 @@ class ResponseMeta {
     this.serverTime,
     this.binsRequested,
     this.binsReturned,
+    this.bucketSeconds,
+    this.resolution,
   });
 
   factory ResponseMeta.fromJson(Map<String, dynamic> json) {
@@ -143,6 +147,8 @@ class ResponseMeta {
       serverTime: json['server_time'],
       binsRequested: json['bins_requested'],
       binsReturned: json['bins_returned'],
+      bucketSeconds: json['bucket_seconds'],
+      resolution: json['resolution'],
     );
   }
 }
@@ -207,12 +213,13 @@ class TimeSeriesResponse {
   TimeSeriesResponse({required this.items, required this.meta, this.bucketSeconds});
 
   factory TimeSeriesResponse.fromJson(Map<String, dynamic> json) {
+    final meta = ResponseMeta.fromJson(json['meta'] ?? {});
     return TimeSeriesResponse(
       items: (json['items'] as List? ?? [])
           .map((e) => TimeSeriesPoint.fromJson(e as Map<String, dynamic>))
           .toList(),
-      meta: ResponseMeta.fromJson(json['meta'] ?? {}),
-      bucketSeconds: json['bucket_seconds'],
+      meta: meta,
+      bucketSeconds: json['bucket_seconds'] ?? meta.bucketSeconds,
     );
   }
 }

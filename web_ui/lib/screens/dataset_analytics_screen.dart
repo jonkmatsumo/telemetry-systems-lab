@@ -39,6 +39,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   DateTimeRange? _timeRange;
   DateTime? _lastUpdated;
   bool _showAnomalyOverlay = false;
+  String _bucketLabel = '1h';
+  int _bucketSeconds = 3600;
 
   final Map<String, WidgetFreshness> _freshness = {};
   static const String _keySummary = 'summary';
@@ -121,6 +123,13 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     final ss = display.second.toString().padLeft(2, '0');
     final tz = useUtc ? 'UTC' : 'Local';
     return '$hh:$mm:$ss $tz';
+  }
+
+  bool _shouldShowTick(int idx, int total) {
+    if (total <= 12) return true;
+    if (total <= 48) return idx % 4 == 0;
+    if (total <= 120) return idx % 8 == 0;
+    return idx % 12 == 0;
   }
 
   String? _asOfLabel(String key, {required bool useUtc}) {
@@ -230,6 +239,14 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       start = _iso(_timeRange!.start);
       end = _iso(_timeRange!.end);
     }
+    if (start != null && end != null) {
+      final range = DateTime.parse(end).difference(DateTime.parse(start));
+      _bucketLabel = selectBucketLabel(range);
+      _bucketSeconds = bucketSecondsForLabel(_bucketLabel);
+    } else {
+      _bucketLabel = '1h';
+      _bucketSeconds = 3600;
+    }
     final regionFilter = appState.filterRegion;
     final anomalyFilter = appState.filterAnomalyType;
 
@@ -295,7 +312,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
     _metricTsFuture = _trackWidget(
       _keyMetricTs,
-      service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: '1h', region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
+      service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: _bucketLabel, region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
       forceRefresh: forceRefresh,
       startTime: start,
       endTime: end,
@@ -321,7 +338,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       });
       _comparisonTsFuture = _trackWidget(
         _keyComparisonTs,
-        service.getTimeSeries(datasetId, metrics: [_comparisonMetric!], aggs: ['mean'], bucket: '1h', region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
+        service.getTimeSeries(datasetId, metrics: [_comparisonMetric!], aggs: ['mean'], bucket: _bucketLabel, region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
         forceRefresh: forceRefresh,
         startTime: start,
         endTime: end,
@@ -823,9 +840,9 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
               SizedBox(
                 width: 420,
                 child: ChartCard(
-                  title: 'Anomaly Rate Trend (1h)',
+                  title: 'Anomaly Rate Trend ($_bucketLabel)',
                   pillLabels: [
-                    '1h buckets',
+                    '${_bucketLabel} buckets',
                     useUtc ? 'UTC' : 'Local',
                   ],
                   footerText: _asOfLabel(_keySummary, useUtc: useUtc),
@@ -866,6 +883,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                         xLabelBuilder: (val) {
                           int idx = val.round();
                           if (idx >= 0 && idx < trend.length) {
+                             if (!_shouldShowTick(idx, trend.length)) return '';
                              try {
                                final dt = DateTime.parse(trend[idx].ts);
                                return formatBucketLabel(dt, useUtc: useUtc);
@@ -885,10 +903,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
           SizedBox(
             width: double.infinity,
             child: ChartCard(
-              title: '$selectedMetric Mean (1h)',
+              title: '$selectedMetric Mean ($_bucketLabel)',
               height: 240,
               pillLabels: [
-                '1h buckets',
+                '${_bucketLabel} buckets',
                 useUtc ? 'UTC' : 'Local',
               ],
               footerText: _asOfLabel(_keyMetricTs, useUtc: useUtc),
@@ -935,6 +953,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     xLabelBuilder: (val) {
                       int idx = val.round();
                       if (idx >= 0 && idx < points.length) {
+                         if (!_shouldShowTick(idx, points.length)) return '';
                          try {
                            final dt = DateTime.parse(points[idx].ts);
                            return formatBucketLabel(dt, useUtc: useUtc);
@@ -1115,17 +1134,17 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     onRetry: () => _load(datasetId, selectedMetric),
                     useUtc: appState.useUtc),
                 const SizedBox(height: 24),
-                _buildChartRow('Trend (1h Mean)', selectedMetric, _metricTsFuture, _comparisonMetric,
+                _buildChartRow('Trend ($_bucketLabel Mean)', selectedMetric, _metricTsFuture, _comparisonMetric,
                     _comparisonTsFuture, false,
                     footerKey1: _keyMetricTs, footerKey2: _keyComparisonTs,
                     onRetry: () => _load(datasetId, selectedMetric),
                     useUtc: appState.useUtc,
                     pillLabels1: [
-                      '1h buckets',
+                      '${_bucketLabel} buckets',
                       appState.useUtc ? 'UTC' : 'Local',
                     ],
                     pillLabels2: [
-                      '1h buckets',
+                      '${_bucketLabel} buckets',
                       appState.useUtc ? 'UTC' : 'Local',
                     ]),
               ],
@@ -1269,6 +1288,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             xLabelBuilder: (val) {
               int idx = val.round();
               if (idx >= 0 && idx < points.length) {
+                 if (!_shouldShowTick(idx, points.length)) return '';
                  try {
                    final dt = DateTime.parse(points[idx].ts);
                    return formatBucketLabel(dt, useUtc: useUtc);
