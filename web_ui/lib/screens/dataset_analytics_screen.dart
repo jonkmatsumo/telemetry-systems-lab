@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
+import '../widgets/analytics_state_panel.dart';
 import '../widgets/charts.dart';
 import '../widgets/inline_alert.dart';
 import '../utils/freshness.dart';
@@ -501,13 +502,31 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             future: _summaryFuture,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
-                return const LinearProgressIndicator();
+                return const AnalyticsStatePanel(
+                  state: AnalyticsState.loading,
+                  title: 'Summary',
+                  message: 'Loading dataset summary.',
+                );
               }
               if (snapshot.hasError) {
-                return Text('Error: ${snapshot.error}');
+                return AnalyticsStatePanel(
+                  state: AnalyticsState.error,
+                  title: 'Summary unavailable',
+                  message: 'Request failed. Retry.',
+                  detail: snapshot.error.toString(),
+                  onRetry: () {
+                    setState(() => _load(datasetId, selectedMetric));
+                  },
+                );
               }
               final summary = snapshot.data;
-              if (summary == null) return const SizedBox.shrink();
+              if (summary == null) {
+                return const AnalyticsStatePanel(
+                  state: AnalyticsState.empty,
+                  title: 'No summary data',
+                  message: 'No records in selected range.',
+                );
+              }
               return Wrap(
                 spacing: 16,
                 runSpacing: 16,
@@ -550,13 +569,31 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       footerText: _asOfLabel(_keyTopRegions),
                       child: Builder(builder: (context) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
+                          return const AnalyticsStatePanel(
+                            state: AnalyticsState.loading,
+                            title: 'Top regions',
+                            message: 'Loading Top-K results.',
+                          );
                         }
                         if (snapshot.hasError) {
-                          return Text('Error: ${snapshot.error}');
+                          return AnalyticsStatePanel(
+                            state: AnalyticsState.error,
+                            title: 'Top regions failed',
+                            message: 'Request failed. Retry.',
+                            detail: snapshot.error.toString(),
+                            onRetry: () {
+                              setState(() => _load(datasetId, selectedMetric));
+                            },
+                          );
                         }
                         final items = snapshot.data?.items ?? [];
-                        if (items.isEmpty) return const SizedBox.shrink();
+                        if (items.isEmpty) {
+                          return const AnalyticsStatePanel(
+                            state: AnalyticsState.empty,
+                            title: 'No regions',
+                            message: 'No records in selected range.',
+                          );
+                        }
                         return BarChart(
                           values: items.map((e) => e.count.toDouble()).toList(),
                           labels: items.map((e) => e.label).toList(),
@@ -592,13 +629,31 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       footerText: _asOfLabel(_keyTopAnomaly),
                       child: Builder(builder: (context) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
+                          return const AnalyticsStatePanel(
+                            state: AnalyticsState.loading,
+                            title: 'Anomaly types',
+                            message: 'Loading Top-K results.',
+                          );
                         }
                         if (snapshot.hasError) {
-                          return Text('Error: ${snapshot.error}');
+                          return AnalyticsStatePanel(
+                            state: AnalyticsState.error,
+                            title: 'Anomaly types failed',
+                            message: 'Request failed. Retry.',
+                            detail: snapshot.error.toString(),
+                            onRetry: () {
+                              setState(() => _load(datasetId, selectedMetric));
+                            },
+                          );
                         }
                         final items = snapshot.data?.items ?? [];
-                        if (items.isEmpty) return const SizedBox.shrink();
+                        if (items.isEmpty) {
+                          return const AnalyticsStatePanel(
+                            state: AnalyticsState.empty,
+                            title: 'No anomaly types',
+                            message: 'No records in selected range.',
+                          );
+                        }
                         return BarChart(
                           values: items.map((e) => e.count.toDouble()).toList(),
                           labels: items.map((e) => e.label).toList(),
@@ -646,14 +701,32 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                           Expanded(
                             child: Builder(builder: (context) {
                               if (snapshot.connectionState == ConnectionState.waiting) {
-                                return const Center(child: CircularProgressIndicator());
+                                return const AnalyticsStatePanel(
+                                  state: AnalyticsState.loading,
+                                  title: 'Histogram',
+                                  message: 'Loading distribution.',
+                                );
                               }
                               if (snapshot.hasError) {
-                                return const SizedBox.shrink();
+                                return AnalyticsStatePanel(
+                                  state: AnalyticsState.error,
+                                  title: 'Histogram failed',
+                                  message: 'Request failed. Retry.',
+                                  detail: snapshot.error.toString(),
+                                  onRetry: () {
+                                    setState(() => _load(datasetId, selectedMetric));
+                                  },
+                                );
                               }
                               final hist = snapshot.data;
                               final values = hist?.counts.map((e) => e.toDouble()).toList() ?? [];
-                              if (values.isEmpty) return const SizedBox.shrink();
+                              if (values.isEmpty) {
+                                return const AnalyticsStatePanel(
+                                  state: AnalyticsState.empty,
+                                  title: 'No histogram data',
+                                  message: 'No records in selected range.',
+                                );
+                              }
                               final labels = List.generate(values.length, (i) {
                                 if (i < hist!.edges.length) {
                                   return hist.edges[i].toStringAsFixed(1);
@@ -689,13 +762,31 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     future: _summaryFuture,
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
+                        return const AnalyticsStatePanel(
+                          state: AnalyticsState.loading,
+                          title: 'Anomaly rate trend',
+                          message: 'Loading trend data.',
+                        );
                       }
                       if (snapshot.hasError) {
-                        return const SizedBox.shrink();
+                        return AnalyticsStatePanel(
+                          state: AnalyticsState.error,
+                          title: 'Anomaly rate failed',
+                          message: 'Request failed. Retry.',
+                          detail: snapshot.error.toString(),
+                          onRetry: () {
+                            setState(() => _load(datasetId, selectedMetric));
+                          },
+                        );
                       }
                       final trend = snapshot.data?.anomalyRateTrend ?? [];
-                      if (trend.isEmpty) return const SizedBox.shrink();
+                      if (trend.isEmpty) {
+                        return const AnalyticsStatePanel(
+                          state: AnalyticsState.empty,
+                          title: 'No trend data',
+                          message: 'No records in selected range.',
+                        );
+                      }
                       final xs = List<double>.generate(trend.length, (i) => i.toDouble());
                       final ys = trend.map((e) => e.anomalyRate).toList();
                       return LineChart(
@@ -730,20 +821,39 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 future: _metricTsFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const AnalyticsStatePanel(
+                      state: AnalyticsState.loading,
+                      title: 'Time series',
+                      message: 'Loading trend data.',
+                    );
                   }
                   if (snapshot.hasError) {
-                    return const SizedBox.shrink();
+                    return AnalyticsStatePanel(
+                      state: AnalyticsState.error,
+                      title: 'Time series failed',
+                      message: 'Request failed. Retry.',
+                      detail: snapshot.error.toString(),
+                      onRetry: () {
+                        setState(() => _load(datasetId, selectedMetric));
+                      },
+                    );
                   }
                   final points = snapshot.data?.items ?? [];
-                  if (points.isEmpty) return const SizedBox.shrink();
+                  if (points.isEmpty) {
+                    return const AnalyticsStatePanel(
+                      state: AnalyticsState.empty,
+                      title: 'No trend data',
+                      message: 'No records in selected range.',
+                    );
+                  }
                   final xs = List<double>.generate(points.length, (i) => i.toDouble());
                   final ys = points.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
                   
                   final maxCount = points.isEmpty ? 0 : points.map((e) => e.count).reduce((a, b) => a > b ? a : b);
                   final partial = points.map((e) => e.count < maxCount * 0.9).toList();
+                  final hasPartial = partial.any((p) => p);
 
-                  return LineChart(
+                  final chart = LineChart(
                     x: xs, 
                     y: ys,
                     partial: partial,
@@ -768,6 +878,18 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                         } catch (_) {}
                       }
                     },
+                  );
+                  if (!hasPartial) return chart;
+                  return Column(
+                    children: [
+                      const AnalyticsStatePanel(
+                        state: AnalyticsState.partial,
+                        title: 'Partial data',
+                        message: 'Latest bucket is still filling.',
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(child: chart),
+                    ],
                   );
                 },
               ),
@@ -857,11 +979,13 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 const SizedBox(height: 24),
                 _buildChartRow('Distribution (Histogram)', selectedMetric, _metricHistFuture,
                     _comparisonMetric, _comparisonHistFuture, true,
-                    footerKey1: _keyMetricHist, footerKey2: _keyComparisonHist),
+                    footerKey1: _keyMetricHist, footerKey2: _keyComparisonHist,
+                    onRetry: () => _load(datasetId, selectedMetric)),
                 const SizedBox(height: 24),
                 _buildChartRow('Trend (1h Mean)', selectedMetric, _metricTsFuture, _comparisonMetric,
                     _comparisonTsFuture, false,
-                    footerKey1: _keyMetricTs, footerKey2: _keyComparisonTs),
+                    footerKey1: _keyMetricTs, footerKey2: _keyComparisonTs,
+                    onRetry: () => _load(datasetId, selectedMetric)),
               ],
             ),
           ),
@@ -902,7 +1026,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   }
 
   Widget _buildChartRow(String title, String m1, Future? f1, String? m2, Future? f2, bool isHist,
-      {String? footerKey1, String? footerKey2}) {
+      {String? footerKey1, String? footerKey2, VoidCallback? onRetry}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -914,7 +1038,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
               child: ChartCard(
                 title: m1,
                 footerText: footerKey1 != null ? _asOfLabel(footerKey1) : null,
-                child: _buildChart(f1, isHist, m1),
+                child: _buildChart(f1, isHist, m1, onRetry: onRetry),
               ),
             ),
             if (m2 != null) ...[
@@ -923,7 +1047,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 child: ChartCard(
                   title: m2,
                   footerText: footerKey2 != null ? _asOfLabel(footerKey2) : null,
-                  child: _buildChart(f2, isHist, m2, color: const Color(0xFF818CF8)),
+                  child: _buildChart(f2, isHist, m2, color: const Color(0xFF818CF8), onRetry: onRetry),
                 ),
               ),
             ],
@@ -933,15 +1057,25 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     );
   }
 
-  Widget _buildChart(Future? future, bool isHist, String metric, {Color? color}) {
+  Widget _buildChart(Future? future, bool isHist, String metric, {Color? color, VoidCallback? onRetry}) {
     return FutureBuilder(
       future: future,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const AnalyticsStatePanel(
+            state: AnalyticsState.loading,
+            title: 'Loading',
+            message: 'Fetching chart data.',
+          );
         }
         if (snapshot.hasError || snapshot.data == null) {
-          return const Center(child: Text('Failed to load'));
+          return AnalyticsStatePanel(
+            state: AnalyticsState.error,
+            title: 'Chart failed',
+            message: 'Request failed. Retry.',
+            detail: snapshot.error?.toString(),
+            onRetry: onRetry,
+          );
         }
         if (isHist) {
           final hist = snapshot.data as HistogramData;
@@ -952,18 +1086,32 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
              }
              return "";
           });
+          if (values.isEmpty) {
+            return const AnalyticsStatePanel(
+              state: AnalyticsState.empty,
+              title: 'No histogram data',
+              message: 'No records in selected range.',
+            );
+          }
           return BarChart(values: values, labels: labels, barColor: color ?? const Color(0xFF818CF8));
         } else {
           final response = snapshot.data as TimeSeriesResponse;
           final points = response.items;
-          if (points.isEmpty) return const Center(child: Text('No data'));
+          if (points.isEmpty) {
+            return const AnalyticsStatePanel(
+              state: AnalyticsState.empty,
+              title: 'No trend data',
+              message: 'No records in selected range.',
+            );
+          }
           final xs = List<double>.generate(points.length, (i) => i.toDouble());
           final ys = points.map((e) => e.values['${metric}_mean'] ?? 0.0).toList();
           
           final maxCount = points.map((e) => e.count).reduce((a, b) => a > b ? a : b);
           final partial = points.map((e) => e.count < maxCount * 0.9).toList();
+          final hasPartial = partial.any((p) => p);
 
-          return LineChart(
+          final chart = LineChart(
             x: xs, 
             y: ys, 
             lineColor: color ?? const Color(0xFF38BDF8),
@@ -990,6 +1138,18 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                }
             },
           );
+          if (!hasPartial) return chart;
+          return Column(
+            children: [
+              const AnalyticsStatePanel(
+                state: AnalyticsState.partial,
+                title: 'Partial data',
+                message: 'Latest bucket is still filling.',
+              ),
+              const SizedBox(height: 8),
+              Expanded(child: chart),
+            ],
+          );
         }
       },
     );
@@ -1000,10 +1160,22 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       future: context.read<TelemetryService>().getMetricStats(datasetId, metric),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const LinearProgressIndicator();
+          return const AnalyticsStatePanel(
+            state: AnalyticsState.loading,
+            title: 'Metric stats',
+            message: 'Loading summary statistics.',
+          );
         }
         if (snapshot.hasError) {
-          return const SizedBox.shrink();
+          return AnalyticsStatePanel(
+            state: AnalyticsState.error,
+            title: 'Metric stats failed',
+            message: 'Request failed. Retry.',
+            detail: snapshot.error.toString(),
+            onRetry: () {
+              setState(() => _load(datasetId, metric));
+            },
+          );
         }
         final stats = snapshot.data!;
         return Container(
@@ -1180,37 +1352,52 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
             ],
           ),
           const SizedBox(height: 16),
-          if (_loading) const LinearProgressIndicator(),
-          if (_error != null) InlineAlert(message: _error!),
-          const SizedBox(height: 16),
           Expanded(
-            child: _items.isEmpty && !_loading
-                ? const Center(child: Text('No records found'))
-                : ListView.builder(
-                    itemCount: _items.length,
-                    itemBuilder: (context, index) {
-                      final item = _items[index];
-                      final isAnomaly = item['is_anomaly'] == true;
-                      return Card(
-                        color: isAnomaly ? Colors.red.withOpacity(0.1) : Colors.white.withOpacity(0.05),
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          title: Text('${item['host_id']}'),
-                          subtitle: Text('${item['timestamp'].substring(11, 19)} • ${item['region']}'),
-                          trailing: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text('CPU: ${item['cpu_usage'].toStringAsFixed(1)}%'),
-                              if (isAnomaly)
-                                Text(item['anomaly_type'] ?? 'ANOMALY', 
-                                     style: const TextStyle(color: Colors.redAccent, fontSize: 10)),
-                            ],
+            child: _loading
+                ? const AnalyticsStatePanel(
+                    state: AnalyticsState.loading,
+                    title: 'Records loading',
+                    message: 'Fetching records for the selected filters.',
+                  )
+                : _error != null
+                    ? AnalyticsStatePanel(
+                        state: AnalyticsState.error,
+                        title: 'Records failed',
+                        message: 'Request failed. Retry.',
+                        detail: _error,
+                        onRetry: _load,
+                      )
+                    : _items.isEmpty
+                        ? const AnalyticsStatePanel(
+                            state: AnalyticsState.empty,
+                            title: 'No records found',
+                            message: 'No records in selected range.',
+                          )
+                        : ListView.builder(
+                            itemCount: _items.length,
+                            itemBuilder: (context, index) {
+                              final item = _items[index];
+                              final isAnomaly = item['is_anomaly'] == true;
+                              return Card(
+                                color: isAnomaly ? Colors.red.withOpacity(0.1) : Colors.white.withOpacity(0.05),
+                                margin: const EdgeInsets.only(bottom: 8),
+                                child: ListTile(
+                                  title: Text('${item['host_id']}'),
+                                  subtitle: Text('${item['timestamp'].substring(11, 19)} • ${item['region']}'),
+                                  trailing: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text('CPU: ${item['cpu_usage'].toStringAsFixed(1)}%'),
+                                      if (isAnomaly)
+                                        Text(item['anomaly_type'] ?? 'ANOMALY',
+                                            style: const TextStyle(color: Colors.redAccent, fontSize: 10)),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                        ),
-                      );
-                    },
-                  ),
           ),
           _buildPagination(),
         ],
