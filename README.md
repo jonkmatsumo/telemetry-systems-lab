@@ -205,6 +205,11 @@ Top-K and histogram responses include a `meta` object:
 `total_distinct` is nullable because counting distinct values can be expensive; the API omits it unless explicitly requested.
 Pass `include_total_distinct=true` to compute and return it.
 
+#### Time Semantics (Analytics UI)
+- The dashboard shows an explicit timezone indicator (UTC or Local) on time-based charts.
+- Bucket size is labeled (e.g., `1h buckets`) and drill-down uses exact bucket boundaries.
+- The UTC/Local toggle applies to all analytics charts and labels.
+
 ### Dataset-Wide Scoring + Eval
 - `POST /jobs/score_dataset`
 - `GET /jobs/:id`
