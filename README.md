@@ -210,6 +210,16 @@ Pass `include_total_distinct=true` to compute and return it.
 - Bucket size is labeled (e.g., `1h buckets`) and drill-down uses exact bucket boundaries.
 - The UTC/Local toggle applies to all analytics charts and labels.
 
+#### Time-Series Resolution (Down-sampling)
+When the client does not specify a bucket, the API selects a resolution based on the range:
+- <= 6h: `5m`
+- <= 2d: `1h`
+- <= 30d: `6h`
+- <= 180d: `1d`
+- > 180d: `7d`
+
+The response includes `meta.bucket_seconds` and `meta.resolution` so the UI can display the chosen bucket size.
+
 ### Dataset-Wide Scoring + Eval
 - `POST /jobs/score_dataset`
 - `GET /jobs/:id`
