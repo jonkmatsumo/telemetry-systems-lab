@@ -1518,6 +1518,8 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
   int _total = 0;
   String _sortBy = 'metric_timestamp';
   String _sortOrder = 'desc';
+  String? _anchorTime;
+  final TextEditingController _jumpToTimeController = TextEditingController();
   List<Map<String, dynamic>> _items = [];
   bool _loading = false;
   String? _error;
@@ -1531,8 +1533,18 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
       _offset = widget.contextSeed!.offset ?? 0;
       _sortBy = widget.contextSeed!.sortBy ?? _sortBy;
       _sortOrder = widget.contextSeed!.sortOrder ?? _sortOrder;
+      _anchorTime = widget.contextSeed!.anchorTime;
+      if (_anchorTime != null) {
+        _jumpToTimeController.text = _anchorTime!;
+      }
     }
     _load();
+  }
+
+  @override
+  void dispose() {
+    _jumpToTimeController.dispose();
+    super.dispose();
   }
 
   void _load() {
@@ -1546,6 +1558,7 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
       offset: _offset,
       sortBy: _sortBy,
       sortOrder: _sortOrder,
+      anchorTime: _anchorTime,
       region: widget.region,
       anomalyType: widget.anomalyType,
       isAnomaly: widget.isAnomaly,
@@ -1567,6 +1580,7 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
                 endTime: widget.endTime,
                 sortBy: _sortBy,
                 sortOrder: _sortOrder,
+                anchorTime: _anchorTime,
               ) ??
               InvestigationContext(
                 datasetId: widget.datasetId,
@@ -1581,6 +1595,7 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
                 endTime: widget.endTime,
                 sortBy: _sortBy,
                 sortOrder: _sortOrder,
+                anchorTime: _anchorTime,
               );
           widget.onContextChanged?.call(_context);
         });
@@ -1635,6 +1650,8 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
           ],
           const SizedBox(height: 12),
           _buildSortControls(),
+          const SizedBox(height: 12),
+          _buildJumpControls(),
           const SizedBox(height: 16),
           Expanded(
             child: _loading
@@ -1700,6 +1717,9 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
     if (widget.startTime != null || widget.endTime != null) {
       items.add(_contextChip('Range: ${widget.startTime ?? "-"} → ${widget.endTime ?? "-"}'));
     }
+    if (_anchorTime != null && _anchorTime!.isNotEmpty) {
+      items.add(_contextChip('Anchor: $_anchorTime'));
+    }
     return items;
   }
 
@@ -1746,6 +1766,66 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
               _load();
             },
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildJumpControls() {
+    final bucketStart = _context?.bucketStart;
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            key: const Key('records-jump-input'),
+            controller: _jumpToTimeController,
+            decoration: const InputDecoration(
+              labelText: 'Jump to time (ISO)',
+              hintText: '2026-02-03T00:00:00Z',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
+        const SizedBox(width: 8),
+        TextButton(
+          key: const Key('records-jump-apply'),
+          onPressed: () {
+            setState(() {
+              _anchorTime = _jumpToTimeController.text.trim();
+              _offset = 0;
+            });
+            _load();
+          },
+          child: const Text('Jump'),
+        ),
+        const SizedBox(width: 4),
+        if (bucketStart != null)
+          TextButton(
+            key: const Key('records-jump-bucket'),
+            onPressed: () {
+              setState(() {
+                _anchorTime = bucketStart;
+                _jumpToTimeController.text = bucketStart;
+                _offset = 0;
+              });
+              _load();
+            },
+            child: const Text('Use bucket'),
+          ),
+        const SizedBox(width: 4),
+        TextButton(
+          key: const Key('records-jump-clear'),
+          onPressed: () {
+            setState(() {
+              _anchorTime = null;
+              _jumpToTimeController.clear();
+              _offset = 0;
+            });
+            _load();
+          },
+          child: const Text('Clear'),
         ),
       ],
     );

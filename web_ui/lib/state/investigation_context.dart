@@ -11,6 +11,7 @@ class InvestigationContext {
   final String? bucketEnd;
   final String? sortBy;
   final String? sortOrder;
+  final String? anchorTime;
   final int? offset;
   final int? limit;
 
@@ -27,6 +28,7 @@ class InvestigationContext {
     this.bucketEnd,
     this.sortBy,
     this.sortOrder,
+    this.anchorTime,
     this.offset,
     this.limit,
   });
@@ -44,6 +46,7 @@ class InvestigationContext {
     String? bucketEnd,
     String? sortBy,
     String? sortOrder,
+    String? anchorTime,
     int? offset,
     int? limit,
   }) {
@@ -60,6 +63,7 @@ class InvestigationContext {
       bucketEnd: bucketEnd ?? this.bucketEnd,
       sortBy: sortBy ?? this.sortBy,
       sortOrder: sortOrder ?? this.sortOrder,
+      anchorTime: anchorTime ?? this.anchorTime,
       offset: offset ?? this.offset,
       limit: limit ?? this.limit,
     );
@@ -80,6 +84,7 @@ class InvestigationContext {
     if (bucketEnd != null) params['bucketEnd'] = bucketEnd!;
     if (sortBy != null) params['sortBy'] = sortBy!;
     if (sortOrder != null) params['sortOrder'] = sortOrder!;
+    if (anchorTime != null) params['anchorTime'] = anchorTime!;
     if (offset != null) params['offset'] = offset.toString();
     if (limit != null) params['limit'] = limit.toString();
     return params;
