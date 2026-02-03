@@ -351,6 +351,7 @@ class ChartCard extends StatelessWidget {
   final bool truncated;
   final String? subtitle;
   final String? pillLabel;
+  final List<String>? pillLabels;
   final String? truncationLabel;
   final String? truncationTooltip;
   final String? footerText;
@@ -363,6 +364,7 @@ class ChartCard extends StatelessWidget {
     this.truncated = false,
     this.subtitle,
     this.pillLabel,
+    this.pillLabels,
     this.truncationLabel,
     this.truncationTooltip,
     this.footerText,
@@ -396,7 +398,13 @@ class ChartCard extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (pillLabel != null) ChartPill(text: pillLabel!),
+                  if (pillLabels != null)
+                    for (int i = 0; i < pillLabels!.length; i++) ...[
+                      ChartPill(text: pillLabels![i]),
+                      if (i < pillLabels!.length - 1) const SizedBox(width: 6),
+                    ]
+                  else if (pillLabel != null)
+                    ChartPill(text: pillLabel!),
                   if (truncated)
                     Padding(
                       padding: const EdgeInsets.only(left: 8),

@@ -24,11 +24,17 @@ class AppState extends ChangeNotifier {
   String? anomalyType;
 
   int currentTabIndex = 0;
+  bool useUtc = false;
 
   PendingInferenceRequest? pendingInference;
 
   void setTabIndex(int index) {
     currentTabIndex = index;
+    notifyListeners();
+  }
+
+  void setUseUtc(bool value) {
+    useUtc = value;
     notifyListeners();
   }
 

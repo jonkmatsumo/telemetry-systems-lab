@@ -7,6 +7,7 @@ import '../widgets/analytics_state_panel.dart';
 import '../widgets/charts.dart';
 import '../widgets/inline_alert.dart';
 import '../utils/freshness.dart';
+import '../utils/time_buckets.dart';
 
 class DatasetAnalyticsScreen extends StatefulWidget {
   const DatasetAnalyticsScreen({super.key});
@@ -112,19 +113,20 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     }
   }
 
-  String _formatUtcTime(DateTime dt) {
-    final utc = dt.toUtc();
-    final hh = utc.hour.toString().padLeft(2, '0');
-    final mm = utc.minute.toString().padLeft(2, '0');
-    final ss = utc.second.toString().padLeft(2, '0');
-    return '$hh:$mm:$ss UTC';
+  String _formatTime(DateTime dt, {required bool useUtc}) {
+    final display = useUtc ? dt.toUtc() : dt.toLocal();
+    final hh = display.hour.toString().padLeft(2, '0');
+    final mm = display.minute.toString().padLeft(2, '0');
+    final ss = display.second.toString().padLeft(2, '0');
+    final tz = useUtc ? 'UTC' : 'Local';
+    return '$hh:$mm:$ss $tz';
   }
 
-  String? _asOfLabel(String key) {
+  String? _asOfLabel(String key, {required bool useUtc}) {
     final freshness = _freshness[key];
     final time = freshness?.serverTime ?? freshness?.requestEnd;
     if (time == null) return null;
-    return 'As of ${_formatUtcTime(time)}';
+    return 'As of ${_formatTime(time, useUtc: useUtc)}';
   }
 
   void _setFreshness(String key, WidgetFreshness freshness) {
@@ -335,6 +337,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
     final datasetId = appState.datasetId;
+    final useUtc = appState.useUtc;
     if (datasetId == null) {
       return const Center(child: Text('Select a dataset run to view analytics.'));
     }
@@ -453,6 +456,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   }
 
   Widget _buildDashboard(String datasetId, String selectedMetric, AppState appState) {
+    final useUtc = appState.useUtc;
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -566,7 +570,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       subtitle: total != null ? 'Showing $returned of $total' : null,
                       truncationLabel: 'Truncated',
                       truncationTooltip: 'This chart is showing the Top $limit values. Refine filters to see more.',
-                      footerText: _asOfLabel(_keyTopRegions),
+                      footerText: _asOfLabel(_keyTopRegions, useUtc: useUtc),
                       child: Builder(builder: (context) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const AnalyticsStatePanel(
@@ -626,7 +630,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       subtitle: total != null ? 'Showing $returned of $total' : null,
                       truncationLabel: 'Truncated',
                       truncationTooltip: 'This chart is showing the Top $limit values. Refine filters to see more.',
-                      footerText: _asOfLabel(_keyTopAnomaly),
+                      footerText: _asOfLabel(_keyTopAnomaly, useUtc: useUtc),
                       child: Builder(builder: (context) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const AnalyticsStatePanel(
@@ -682,7 +686,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       subtitle: truncated && bins > 0 ? 'Bins capped at $bins' : null,
                       truncationLabel: 'Bins capped',
                       truncationTooltip: 'Requested bins exceeded the cap; histogram was downsampled.',
-                      footerText: _asOfLabel(_keyMetricHist),
+                      footerText: _asOfLabel(_keyMetricHist, useUtc: useUtc),
                       child: Column(
                         children: [
                           Row(
@@ -757,7 +761,11 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 width: 420,
                 child: ChartCard(
                   title: 'Anomaly Rate Trend (1h)',
-                  footerText: _asOfLabel(_keySummary),
+                  pillLabels: [
+                    '1h buckets',
+                    useUtc ? 'UTC' : 'Local',
+                  ],
+                  footerText: _asOfLabel(_keySummary, useUtc: useUtc),
                   child: FutureBuilder<DatasetSummary>(
                     future: _summaryFuture,
                     builder: (context, snapshot) {
@@ -796,8 +804,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                           int idx = val.round();
                           if (idx >= 0 && idx < trend.length) {
                              try {
-                               final dt = DateTime.parse(trend[idx].ts).toLocal();
-                               return "${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}";
+                               final dt = DateTime.parse(trend[idx].ts);
+                               return formatBucketLabel(dt, useUtc: useUtc);
                              } catch (_) {}
                           }
                           return "";
@@ -816,7 +824,11 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             child: ChartCard(
               title: '$selectedMetric Mean (1h)',
               height: 240,
-              footerText: _asOfLabel(_keyMetricTs),
+              pillLabels: [
+                '1h buckets',
+                useUtc ? 'UTC' : 'Local',
+              ],
+              footerText: _asOfLabel(_keyMetricTs, useUtc: useUtc),
               child: FutureBuilder<TimeSeriesResponse>(
                 future: _metricTsFuture,
                 builder: (context, snapshot) {
@@ -861,8 +873,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       int idx = val.round();
                       if (idx >= 0 && idx < points.length) {
                          try {
-                           final dt = DateTime.parse(points[idx].ts).toLocal();
-                           return "${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}";
+                           final dt = DateTime.parse(points[idx].ts);
+                           return formatBucketLabel(dt, useUtc: useUtc);
                          } catch (_) {}
                       }
                       return "";
@@ -871,11 +883,11 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     onTap: (i) {
                       if (points.length > i) {
                         final start = points[i].ts;
-                        try {
-                          final dt = DateTime.parse(start);
-                          final next = dt.add(const Duration(hours: 1)); // Assuming 1h bucket
+                        final bucketSeconds = snapshot.data?.bucketSeconds ?? 3600;
+                        final next = bucketEndFromIso(start, bucketSeconds);
+                        if (next != null) {
                           _showRecordsBrowser(startTime: start, endTime: next.toIso8601String());
-                        } catch (_) {}
+                        }
                       }
                     },
                   );
@@ -980,12 +992,22 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 _buildChartRow('Distribution (Histogram)', selectedMetric, _metricHistFuture,
                     _comparisonMetric, _comparisonHistFuture, true,
                     footerKey1: _keyMetricHist, footerKey2: _keyComparisonHist,
-                    onRetry: () => _load(datasetId, selectedMetric)),
+                    onRetry: () => _load(datasetId, selectedMetric),
+                    useUtc: appState.useUtc),
                 const SizedBox(height: 24),
                 _buildChartRow('Trend (1h Mean)', selectedMetric, _metricTsFuture, _comparisonMetric,
                     _comparisonTsFuture, false,
                     footerKey1: _keyMetricTs, footerKey2: _keyComparisonTs,
-                    onRetry: () => _load(datasetId, selectedMetric)),
+                    onRetry: () => _load(datasetId, selectedMetric),
+                    useUtc: appState.useUtc,
+                    pillLabels1: [
+                      '1h buckets',
+                      appState.useUtc ? 'UTC' : 'Local',
+                    ],
+                    pillLabels2: [
+                      '1h buckets',
+                      appState.useUtc ? 'UTC' : 'Local',
+                    ]),
               ],
             ),
           ),
@@ -1026,7 +1048,12 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   }
 
   Widget _buildChartRow(String title, String m1, Future? f1, String? m2, Future? f2, bool isHist,
-      {String? footerKey1, String? footerKey2, VoidCallback? onRetry}) {
+      {String? footerKey1,
+      String? footerKey2,
+      VoidCallback? onRetry,
+      required bool useUtc,
+      List<String>? pillLabels1,
+      List<String>? pillLabels2}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1037,8 +1064,9 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             Expanded(
               child: ChartCard(
                 title: m1,
-                footerText: footerKey1 != null ? _asOfLabel(footerKey1) : null,
-                child: _buildChart(f1, isHist, m1, onRetry: onRetry),
+                footerText: footerKey1 != null ? _asOfLabel(footerKey1, useUtc: useUtc) : null,
+                pillLabels: pillLabels1,
+                child: _buildChart(f1, isHist, m1, onRetry: onRetry, useUtc: useUtc),
               ),
             ),
             if (m2 != null) ...[
@@ -1046,8 +1074,9 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
               Expanded(
                 child: ChartCard(
                   title: m2,
-                  footerText: footerKey2 != null ? _asOfLabel(footerKey2) : null,
-                  child: _buildChart(f2, isHist, m2, color: const Color(0xFF818CF8), onRetry: onRetry),
+                  footerText: footerKey2 != null ? _asOfLabel(footerKey2, useUtc: useUtc) : null,
+                  pillLabels: pillLabels2,
+                  child: _buildChart(f2, isHist, m2, color: const Color(0xFF818CF8), onRetry: onRetry, useUtc: useUtc),
                 ),
               ),
             ],
@@ -1057,7 +1086,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     );
   }
 
-  Widget _buildChart(Future? future, bool isHist, String metric, {Color? color, VoidCallback? onRetry}) {
+  Widget _buildChart(Future? future, bool isHist, String metric,
+      {Color? color, VoidCallback? onRetry, required bool useUtc}) {
     return FutureBuilder(
       future: future,
       builder: (context, snapshot) {
@@ -1120,8 +1150,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
               int idx = val.round();
               if (idx >= 0 && idx < points.length) {
                  try {
-                   final dt = DateTime.parse(points[idx].ts).toLocal();
-                   return "${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}";
+                   final dt = DateTime.parse(points[idx].ts);
+                   return formatBucketLabel(dt, useUtc: useUtc);
                  } catch (_) {}
               }
               return "";
@@ -1131,10 +1161,12 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                if (points.length > i) {
                   final start = points[i].ts;
                   try {
-                    final dt = DateTime.parse(start);
-                    final next = dt.add(const Duration(hours: 1)); 
+                  final bucketSeconds = response.bucketSeconds ?? 3600;
+                  final next = bucketEndFromIso(start, bucketSeconds);
+                  if (next != null) {
                     _showRecordsBrowser(startTime: start, endTime: next.toIso8601String());
-                  } catch (_) {}
+                  }
+                } catch (_) {}
                }
             },
           );
