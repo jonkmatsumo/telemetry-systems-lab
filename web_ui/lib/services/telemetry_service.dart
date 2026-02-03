@@ -199,6 +199,24 @@ class TimeSeriesPoint {
   }
 }
 
+class TimeSeriesResponse {
+  final List<TimeSeriesPoint> items;
+  final ResponseMeta meta;
+  final int? bucketSeconds;
+
+  TimeSeriesResponse({required this.items, required this.meta, this.bucketSeconds});
+
+  factory TimeSeriesResponse.fromJson(Map<String, dynamic> json) {
+    return TimeSeriesResponse(
+      items: (json['items'] as List? ?? [])
+          .map((e) => TimeSeriesPoint.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      meta: ResponseMeta.fromJson(json['meta'] ?? {}),
+      bucketSeconds: json['bucket_seconds'],
+    );
+  }
+}
+
 class HistogramData {
   final List<double> edges;
   final List<int> counts;
@@ -798,7 +816,7 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<List<TimeSeriesPoint>> getTimeSeries(String runId,
+  Future<TimeSeriesResponse> getTimeSeries(String runId,
       {required List<String> metrics,
       List<String> aggs = const ['mean'],
       String bucket = '1h',
@@ -818,16 +836,14 @@ class TelemetryService {
     if (endTime != null) params['end_time'] = endTime;
     final key = _cacheKey('/datasets/$runId/timeseries', params);
     if (!forceRefresh) {
-      final cached = _readCache<List<TimeSeriesPoint>>(key);
+      final cached = _readCache<TimeSeriesResponse>(key);
       if (cached != null) return cached;
     }
     final response = await _client.get(_buildUri('/datasets/$runId/timeseries', params));
     if (response.statusCode == 200) {
-      final items = (jsonDecode(response.body)['items'] as List? ?? [])
-          .map((e) => TimeSeriesPoint.fromJson(e as Map<String, dynamic>))
-          .toList();
-      _writeCache(key, items);
-      return items;
+      final data = TimeSeriesResponse.fromJson(jsonDecode(response.body));
+      _writeCache(key, data);
+      return data;
     }
     _handleError(response, 'Failed to get timeseries');
     throw Exception('Unreachable');

@@ -6,6 +6,42 @@ import '../state/app_state.dart';
 import '../widgets/charts.dart';
 import '../widgets/inline_alert.dart';
 
+class WidgetFreshness {
+  final DateTime? requestStart;
+  final DateTime? requestEnd;
+  final DateTime? serverTime;
+  final bool forceRefresh;
+  final String? startTime;
+  final String? endTime;
+
+  const WidgetFreshness({
+    this.requestStart,
+    this.requestEnd,
+    this.serverTime,
+    this.forceRefresh = false,
+    this.startTime,
+    this.endTime,
+  });
+
+  WidgetFreshness copyWith({
+    DateTime? requestStart,
+    DateTime? requestEnd,
+    DateTime? serverTime,
+    bool? forceRefresh,
+    String? startTime,
+    String? endTime,
+  }) {
+    return WidgetFreshness(
+      requestStart: requestStart ?? this.requestStart,
+      requestEnd: requestEnd ?? this.requestEnd,
+      serverTime: serverTime ?? this.serverTime,
+      forceRefresh: forceRefresh ?? this.forceRefresh,
+      startTime: startTime ?? this.startTime,
+      endTime: endTime ?? this.endTime,
+    );
+  }
+}
+
 class DatasetAnalyticsScreen extends StatefulWidget {
   const DatasetAnalyticsScreen({super.key});
 
@@ -19,10 +55,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   Future<TopKResponse>? _topAnomalyFuture;
   Future<HistogramData>? _metricHistFuture;
   Future<HistogramData>? _metricHistAnomalyFuture;
-  Future<List<TimeSeriesPoint>>? _metricTsFuture;
+  Future<TimeSeriesResponse>? _metricTsFuture;
 
   Future<HistogramData>? _comparisonHistFuture;
-  Future<List<TimeSeriesPoint>>? _comparisonTsFuture;
+  Future<TimeSeriesResponse>? _comparisonTsFuture;
 
   List<Map<String, String>> _availableMetrics = [];
   bool _loadingSchema = false;
@@ -35,6 +71,16 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   DateTimeRange? _timeRange;
   DateTime? _lastUpdated;
   bool _showAnomalyOverlay = false;
+
+  final Map<String, WidgetFreshness> _freshness = {};
+  static const String _keySummary = 'summary';
+  static const String _keyTopRegions = 'top_regions';
+  static const String _keyTopAnomaly = 'top_anomaly';
+  static const String _keyMetricHist = 'metric_hist';
+  static const String _keyMetricHistAnomaly = 'metric_hist_anomaly';
+  static const String _keyMetricTs = 'metric_ts';
+  static const String _keyComparisonHist = 'comparison_hist';
+  static const String _keyComparisonTs = 'comparison_ts';
 
   @override
   void initState() {
@@ -79,6 +125,88 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
   String _iso(DateTime dt) => dt.toIso8601String();
 
+  ResponseMeta _emptyMeta() {
+    return ResponseMeta(limit: 0, returned: 0, truncated: false, reason: '');
+  }
+
+  HistogramData _emptyHistogram() {
+    return HistogramData(edges: const [], counts: const [], meta: _emptyMeta());
+  }
+
+  TimeSeriesResponse _emptyTimeSeries() {
+    return TimeSeriesResponse(items: const [], meta: _emptyMeta());
+  }
+
+  DateTime? _parseServerTime(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return DateTime.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _formatUtcTime(DateTime dt) {
+    final utc = dt.toUtc();
+    final hh = utc.hour.toString().padLeft(2, '0');
+    final mm = utc.minute.toString().padLeft(2, '0');
+    final ss = utc.second.toString().padLeft(2, '0');
+    return '$hh:$mm:$ss UTC';
+  }
+
+  String? _asOfLabel(String key) {
+    final freshness = _freshness[key];
+    final time = freshness?.serverTime ?? freshness?.requestEnd;
+    if (time == null) return null;
+    return 'As of ${_formatUtcTime(time)}';
+  }
+
+  void _setFreshness(String key, WidgetFreshness freshness) {
+    if (!mounted) return;
+    setState(() => _freshness[key] = freshness);
+  }
+
+  Future<T> _trackWidget<T>(String key, Future<T> future,
+      {bool forceRefresh = false,
+      String? startTime,
+      String? endTime,
+      DateTime? Function(T value)? serverTimeResolver}) {
+    _setFreshness(
+      key,
+      WidgetFreshness(
+        requestStart: DateTime.now(),
+        forceRefresh: forceRefresh,
+        startTime: startTime,
+        endTime: endTime,
+      ),
+    );
+    return future.then((value) {
+      final serverTime = serverTimeResolver != null ? serverTimeResolver(value) : null;
+      _setFreshness(
+        key,
+        _freshness[key]?.copyWith(
+              requestEnd: DateTime.now(),
+              serverTime: serverTime,
+            ) ??
+            WidgetFreshness(
+              requestEnd: DateTime.now(),
+              serverTime: serverTime,
+              forceRefresh: forceRefresh,
+              startTime: startTime,
+              endTime: endTime,
+            ),
+      );
+      return value;
+    }).catchError((e) {
+      _setFreshness(
+        key,
+        _freshness[key]?.copyWith(requestEnd: DateTime.now()) ??
+            WidgetFreshness(requestEnd: DateTime.now(), forceRefresh: forceRefresh),
+      );
+      throw e;
+    });
+  }
+
   void _load(String datasetId, String metric, {bool forceRefresh = false}) {
     _loadedMetric = metric;
     final service = context.read<TelemetryService>();
@@ -90,7 +218,14 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       end = _iso(_timeRange!.end);
     }
 
-    _summaryFuture = service.getDatasetSummary(datasetId, forceRefresh: forceRefresh).then((data) {
+    _summaryFuture = _trackWidget(
+      _keySummary,
+      service.getDatasetSummary(datasetId, forceRefresh: forceRefresh),
+      forceRefresh: forceRefresh,
+      startTime: start,
+      endTime: end,
+      serverTimeResolver: (data) => _parseServerTime(data.serverTime),
+    ).then((data) {
       if (mounted) setState(() => _lastUpdated = DateTime.now());
       return data;
     }).catchError((e) {
@@ -99,10 +234,31 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       });
       throw e;
     });
-    _topRegionsFuture = service.getTopK(datasetId, 'region', k: 10, startTime: start, endTime: end, forceRefresh: forceRefresh);
-    _topAnomalyFuture = service.getTopK(datasetId, 'anomaly_type', k: 10, isAnomaly: 'true', startTime: start, endTime: end, forceRefresh: forceRefresh);
+    _topRegionsFuture = _trackWidget(
+      _keyTopRegions,
+      service.getTopK(datasetId, 'region', k: 10, startTime: start, endTime: end, forceRefresh: forceRefresh),
+      forceRefresh: forceRefresh,
+      startTime: start,
+      endTime: end,
+      serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+    );
+    _topAnomalyFuture = _trackWidget(
+      _keyTopAnomaly,
+      service.getTopK(datasetId, 'anomaly_type', k: 10, isAnomaly: 'true', startTime: start, endTime: end, forceRefresh: forceRefresh),
+      forceRefresh: forceRefresh,
+      startTime: start,
+      endTime: end,
+      serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+    );
     
-    _metricHistFuture = service.getHistogram(datasetId, metric: metric, bins: 30, startTime: start, endTime: end, forceRefresh: forceRefresh).catchError((e) {
+    _metricHistFuture = _trackWidget(
+      _keyMetricHist,
+      service.getHistogram(datasetId, metric: metric, bins: 30, startTime: start, endTime: end, forceRefresh: forceRefresh),
+      forceRefresh: forceRefresh,
+      startTime: start,
+      endTime: end,
+      serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+    ).catchError((e) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _loadError = 'Metric "$metric" is not supported.');
       });
@@ -110,13 +266,26 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     });
 
     if (_showAnomalyOverlay) {
-      _metricHistAnomalyFuture = service.getHistogram(datasetId, metric: metric, bins: 30, isAnomaly: 'true', startTime: start, endTime: end, forceRefresh: forceRefresh);
+      _metricHistAnomalyFuture = _trackWidget(
+        _keyMetricHistAnomaly,
+        service.getHistogram(datasetId, metric: metric, bins: 30, isAnomaly: 'true', startTime: start, endTime: end, forceRefresh: forceRefresh),
+        forceRefresh: forceRefresh,
+        startTime: start,
+        endTime: end,
+        serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+      );
     } else {
       _metricHistAnomalyFuture = null;
     }
 
-    _metricTsFuture =
-        service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: '1h', startTime: start, endTime: end, forceRefresh: forceRefresh).catchError((e) {
+    _metricTsFuture = _trackWidget(
+      _keyMetricTs,
+      service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: '1h', startTime: start, endTime: end, forceRefresh: forceRefresh),
+      forceRefresh: forceRefresh,
+      startTime: start,
+      endTime: end,
+      serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+    ).catchError((e) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _loadError = 'Metric "$metric" is not supported.');
       });
@@ -124,17 +293,27 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     });
 
     if (_comparisonMetric != null) {
-      _comparisonHistFuture = service
-          .getHistogram(datasetId, metric: _comparisonMetric!, bins: 30, startTime: start, endTime: end, forceRefresh: forceRefresh)
-          .catchError((e) {
+      _comparisonHistFuture = _trackWidget(
+        _keyComparisonHist,
+        service.getHistogram(datasetId, metric: _comparisonMetric!, bins: 30, startTime: start, endTime: end, forceRefresh: forceRefresh),
+        forceRefresh: forceRefresh,
+        startTime: start,
+        endTime: end,
+        serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+      ).catchError((e) {
         debugPrint('Failed to load comparison histogram: $e');
-        return HistogramData(edges: const [], counts: const []);
+        return _emptyHistogram();
       });
-      _comparisonTsFuture = service
-          .getTimeSeries(datasetId, metrics: [_comparisonMetric!], aggs: ['mean'], bucket: '1h', startTime: start, endTime: end, forceRefresh: forceRefresh)
-          .catchError((e) {
+      _comparisonTsFuture = _trackWidget(
+        _keyComparisonTs,
+        service.getTimeSeries(datasetId, metrics: [_comparisonMetric!], aggs: ['mean'], bucket: '1h', startTime: start, endTime: end, forceRefresh: forceRefresh),
+        forceRefresh: forceRefresh,
+        startTime: start,
+        endTime: end,
+        serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+      ).catchError((e) {
         debugPrint('Failed to load comparison time series: $e');
-        return <TimeSeriesPoint>[];
+        return _emptyTimeSeries();
       });
     }
   }
@@ -352,6 +531,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       subtitle: total != null ? 'Showing $returned of $total' : null,
                       truncationLabel: 'Truncated',
                       truncationTooltip: 'This chart is showing the Top $limit values. Refine filters to see more.',
+                      footerText: _asOfLabel(_keyTopRegions),
                       child: Builder(builder: (context) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const Center(child: CircularProgressIndicator());
@@ -393,6 +573,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       subtitle: total != null ? 'Showing $returned of $total' : null,
                       truncationLabel: 'Truncated',
                       truncationTooltip: 'This chart is showing the Top $limit values. Refine filters to see more.',
+                      footerText: _asOfLabel(_keyTopAnomaly),
                       child: Builder(builder: (context) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const Center(child: CircularProgressIndicator());
@@ -430,6 +611,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       subtitle: truncated && bins > 0 ? 'Bins capped at $bins' : null,
                       truncationLabel: 'Bins capped',
                       truncationTooltip: 'Requested bins exceeded the cap; histogram was downsampled.',
+                      footerText: _asOfLabel(_keyMetricHist),
                       child: Column(
                         children: [
                           Row(
@@ -486,6 +668,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 width: 420,
                 child: ChartCard(
                   title: 'Anomaly Rate Trend (1h)',
+                  footerText: _asOfLabel(_keySummary),
                   child: FutureBuilder<DatasetSummary>(
                     future: _summaryFuture,
                     builder: (context, snapshot) {
@@ -526,7 +709,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             child: ChartCard(
               title: '$selectedMetric Mean (1h)',
               height: 240,
-              child: FutureBuilder<List<TimeSeriesPoint>>(
+              footerText: _asOfLabel(_keyMetricTs),
+              child: FutureBuilder<TimeSeriesResponse>(
                 future: _metricTsFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
@@ -535,7 +719,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                   if (snapshot.hasError) {
                     return const SizedBox.shrink();
                   }
-                  final points = snapshot.data ?? [];
+                  final points = snapshot.data?.items ?? [];
                   if (points.isEmpty) return const SizedBox.shrink();
                   final xs = List<double>.generate(points.length, (i) => i.toDouble());
                   final ys = points.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
@@ -656,10 +840,12 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 ),
                 const SizedBox(height: 24),
                 _buildChartRow('Distribution (Histogram)', selectedMetric, _metricHistFuture,
-                    _comparisonMetric, _comparisonHistFuture, true),
+                    _comparisonMetric, _comparisonHistFuture, true,
+                    footerKey1: _keyMetricHist, footerKey2: _keyComparisonHist),
                 const SizedBox(height: 24),
                 _buildChartRow('Trend (1h Mean)', selectedMetric, _metricTsFuture, _comparisonMetric,
-                    _comparisonTsFuture, false),
+                    _comparisonTsFuture, false,
+                    footerKey1: _keyMetricTs, footerKey2: _keyComparisonTs),
               ],
             ),
           ),
@@ -699,7 +885,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     );
   }
 
-  Widget _buildChartRow(String title, String m1, Future? f1, String? m2, Future? f2, bool isHist) {
+  Widget _buildChartRow(String title, String m1, Future? f1, String? m2, Future? f2, bool isHist,
+      {String? footerKey1, String? footerKey2}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -710,6 +897,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             Expanded(
               child: ChartCard(
                 title: m1,
+                footerText: footerKey1 != null ? _asOfLabel(footerKey1) : null,
                 child: _buildChart(f1, isHist, m1),
               ),
             ),
@@ -718,6 +906,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
               Expanded(
                 child: ChartCard(
                   title: m2,
+                  footerText: footerKey2 != null ? _asOfLabel(footerKey2) : null,
                   child: _buildChart(f2, isHist, m2, color: const Color(0xFF818CF8)),
                 ),
               ),
@@ -749,7 +938,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
           });
           return BarChart(values: values, labels: labels, barColor: color ?? const Color(0xFF818CF8));
         } else {
-          final points = snapshot.data as List<TimeSeriesPoint>;
+          final response = snapshot.data as TimeSeriesResponse;
+          final points = response.items;
           if (points.isEmpty) return const Center(child: Text('No data'));
           final xs = List<double>.generate(points.length, (i) => i.toDouble());
           final ys = points.map((e) => e.values['${metric}_mean'] ?? 0.0).toList();

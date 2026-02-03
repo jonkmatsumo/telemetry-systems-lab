@@ -353,6 +353,7 @@ class ChartCard extends StatelessWidget {
   final String? pillLabel;
   final String? truncationLabel;
   final String? truncationTooltip;
+  final String? footerText;
 
   const ChartCard({
     super.key,
@@ -364,6 +365,7 @@ class ChartCard extends StatelessWidget {
     this.pillLabel,
     this.truncationLabel,
     this.truncationTooltip,
+    this.footerText,
   });
 
   @override
@@ -409,6 +411,13 @@ class ChartCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           SizedBox(height: height, child: child),
+          if (footerText != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              footerText!,
+              style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11),
+            ),
+          ],
         ],
       ),
     );
