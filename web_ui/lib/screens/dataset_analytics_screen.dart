@@ -351,6 +351,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       truncated: truncated,
                       subtitle: total != null ? 'Showing $returned of $total' : null,
                       truncationLabel: 'Truncated',
+                      truncationTooltip: 'This chart is showing the Top $limit values. Refine filters to see more.',
                       child: Builder(builder: (context) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const Center(child: CircularProgressIndicator());
@@ -391,6 +392,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       truncated: truncated,
                       subtitle: total != null ? 'Showing $returned of $total' : null,
                       truncationLabel: 'Truncated',
+                      truncationTooltip: 'This chart is showing the Top $limit values. Refine filters to see more.',
                       child: Builder(builder: (context) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const Center(child: CircularProgressIndicator());
@@ -427,6 +429,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       truncated: truncated,
                       subtitle: truncated && bins > 0 ? 'Bins capped at $bins' : null,
                       truncationLabel: 'Bins capped',
+                      truncationTooltip: 'Requested bins exceeded the cap; histogram was downsampled.',
                       child: Column(
                         children: [
                           Row(

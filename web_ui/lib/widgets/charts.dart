@@ -352,6 +352,7 @@ class ChartCard extends StatelessWidget {
   final String? subtitle;
   final String? pillLabel;
   final String? truncationLabel;
+  final String? truncationTooltip;
 
   const ChartCard({
     super.key,
@@ -362,6 +363,7 @@ class ChartCard extends StatelessWidget {
     this.subtitle,
     this.pillLabel,
     this.truncationLabel,
+    this.truncationTooltip,
   });
 
   @override
@@ -398,6 +400,7 @@ class ChartCard extends StatelessWidget {
                       padding: const EdgeInsets.only(left: 8),
                       child: TruncationBadge(
                         label: truncationLabel ?? 'Truncated',
+                        tooltip: truncationTooltip,
                       ),
                     ),
                 ],
@@ -414,15 +417,17 @@ class ChartCard extends StatelessWidget {
 
 class TruncationBadge extends StatelessWidget {
   final String label;
+  final String? tooltip;
 
   const TruncationBadge({
     super.key,
     required this.label,
+    this.tooltip,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final badge = Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: Colors.orange.withOpacity(0.2),
@@ -445,6 +450,8 @@ class TruncationBadge extends StatelessWidget {
         ],
       ),
     );
+    if (tooltip == null) return badge;
+    return Tooltip(message: tooltip!, child: badge);
   }
 }
 
