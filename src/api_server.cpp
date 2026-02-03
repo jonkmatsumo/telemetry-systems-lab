@@ -417,6 +417,7 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
     std::string anomaly_type = GetStrParam(req, "anomaly_type");
     std::string start_time = GetStrParam(req, "start_time");
     std::string end_time = GetStrParam(req, "end_time");
+    std::string compare_mode = GetStrParam(req, "compare_mode");
 
     std::unordered_map<std::string, std::string> allowed = {
         {"region", "region"},
@@ -503,6 +504,11 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         SendError(res, "metrics required", 400, telemetry::obs::kErrHttpInvalidArgument, rid);
         return;
     }
+    if (!compare_mode.empty() && compare_mode != "previous_period") {
+        log.RecordError(telemetry::obs::kErrHttpInvalidArgument, "invalid compare_mode", 400);
+        SendError(res, "compare_mode must be previous_period", 400, telemetry::obs::kErrHttpInvalidArgument, rid);
+        return;
+    }
 
     std::vector<std::string> aggs;
     std::stringstream as(aggs_param.empty() ? "mean" : aggs_param);
@@ -521,18 +527,48 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
     else if (bucket.empty() || bucket == "auto") bucket_seconds = telemetry::api::SelectBucketSeconds(start_time, end_time);
 
     bool debug = GetStrParam(req, "debug") == "true";
+    std::optional<std::pair<std::string, std::string>> baseline_window;
+    if (compare_mode == "previous_period") {
+        baseline_window = telemetry::api::PreviousPeriodWindow(start_time, end_time);
+        if (!baseline_window.has_value()) {
+            log.RecordError(telemetry::obs::kErrHttpInvalidArgument, "compare_mode requires start_time and end_time", 400);
+            SendError(res, "compare_mode requires start_time and end_time", 400, telemetry::obs::kErrHttpInvalidArgument, rid);
+            return;
+        }
+    }
     try {
         auto start = std::chrono::steady_clock::now();
         auto data = db_client_->GetTimeSeries(run_id, metrics, aggs, bucket_seconds, region, is_anomaly, anomaly_type, start_time, end_time);
+        nlohmann::json baseline;
+        if (baseline_window.has_value()) {
+            baseline = db_client_->GetTimeSeries(
+                run_id,
+                metrics,
+                aggs,
+                bucket_seconds,
+                region,
+                is_anomaly,
+                anomaly_type,
+                baseline_window->first,
+                baseline_window->second);
+        }
         auto end = std::chrono::steady_clock::now();
         double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
         nlohmann::json resp;
         resp["items"] = data;
+        if (baseline_window.has_value()) {
+            resp["baseline"] = baseline;
+        }
         resp["bucket_seconds"] = bucket_seconds;
         resp["meta"]["start_time"] = start_time;
         resp["meta"]["end_time"] = end_time;
         resp["meta"]["bucket_seconds"] = bucket_seconds;
         resp["meta"]["resolution"] = telemetry::api::BucketLabel(bucket_seconds);
+        if (baseline_window.has_value()) {
+            resp["meta"]["compare_mode"] = compare_mode;
+            resp["meta"]["baseline_start_time"] = baseline_window->first;
+            resp["meta"]["baseline_end_time"] = baseline_window->second;
+        }
         resp["meta"]["server_time"] = FormatServerTime();
         resp["meta"]["duration_ms"] = duration_ms;
         resp["meta"]["rows_scanned"] = nullptr;

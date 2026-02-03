@@ -30,6 +30,36 @@ inline std::optional<std::chrono::system_clock::time_point> ParseIsoTime(const s
     return std::chrono::system_clock::from_time_t(tt);
 }
 
+inline std::string FormatIsoTime(std::chrono::system_clock::time_point tp) {
+    auto tt = std::chrono::system_clock::to_time_t(tp);
+    std::tm tm{};
+#if defined(_WIN32)
+    gmtime_s(&tm, &tt);
+#else
+    gmtime_r(&tt, &tm);
+#endif
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+    return oss.str();
+}
+
+inline std::optional<std::pair<std::string, std::string>> PreviousPeriodWindow(
+    const std::string& start_time,
+    const std::string& end_time) {
+    auto start = ParseIsoTime(start_time);
+    auto end = ParseIsoTime(end_time);
+    if (!start.has_value() || !end.has_value()) {
+        return std::nullopt;
+    }
+    if (*end <= *start) {
+        return std::nullopt;
+    }
+    auto duration = *end - *start;
+    auto baseline_end = *start;
+    auto baseline_start = baseline_end - duration;
+    return std::make_pair(FormatIsoTime(baseline_start), FormatIsoTime(baseline_end));
+}
+
 inline int SelectBucketSeconds(const std::string& start_time, const std::string& end_time) {
     auto start = ParseIsoTime(start_time);
     auto end = ParseIsoTime(end_time);
