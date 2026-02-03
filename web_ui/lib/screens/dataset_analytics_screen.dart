@@ -132,6 +132,25 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     return idx % 12 == 0;
   }
 
+  String? _buildCostInfo(ResponseMeta? meta) {
+    if (meta == null) return null;
+    final parts = <String>[];
+    if (meta.durationMs != null) {
+      parts.add('Duration ${meta.durationMs!.toStringAsFixed(1)} ms');
+    }
+    if (meta.rowsScanned != null) {
+      parts.add('Scanned ${meta.rowsScanned}');
+    }
+    if (meta.rowsReturned != null) {
+      parts.add('Returned ${meta.rowsReturned}');
+    }
+    if (meta.cacheHit != null) {
+      parts.add(meta.cacheHit! ? 'Cache hit' : 'Cache miss');
+    }
+    if (parts.isEmpty) return null;
+    return parts.join(' • ');
+  }
+
   String? _asOfLabel(String key, {required bool useUtc}) {
     final freshness = _freshness[key];
     final time = freshness?.serverTime ?? freshness?.requestEnd;
@@ -645,6 +664,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       truncationLabel: 'Truncated',
                       truncationTooltip: 'This chart is showing the Top $limit values. Refine filters to see more.',
                       footerText: _asOfLabel(_keyTopRegions, useUtc: useUtc),
+                      infoText: _buildCostInfo(meta),
                       child: Builder(builder: (context) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const AnalyticsStatePanel(
@@ -708,6 +728,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       truncationLabel: 'Truncated',
                       truncationTooltip: 'This chart is showing the Top $limit values. Refine filters to see more.',
                       footerText: _asOfLabel(_keyTopAnomaly, useUtc: useUtc),
+                      infoText: _buildCostInfo(meta),
                       child: Builder(builder: (context) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const AnalyticsStatePanel(
@@ -767,6 +788,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       truncationLabel: 'Bins capped',
                       truncationTooltip: 'Requested bins exceeded the cap; histogram was downsampled.',
                       footerText: _asOfLabel(_keyMetricHist, useUtc: useUtc),
+                      infoText: _buildCostInfo(meta),
                       child: Column(
                         children: [
                           Row(
@@ -839,62 +861,65 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
               ),
               SizedBox(
                 width: 420,
-                child: ChartCard(
-                  title: 'Anomaly Rate Trend ($_bucketLabel)',
-                  pillLabels: [
-                    '${_bucketLabel} buckets',
-                    useUtc ? 'UTC' : 'Local',
-                  ],
-                  footerText: _asOfLabel(_keySummary, useUtc: useUtc),
-                  child: FutureBuilder<DatasetSummary>(
-                    future: _summaryFuture,
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const AnalyticsStatePanel(
-                          state: AnalyticsState.loading,
-                          title: 'Anomaly rate trend',
-                          message: 'Loading trend data.',
-                        );
-                      }
-                      if (snapshot.hasError) {
-                        return AnalyticsStatePanel(
-                          state: AnalyticsState.error,
-                          title: 'Anomaly rate failed',
-                          message: 'Request failed (timeout/auth). Retry.',
-                          detail: snapshot.error.toString(),
-                          onRetry: () {
-                            setState(() => _load(datasetId, selectedMetric));
+                child: FutureBuilder<DatasetSummary>(
+                  future: _summaryFuture,
+                  builder: (context, snapshot) {
+                    return ChartCard(
+                      title: 'Anomaly Rate Trend ($_bucketLabel)',
+                      pillLabels: [
+                        '${_bucketLabel} buckets',
+                        useUtc ? 'UTC' : 'Local',
+                      ],
+                      footerText: _asOfLabel(_keySummary, useUtc: useUtc),
+                      infoText: _buildCostInfo(snapshot.data?.meta),
+                      child: Builder(builder: (context) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const AnalyticsStatePanel(
+                            state: AnalyticsState.loading,
+                            title: 'Anomaly rate trend',
+                            message: 'Loading trend data.',
+                          );
+                        }
+                        if (snapshot.hasError) {
+                          return AnalyticsStatePanel(
+                            state: AnalyticsState.error,
+                            title: 'Anomaly rate failed',
+                            message: 'Request failed (timeout/auth). Retry.',
+                            detail: snapshot.error.toString(),
+                            onRetry: () {
+                              setState(() => _load(datasetId, selectedMetric));
+                            },
+                          );
+                        }
+                        final trend = snapshot.data?.anomalyRateTrend ?? [];
+                        if (trend.isEmpty) {
+                          return const AnalyticsStatePanel(
+                            state: AnalyticsState.empty,
+                            title: 'No trend data',
+                            message: 'No records in selected range.',
+                          );
+                        }
+                        final xs = List<double>.generate(trend.length, (i) => i.toDouble());
+                        final ys = trend.map((e) => e.anomalyRate).toList();
+                        return LineChart(
+                          x: xs,
+                          y: ys,
+                          xLabelBuilder: (val) {
+                            int idx = val.round();
+                            if (idx >= 0 && idx < trend.length) {
+                              if (!_shouldShowTick(idx, trend.length)) return '';
+                              try {
+                                final dt = DateTime.parse(trend[idx].ts);
+                                return formatBucketLabel(dt, useUtc: useUtc);
+                              } catch (_) {}
+                            }
+                            return "";
                           },
+                          yLabelBuilder: (val) => val.toStringAsFixed(2),
                         );
-                      }
-                      final trend = snapshot.data?.anomalyRateTrend ?? [];
-                      if (trend.isEmpty) {
-                        return const AnalyticsStatePanel(
-                          state: AnalyticsState.empty,
-                          title: 'No trend data',
-                          message: 'No records in selected range.',
-                        );
-                      }
-                      final xs = List<double>.generate(trend.length, (i) => i.toDouble());
-                      final ys = trend.map((e) => e.anomalyRate).toList();
-                      return LineChart(
-                        x: xs, 
-                        y: ys,
-                        xLabelBuilder: (val) {
-                          int idx = val.round();
-                          if (idx >= 0 && idx < trend.length) {
-                             if (!_shouldShowTick(idx, trend.length)) return '';
-                             try {
-                               final dt = DateTime.parse(trend[idx].ts);
-                               return formatBucketLabel(dt, useUtc: useUtc);
-                             } catch (_) {}
-                          }
-                          return "";
-                        },
-                        yLabelBuilder: (val) => val.toStringAsFixed(2),
-                      );
-                    },
-                  ),
+                      }),
+                    );
+                  },
                 ),
               ),
             ],
@@ -902,94 +927,97 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
-            child: ChartCard(
-              title: '$selectedMetric Mean ($_bucketLabel)',
-              height: 240,
-              pillLabels: [
-                '${_bucketLabel} buckets',
-                useUtc ? 'UTC' : 'Local',
-              ],
-              footerText: _asOfLabel(_keyMetricTs, useUtc: useUtc),
-              child: FutureBuilder<TimeSeriesResponse>(
-                future: _metricTsFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const AnalyticsStatePanel(
-                      state: AnalyticsState.loading,
-                      title: 'Time series',
-                      message: 'Loading trend data.',
-                    );
-                  }
-                  if (snapshot.hasError) {
-                    return AnalyticsStatePanel(
-                      state: AnalyticsState.error,
-                      title: 'Time series failed',
-                      message: 'Request failed (timeout/auth). Retry.',
-                      detail: snapshot.error.toString(),
-                      onRetry: () {
-                        setState(() => _load(datasetId, selectedMetric));
+            child: FutureBuilder<TimeSeriesResponse>(
+              future: _metricTsFuture,
+              builder: (context, snapshot) {
+                return ChartCard(
+                  title: '$selectedMetric Mean ($_bucketLabel)',
+                  height: 240,
+                  pillLabels: [
+                    '${_bucketLabel} buckets',
+                    useUtc ? 'UTC' : 'Local',
+                  ],
+                  footerText: _asOfLabel(_keyMetricTs, useUtc: useUtc),
+                  infoText: _buildCostInfo(snapshot.data?.meta),
+                  child: Builder(builder: (context) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const AnalyticsStatePanel(
+                        state: AnalyticsState.loading,
+                        title: 'Time series',
+                        message: 'Loading trend data.',
+                      );
+                    }
+                    if (snapshot.hasError) {
+                      return AnalyticsStatePanel(
+                        state: AnalyticsState.error,
+                        title: 'Time series failed',
+                        message: 'Request failed (timeout/auth). Retry.',
+                        detail: snapshot.error.toString(),
+                        onRetry: () {
+                          setState(() => _load(datasetId, selectedMetric));
+                        },
+                      );
+                    }
+                    final points = snapshot.data?.items ?? [];
+                    if (points.isEmpty) {
+                      return const AnalyticsStatePanel(
+                        state: AnalyticsState.empty,
+                        title: 'No trend data',
+                        message: 'No records in selected range.',
+                      );
+                    }
+                    final xs = List<double>.generate(points.length, (i) => i.toDouble());
+                    final ys = points.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
+                    
+                    final maxCount = points.isEmpty ? 0 : points.map((e) => e.count).reduce((a, b) => a > b ? a : b);
+                    final partial = points.map((e) => e.count < maxCount * 0.9).toList();
+                    final hasPartial = partial.any((p) => p);
+
+                    final chart = LineChart(
+                      x: xs, 
+                      y: ys,
+                      partial: partial,
+                      xLabelBuilder: (val) {
+                        int idx = val.round();
+                        if (idx >= 0 && idx < points.length) {
+                           if (!_shouldShowTick(idx, points.length)) return '';
+                           try {
+                             final dt = DateTime.parse(points[idx].ts);
+                             return formatBucketLabel(dt, useUtc: useUtc);
+                           } catch (_) {}
+                        }
+                        return "";
+                      },
+                      yLabelBuilder: (val) => val.toStringAsFixed(1),
+                      onTap: (i) {
+                        if (points.length > i) {
+                          final start = points[i].ts;
+                          final bucketSeconds = snapshot.data?.bucketSeconds ?? 3600;
+                          final next = bucketEndFromIso(start, bucketSeconds);
+                          if (next != null) {
+                            final appState = context.read<AppState>();
+                            appState.setFilterBucket(start, next.toIso8601String());
+                            _load(datasetId, selectedMetric);
+                            _showRecordsBrowser(startTime: start, endTime: next.toIso8601String());
+                          }
+                        }
                       },
                     );
-                  }
-                  final points = snapshot.data?.items ?? [];
-                  if (points.isEmpty) {
-                    return const AnalyticsStatePanel(
-                      state: AnalyticsState.empty,
-                      title: 'No trend data',
-                      message: 'No records in selected range.',
+                    if (!hasPartial) return chart;
+                    return Column(
+                      children: [
+                        const AnalyticsStatePanel(
+                          state: AnalyticsState.partial,
+                          title: 'Partial data',
+                          message: 'Partial data: latest bucket incomplete.',
+                        ),
+                        const SizedBox(height: 8),
+                        Expanded(child: chart),
+                      ],
                     );
-                  }
-                  final xs = List<double>.generate(points.length, (i) => i.toDouble());
-                  final ys = points.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
-                  
-                  final maxCount = points.isEmpty ? 0 : points.map((e) => e.count).reduce((a, b) => a > b ? a : b);
-                  final partial = points.map((e) => e.count < maxCount * 0.9).toList();
-                  final hasPartial = partial.any((p) => p);
-
-                  final chart = LineChart(
-                    x: xs, 
-                    y: ys,
-                    partial: partial,
-                    xLabelBuilder: (val) {
-                      int idx = val.round();
-                      if (idx >= 0 && idx < points.length) {
-                         if (!_shouldShowTick(idx, points.length)) return '';
-                         try {
-                           final dt = DateTime.parse(points[idx].ts);
-                           return formatBucketLabel(dt, useUtc: useUtc);
-                         } catch (_) {}
-                      }
-                      return "";
-                    },
-                    yLabelBuilder: (val) => val.toStringAsFixed(1),
-                    onTap: (i) {
-                      if (points.length > i) {
-                        final start = points[i].ts;
-                        final bucketSeconds = snapshot.data?.bucketSeconds ?? 3600;
-                        final next = bucketEndFromIso(start, bucketSeconds);
-                        if (next != null) {
-                          final appState = context.read<AppState>();
-                          appState.setFilterBucket(start, next.toIso8601String());
-                          _load(datasetId, selectedMetric);
-                          _showRecordsBrowser(startTime: start, endTime: next.toIso8601String());
-                        }
-                      }
-                    },
-                  );
-                  if (!hasPartial) return chart;
-                  return Column(
-                    children: [
-                      const AnalyticsStatePanel(
-                        state: AnalyticsState.partial,
-                        title: 'Partial data',
-                        message: 'Partial data: latest bucket incomplete.',
-                      ),
-                      const SizedBox(height: 8),
-                      Expanded(child: chart),
-                    ],
-                  );
-                },
-              ),
+                  }),
+                );
+              },
             ),
           ),
         ],
