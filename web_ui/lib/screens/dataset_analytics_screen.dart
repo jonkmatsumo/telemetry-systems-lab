@@ -1655,7 +1655,8 @@ class RecordsBrowser extends StatefulWidget {
 class _RecordsBrowserState extends State<RecordsBrowser> {
   final int _limit = 20;
   int _offset = 0;
-  int _total = 0;
+  int? _total;
+  bool? _hasMore;
   String _sortBy = 'metric_timestamp';
   String _sortOrder = 'desc';
   String? _anchorTime;
@@ -1708,7 +1709,8 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
       if (mounted) {
         setState(() {
           _items = (data['items'] as List).map((e) => Map<String, dynamic>.from(e)).toList();
-          _total = data['total'] ?? 0;
+          _total = data['total'];
+          _hasMore = data['has_more'];
           _loading = false;
           _context = _context?.copyWith(
                 offset: _offset,
@@ -1972,6 +1974,9 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
   }
 
   Widget _buildPagination() {
+    final total = _total;
+    final end = _offset + _items.length;
+    final hasMore = _hasMore ?? (total != null ? end < total : _items.length == _limit);
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -1979,15 +1984,17 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
           icon: const Icon(Icons.chevron_left),
           onPressed: _offset > 0 ? () {
             setState(() {
-              _offset = (_offset - _limit).clamp(0, _total);
+              _offset = (_offset - _limit).clamp(0, total ?? _offset);
               _load();
             });
           } : null,
         ),
-        Text('${_offset + 1}-${(_offset + _items.length).clamp(0, _total)} of $_total'),
+        Text(total != null
+            ? '${_offset + 1}-${end.clamp(0, total)} of $total'
+            : '${_offset + 1}-${end}'),
         IconButton(
           icon: const Icon(Icons.chevron_right),
-          onPressed: (_offset + _limit) < _total ? () {
+          onPressed: hasMore ? () {
             setState(() {
               _offset += _limit;
               _load();

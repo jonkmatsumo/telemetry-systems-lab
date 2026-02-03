@@ -28,7 +28,7 @@ class _CapturingTelemetryService extends TelemetryService {
     lastSortBy = sortBy;
     lastSortOrder = sortOrder;
     lastAnchorTime = anchorTime;
-    return {'items': <Map<String, dynamic>>[], 'total': 0};
+    return {'items': <Map<String, dynamic>>[], 'total': 0, 'has_more': false};
   }
 }
 
@@ -104,5 +104,31 @@ void main() {
     await tester.tap(find.byKey(const Key('records-jump-apply')));
     await tester.pump();
     expect(service.lastAnchorTime, '2026-02-03T00:00:00Z');
+  });
+
+  testWidgets('RecordsBrowser disables next when has_more is false', (tester) async {
+    final service = _CapturingTelemetryService();
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<TelemetryService>(create: (_) => service),
+          ChangeNotifierProvider(create: (_) => AppState()),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: RecordsBrowser(
+              datasetId: 'ds-1',
+              metric: 'cpu_usage',
+              useUtc: true,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump();
+    final nextButton = find.byIcon(Icons.chevron_right);
+    final iconButton = tester.widget<IconButton>(nextButton);
+    expect(iconButton.onPressed, isNull);
   });
 }
