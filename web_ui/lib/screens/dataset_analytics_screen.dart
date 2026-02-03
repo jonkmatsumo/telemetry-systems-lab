@@ -1459,6 +1459,7 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
 
   @override
   Widget build(BuildContext context) {
+    final chips = _contextChips();
     return Container(
       padding: const EdgeInsets.all(24),
       height: MediaQuery.of(context).size.height * 0.8,
@@ -1478,9 +1479,22 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
                   ),
                 ],
               ),
-              IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back, size: 16),
+                    label: const Text('Back to aggregate'),
+                  ),
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                ],
+              ),
             ],
           ),
+          if (chips.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(spacing: 8, runSpacing: 8, children: chips),
+          ],
           const SizedBox(height: 16),
           Expanded(
             child: _loading
@@ -1532,6 +1546,31 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
           _buildPagination(),
         ],
       ),
+    );
+  }
+
+  List<Widget> _contextChips() {
+    final items = <Widget>[];
+    final tz = widget.useUtc ? 'UTC' : 'Local';
+    items.add(_contextChip('TZ: $tz'));
+    if (widget.region != null) items.add(_contextChip('Region: ${widget.region}'));
+    if (widget.anomalyType != null) items.add(_contextChip('Type: ${widget.anomalyType}'));
+    if (widget.isAnomaly != null) items.add(_contextChip('Anomaly: ${widget.isAnomaly}'));
+    if (widget.startTime != null || widget.endTime != null) {
+      items.add(_contextChip('Range: ${widget.startTime ?? "-"} → ${widget.endTime ?? "-"}'));
+    }
+    return items;
+  }
+
+  Widget _contextChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Text(label, style: const TextStyle(fontSize: 11, color: Colors.white70)),
     );
   }
 
