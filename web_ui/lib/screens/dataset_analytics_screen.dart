@@ -1108,6 +1108,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       children: [
         const Text('Compare to previous period', style: TextStyle(color: Colors.white54, fontSize: 12)),
         Switch(
+          key: const Key('compare-mode-switch'),
           value: _comparePreviousPeriod,
           onChanged: hasRange ? (value) {
             setState(() {
