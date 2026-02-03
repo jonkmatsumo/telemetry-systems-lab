@@ -418,7 +418,6 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
     std::string anomaly_type = GetStrParam(req, "anomaly_type");
     std::string start_time = GetStrParam(req, "start_time");
     std::string end_time = GetStrParam(req, "end_time");
-    std::string compare_mode = GetStrParam(req, "compare_mode");
 
     std::unordered_map<std::string, std::string> allowed = {
         {"region", "region"},
