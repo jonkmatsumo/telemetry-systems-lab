@@ -408,9 +408,10 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         return;
     }
     bool debug = GetStrParam(req, "debug") == "true";
+    bool include_total = GetStrParam(req, "include_total_distinct") == "true";
     try {
         auto start = std::chrono::steady_clock::now();
-        auto data_obj = db_client_->GetTopK(run_id, allowed[column], k, is_anomaly, anomaly_type, start_time, end_time);
+        auto data_obj = db_client_->GetTopK(run_id, allowed[column], k, is_anomaly, anomaly_type, start_time, end_time, include_total);
         auto end = std::chrono::steady_clock::now();
         
         nlohmann::json resp;
@@ -422,7 +423,7 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
             total_distinct = data_obj["total_distinct"].get<long>();
         }
 
-        bool truncated = false;
+        bool truncated = telemetry::api::IsTruncated(static_cast<int>(items.size()), k, total_distinct);
         resp["meta"] = telemetry::api::BuildResponseMeta(
             k,
             static_cast<int>(items.size()),
@@ -547,13 +548,13 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         
         int requested_bins = data.value("requested_bins", bins);
         int returned_bins = data.value("counts", nlohmann::json::array()).size();
-        bool truncated = false;
+        bool truncated = requested_bins > returned_bins;
         data["meta"] = telemetry::api::BuildResponseMeta(
             requested_bins,
             returned_bins,
             truncated,
             std::nullopt,
-            "histogram_bins");
+            truncated ? "max_bins_cap" : "histogram_bins");
         data["meta"]["bins_requested"] = requested_bins;
         data["meta"]["bins_returned"] = returned_bins;
         data["meta"]["start_time"] = start_time;

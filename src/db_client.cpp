@@ -781,7 +781,8 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
                                  const std::string& is_anomaly,
                                  const std::string& anomaly_type,
                                  const std::string& start_time,
-                                 const std::string& end_time) {
+                                 const std::string& end_time,
+                                 bool include_total_distinct) {
     if (!IsValidDimension(column)) {
         throw std::invalid_argument("Invalid column: " + column);
     }
@@ -803,6 +804,11 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
         }
         if (!end_time.empty()) {
             filter += " AND metric_timestamp <= " + W.quote(end_time);
+        }
+
+        if (include_total_distinct) {
+            auto res_count = W.exec("SELECT COUNT(DISTINCT " + column + ") FROM host_telemetry_archival " + filter);
+            out["total_distinct"] = res_count.empty() ? 0 : res_count[0][0].as<long>();
         }
 
         std::string query = "SELECT " + column + ", COUNT(*) FROM host_telemetry_archival " + filter +

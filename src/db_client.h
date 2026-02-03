@@ -104,7 +104,8 @@ public:
                            const std::string& is_anomaly,
                            const std::string& anomaly_type,
                            const std::string& start_time,
-                           const std::string& end_time);
+                           const std::string& end_time,
+                           bool include_total_distinct = false);
     nlohmann::json GetTimeSeries(const std::string& run_id,
                                  const std::vector<std::string>& metrics,
                                  const std::vector<std::string>& aggs,
