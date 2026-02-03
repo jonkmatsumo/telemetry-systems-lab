@@ -42,6 +42,41 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     _fetchSchema();
   }
 
+  Future<void> _fetchSchema() async {
+    setState(() {
+      _loadingSchema = true;
+      _schemaError = null;
+    });
+    final service = context.read<TelemetryService>();
+    try {
+      final schema = await service.getMetricsSchema();
+      if (!mounted) return;
+      setState(() {
+        _availableMetrics = schema;
+        _loadingSchema = false;
+      });
+
+      final appState = context.read<AppState>();
+      final datasetId = appState.datasetId;
+      if (datasetId != null) {
+        final summary = await service.getDatasetMetricsSummary(datasetId);
+        if (mounted) setState(() => _metricsSummary = summary);
+
+        final selectedMetric = appState.getSelectedMetric(datasetId);
+        if (schema.isNotEmpty && !schema.any((m) => m['key'] == selectedMetric)) {
+          final fallback = schema.first['key'];
+          if (fallback != null) appState.setSelectedMetric(datasetId, fallback);
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _schemaError = 'Failed to load metrics schema: $e';
+        _loadingSchema = false;
+      });
+    }
+  }
+
   String _iso(DateTime dt) => dt.toIso8601String();
 
   void _load(String datasetId, String metric, {bool forceRefresh = false}) {
