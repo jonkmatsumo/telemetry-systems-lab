@@ -416,6 +416,7 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
     std::string region = GetStrParam(req, "region");
     std::string is_anomaly = GetStrParam(req, "is_anomaly");
     std::string anomaly_type = GetStrParam(req, "anomaly_type");
+    std::string compare_mode = GetStrParam(req, "compare_mode");
     std::string start_time = GetStrParam(req, "start_time");
     std::string end_time = GetStrParam(req, "end_time");
 
