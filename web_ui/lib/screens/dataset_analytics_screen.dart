@@ -660,6 +660,9 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                           labels: items.map((e) => e.label).toList(),
                           onTap: (i) {
                             if (items.length > i) {
+                              final appState = context.read<AppState>();
+                              appState.setFilterRegion(items[i].label);
+                              _load(datasetId, selectedMetric);
                               _showRecordsBrowser(region: items[i].label);
                             }
                           },
@@ -720,6 +723,9 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                           labels: items.map((e) => e.label).toList(),
                           onTap: (i) {
                             if (items.length > i) {
+                              final appState = context.read<AppState>();
+                              appState.setFilterAnomalyType(items[i].label);
+                              _load(datasetId, selectedMetric);
                               _showRecordsBrowser(anomalyType: items[i].label, isAnomaly: 'true');
                             }
                           },
@@ -943,6 +949,9 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                         final bucketSeconds = snapshot.data?.bucketSeconds ?? 3600;
                         final next = bucketEndFromIso(start, bucketSeconds);
                         if (next != null) {
+                          final appState = context.read<AppState>();
+                          appState.setFilterBucket(start, next.toIso8601String());
+                          _load(datasetId, selectedMetric);
                           _showRecordsBrowser(startTime: start, endTime: next.toIso8601String());
                         }
                       }
@@ -1272,12 +1281,15 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                if (points.length > i) {
                   final start = points[i].ts;
                   try {
-                  final bucketSeconds = response.bucketSeconds ?? 3600;
-                  final next = bucketEndFromIso(start, bucketSeconds);
-                  if (next != null) {
-                    _showRecordsBrowser(startTime: start, endTime: next.toIso8601String());
-                  }
-                } catch (_) {}
+                    final bucketSeconds = response.bucketSeconds ?? 3600;
+                    final next = bucketEndFromIso(start, bucketSeconds);
+                    if (next != null) {
+                      final appState = context.read<AppState>();
+                      appState.setFilterBucket(start, next.toIso8601String());
+                      _load(appState.datasetId!, appState.getSelectedMetric(appState.datasetId!));
+                      _showRecordsBrowser(startTime: start, endTime: next.toIso8601String());
+                    }
+                  } catch (_) {}
                }
             },
           );
