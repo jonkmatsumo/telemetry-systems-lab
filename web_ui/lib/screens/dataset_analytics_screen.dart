@@ -1516,6 +1516,8 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
   final int _limit = 20;
   int _offset = 0;
   int _total = 0;
+  String _sortBy = 'metric_timestamp';
+  String _sortOrder = 'desc';
   List<Map<String, dynamic>> _items = [];
   bool _loading = false;
   String? _error;
@@ -1527,6 +1529,8 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
     if (widget.contextSeed != null) {
       _context = widget.contextSeed;
       _offset = widget.contextSeed!.offset ?? 0;
+      _sortBy = widget.contextSeed!.sortBy ?? _sortBy;
+      _sortOrder = widget.contextSeed!.sortOrder ?? _sortOrder;
     }
     _load();
   }
@@ -1540,6 +1544,8 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
       widget.datasetId,
       limit: _limit,
       offset: _offset,
+      sortBy: _sortBy,
+      sortOrder: _sortOrder,
       region: widget.region,
       anomalyType: widget.anomalyType,
       isAnomaly: widget.isAnomaly,
@@ -1559,6 +1565,8 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
                 isAnomaly: widget.isAnomaly,
                 startTime: widget.startTime,
                 endTime: widget.endTime,
+                sortBy: _sortBy,
+                sortOrder: _sortOrder,
               ) ??
               InvestigationContext(
                 datasetId: widget.datasetId,
@@ -1571,6 +1579,8 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
                 isAnomaly: widget.isAnomaly,
                 startTime: widget.startTime,
                 endTime: widget.endTime,
+                sortBy: _sortBy,
+                sortOrder: _sortOrder,
               );
           widget.onContextChanged?.call(_context);
         });
@@ -1623,6 +1633,8 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
             const SizedBox(height: 12),
             Wrap(spacing: 8, runSpacing: 8, children: chips),
           ],
+          const SizedBox(height: 12),
+          _buildSortControls(),
           const SizedBox(height: 16),
           Expanded(
             child: _loading
@@ -1681,6 +1693,7 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
     final items = <Widget>[];
     final tz = widget.useUtc ? 'UTC' : 'Local';
     items.add(_contextChip('TZ: $tz'));
+    items.add(_contextChip('Sort: ${_sortOrder == "asc" ? "Oldest" : "Newest"}'));
     if (widget.region != null) items.add(_contextChip('Region: ${widget.region}'));
     if (widget.anomalyType != null) items.add(_contextChip('Type: ${widget.anomalyType}'));
     if (widget.isAnomaly != null) items.add(_contextChip('Anomaly: ${widget.isAnomaly}'));
@@ -1699,6 +1712,42 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
         border: Border.all(color: Colors.white24),
       ),
       child: Text(label, style: const TextStyle(fontSize: 11, color: Colors.white70)),
+    );
+  }
+
+  Widget _buildSortControls() {
+    return Row(
+      children: [
+        const Text('Sort by', style: TextStyle(color: Colors.white70)),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: Colors.white10,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white24),
+          ),
+          child: DropdownButton<String>(
+            key: const Key('records-sort-order'),
+            value: _sortOrder,
+            dropdownColor: const Color(0xFF0F172A),
+            underline: const SizedBox.shrink(),
+            style: const TextStyle(color: Colors.white),
+            items: const [
+              DropdownMenuItem(value: 'desc', child: Text('Newest first')),
+              DropdownMenuItem(value: 'asc', child: Text('Oldest first')),
+            ],
+            onChanged: (value) {
+              if (value == null) return;
+              setState(() {
+                _sortOrder = value;
+                _offset = 0;
+              });
+              _load();
+            },
+          ),
+        ),
+      ],
     );
   }
 
