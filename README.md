@@ -200,6 +200,7 @@ Top-K and histogram responses include a `meta` object:
 - `total_distinct`: total distinct values for Top-K, or `null` when not computed
 - `reason`: `top_k_limit`, `max_bins_cap`, or `histogram_bins`
 - `bins_requested`, `bins_returned`: histogram-specific counts
+- `server_time`: server timestamp when the response was generated
 
 `total_distinct` is nullable because counting distinct values can be expensive; the API omits it unless explicitly requested.
 Pass `include_total_distinct=true` to compute and return it.

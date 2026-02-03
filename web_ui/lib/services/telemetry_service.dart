@@ -50,6 +50,7 @@ class DatasetSummary {
   final double ingestionLatencyP50;
   final double ingestionLatencyP95;
   final List<AnomalyRatePoint> anomalyRateTrend;
+  final String? serverTime;
   DatasetSummary({
     required this.rowCount,
     required this.minTs,
@@ -60,6 +61,7 @@ class DatasetSummary {
     required this.ingestionLatencyP50,
     required this.ingestionLatencyP95,
     required this.anomalyRateTrend,
+    this.serverTime,
   });
 
   factory DatasetSummary.fromJson(Map<String, dynamic> json) {
@@ -83,6 +85,7 @@ class DatasetSummary {
       anomalyRateTrend: (json['anomaly_rate_trend'] as List? ?? [])
           .map((e) => AnomalyRatePoint.fromJson(e as Map<String, dynamic>))
           .toList(),
+      serverTime: (json['meta'] as Map<String, dynamic>?)?['server_time'],
     );
   }
 }
@@ -111,6 +114,7 @@ class ResponseMeta {
   final String reason;
   final String? startTime;
   final String? endTime;
+  final String? serverTime;
   final int? binsRequested;
   final int? binsReturned;
 
@@ -122,6 +126,7 @@ class ResponseMeta {
     required this.reason,
     this.startTime,
     this.endTime,
+    this.serverTime,
     this.binsRequested,
     this.binsReturned,
   });
@@ -135,6 +140,7 @@ class ResponseMeta {
       reason: json['reason'] ?? '',
       startTime: json['start_time'],
       endTime: json['end_time'],
+      serverTime: json['server_time'],
       binsRequested: json['bins_requested'],
       binsReturned: json['bins_returned'],
     );

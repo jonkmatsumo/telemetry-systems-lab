@@ -26,6 +26,12 @@
 namespace telemetry {
 namespace api {
 
+std::string FormatServerTime() {
+    auto now = std::chrono::system_clock::now();
+    auto now_t = std::chrono::system_clock::to_time_t(now);
+    return fmt::format("{:%Y-%m-%dT%H:%M:%SZ}", *std::gmtime(&now_t));
+}
+
 std::string GenerateUuid() {
     uuid_t out;
     uuid_generate(out);
@@ -377,6 +383,7 @@ void ApiServer::HandleDatasetSummary(const httplib::Request& req, httplib::Respo
             long row_count = summary.value("row_count", 0L);
             summary["debug"] = BuildDebugMeta(duration_ms, row_count);
         }
+        summary["meta"]["server_time"] = FormatServerTime();
         SendJson(res, summary, 200, rid);
     } catch (const std::exception& e) {
         log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
@@ -432,6 +439,7 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
             "top_k_limit");
         resp["meta"]["start_time"] = start_time;
         resp["meta"]["end_time"] = end_time;
+        resp["meta"]["server_time"] = FormatServerTime();
 
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
@@ -498,6 +506,7 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         resp["bucket_seconds"] = bucket_seconds;
         resp["meta"]["start_time"] = start_time;
         resp["meta"]["end_time"] = end_time;
+        resp["meta"]["server_time"] = FormatServerTime();
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
@@ -559,6 +568,7 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         data["meta"]["bins_returned"] = returned_bins;
         data["meta"]["start_time"] = start_time;
         data["meta"]["end_time"] = end_time;
+        data["meta"]["server_time"] = FormatServerTime();
         
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
