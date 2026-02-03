@@ -740,6 +740,9 @@ class TelemetryService {
   Future<Map<String, dynamic>> searchDatasetRecords(String runId, {
     int limit = 50,
     int offset = 0,
+    String? sortBy,
+    String? sortOrder,
+    String? anchorTime,
     String? startTime,
     String? endTime,
     String? isAnomaly,
@@ -748,6 +751,9 @@ class TelemetryService {
     String? region,
   }) async {
     final params = {'limit': '$limit', 'offset': '$offset'};
+    if (sortBy != null) params['sort_by'] = sortBy;
+    if (sortOrder != null) params['sort_order'] = sortOrder;
+    if (anchorTime != null) params['anchor_time'] = anchorTime;
     if (startTime != null) params['start_time'] = startTime;
     if (endTime != null) params['end_time'] = endTime;
     if (isAnomaly != null) params['is_anomaly'] = isAnomaly;

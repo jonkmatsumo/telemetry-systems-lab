@@ -639,10 +639,28 @@ void ApiServer::HandleGetDatasetSamples(const httplib::Request& req, httplib::Re
     std::string anomaly_type = GetStrParam(req, "anomaly_type");
     std::string host_id = GetStrParam(req, "host_id");
     std::string region = GetStrParam(req, "region");
+    std::string sort_by = GetStrParam(req, "sort_by");
+    std::string sort_order = GetStrParam(req, "sort_order");
+    std::string anchor_time = GetStrParam(req, "anchor_time");
 
     try {
-        auto data = db_client_->SearchDatasetRecords(run_id, limit, offset, start_time, end_time, is_anomaly, anomaly_type, host_id, region);
+        auto data = db_client_->SearchDatasetRecords(
+            run_id,
+            limit,
+            offset,
+            start_time,
+            end_time,
+            is_anomaly,
+            anomaly_type,
+            host_id,
+            region,
+            sort_by,
+            sort_order,
+            anchor_time);
         SendJson(res, data, 200, rid);
+    } catch (const std::invalid_argument& e) {
+        log.RecordError(telemetry::obs::kErrHttpInvalidArgument, e.what(), 400);
+        SendError(res, e.what(), 400, telemetry::obs::kErrHttpInvalidArgument, rid);
     } catch (const std::exception& e) {
         log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
         SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);

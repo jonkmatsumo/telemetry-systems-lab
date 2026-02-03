@@ -77,7 +77,10 @@ public:
                                         const std::string& is_anomaly,
                                         const std::string& anomaly_type,
                                         const std::string& host_id,
-                                        const std::string& region);
+                                        const std::string& region,
+                                        const std::string& sort_by,
+                                        const std::string& sort_order,
+                                        const std::string& anchor_time);
     nlohmann::json GetDatasetRecord(const std::string& run_id, long record_id);
     nlohmann::json ListModelRuns(int limit,
                                  int offset,

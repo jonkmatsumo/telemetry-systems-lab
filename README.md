@@ -191,6 +191,8 @@ See the [Production Hardening Runbook](docs/production_hardening.md) for details
   - Optional: `include_total_distinct=true` to compute `meta.total_distinct`
 - `GET /datasets/:id/timeseries?metrics=cpu_usage&aggs=mean&bucket=1h`
 - `GET /datasets/:id/histogram?metric=cpu_usage&bins=40&range=minmax`
+- `GET /datasets/:id/samples?limit=50&offset=0&sort_by=metric_timestamp&sort_order=desc&anchor_time=2026-02-03T00:00:00Z`
+  - Optional: `start_time`, `end_time`, `is_anomaly`, `anomaly_type`, `host_id`, `region`
 
 #### Analytics Response Metadata (Top-K + Histogram)
 Top-K and histogram responses include a `meta` object:

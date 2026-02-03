@@ -1528,16 +1528,40 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
                                               const std::string& is_anomaly,
                                               const std::string& anomaly_type,
                                               const std::string& host_id,
-                                              const std::string& region) {
+                                              const std::string& region,
+                                              const std::string& sort_by,
+                                              const std::string& sort_order,
+                                              const std::string& anchor_time) {
     nlohmann::json out = nlohmann::json::object();
     out["items"] = nlohmann::json::array();
     try {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
         
+        std::string sort_column = "metric_timestamp";
+        if (!sort_by.empty() && sort_by != "metric_timestamp") {
+            throw std::invalid_argument("Invalid sort_by: " + sort_by);
+        }
+        std::string sort_dir = "desc";
+        if (!sort_order.empty()) {
+            std::string lower = sort_order;
+            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+            if (lower != "asc" && lower != "desc") {
+                throw std::invalid_argument("Invalid sort_order: " + sort_order);
+            }
+            sort_dir = lower;
+        }
+
         std::string where = "WHERE run_id = " + N.quote(run_id);
         if (!start_time.empty()) where += " AND metric_timestamp >= " + N.quote(start_time);
         if (!end_time.empty()) where += " AND metric_timestamp <= " + N.quote(end_time);
+        if (!anchor_time.empty()) {
+            if (sort_dir == "asc") {
+                where += " AND metric_timestamp >= " + N.quote(anchor_time);
+            } else {
+                where += " AND metric_timestamp <= " + N.quote(anchor_time);
+            }
+        }
         if (!is_anomaly.empty()) where += " AND is_anomaly = " + N.quote(is_anomaly == "true");
         if (!anomaly_type.empty()) where += " AND anomaly_type = " + N.quote(anomaly_type);
         if (!host_id.empty()) where += " AND host_id = " + N.quote(host_id);
@@ -1546,7 +1570,7 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
         std::string query =
             "SELECT record_id, host_id, metric_timestamp, cpu_usage, memory_usage, disk_utilization, "
             "network_rx_rate, network_tx_rate, is_anomaly, anomaly_type, region, project_id, labels "
-            "FROM host_telemetry_archival " + where + " ORDER BY metric_timestamp DESC LIMIT $1 OFFSET $2";
+            "FROM host_telemetry_archival " + where + " ORDER BY " + sort_column + " " + sort_dir + " LIMIT $1 OFFSET $2";
             
         auto res = N.exec_params(query, limit, offset);
         for (const auto& row : res) {
@@ -1571,6 +1595,11 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
         out["total"] = count_res.empty() ? 0 : count_res[0][0].as<long>();
         out["limit"] = limit;
         out["offset"] = offset;
+        out["sort_by"] = sort_column;
+        out["sort_order"] = sort_dir;
+        if (!anchor_time.empty()) {
+            out["anchor_time"] = anchor_time;
+        }
 
     } catch (const std::exception& e) {
         spdlog::error("Failed to search dataset records: {}", e.what());
