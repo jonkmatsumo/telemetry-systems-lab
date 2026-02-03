@@ -82,3 +82,14 @@ This document serves as a guide for manual verification of UX improvements in th
 ## Follow-up Items
 - [ ] **Job Cancellation:** The "close" icon in the Jobs Drawer currently only hides the job locally. Implement API call to `DELETE /jobs/{id}` to actually cancel running jobs.
 - [ ] **Invalid IDs:** Deep links with invalid dataset/model IDs currently result in empty states or partial loads. Add explicit error pages or redirects for invalid resources.
+
+## 12. Telemetry Trust Hardening
+- [ ] **Top-K Truncation:**
+  - *Repro:* Request Top-K with K=10 where >10 items exist.
+  - *Verify:* "Top 10" pill appears. "Truncated" badge appears. Subtitle says "Showing 10 of ...".
+- [ ] **Histogram Truncation:**
+  - *Repro:* Request Histogram with bins=500 (or high number > limit).
+  - *Verify:* "500 Bins" pill appears. "Truncated" badge appears. Subtitle says "Requested 500, returned ...".
+- [ ] **Loading State Disclosures:**
+  - *Repro:* Refresh Dataset Analytics.
+  - *Verify:* "Top 10" and "30 Bins" pills are visible *while* charts are loading.

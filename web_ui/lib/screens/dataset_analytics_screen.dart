@@ -705,11 +705,11 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     final truncated = meta?.truncated ?? false;
                     final total = meta?.totalDistinct;
                     final returned = meta?.returned ?? 0;
-                    final limit = meta?.limit ?? 0;
+                    final limit = meta?.limit ?? 10;
                     
                     return ChartCard(
                       title: 'Top Regions',
-                      pillLabel: limit > 0 ? 'Top $limit' : null,
+                      pillLabel: 'Top $limit',
                       truncated: truncated,
                       subtitle: total != null ? 'Showing $returned of $total' : null,
                       truncationLabel: 'Truncated',
@@ -777,11 +777,11 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     final truncated = meta?.truncated ?? false;
                     final total = meta?.totalDistinct;
                     final returned = meta?.returned ?? 0;
-                    final limit = meta?.limit ?? 0;
+                    final limit = meta?.limit ?? 10;
 
                     return ChartCard(
                       title: 'Anomaly Types',
-                      pillLabel: limit > 0 ? 'Top $limit' : null,
+                      pillLabel: 'Top $limit',
                       truncated: truncated,
                       subtitle: total != null ? 'Showing $returned of $total' : null,
                       truncationLabel: 'Truncated',
@@ -848,11 +848,14 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     final appState = context.read<AppState>();
                     final meta = snapshot.data?.meta;
                     final truncated = meta?.truncated ?? false;
-                    final bins = meta?.limit ?? 0;
+                    final binsRequested = meta?.binsRequested ?? 30;
+                    final binsReturned = meta?.binsReturned ?? 0;
+
                     return ChartCard(
                       title: '$selectedMetric Histogram',
+                      pillLabel: '$binsRequested Bins',
                       truncated: truncated,
-                      subtitle: truncated && bins > 0 ? 'Bins capped at $bins' : null,
+                      subtitle: truncated ? 'Requested $binsRequested, returned $binsReturned' : null,
                       truncationLabel: 'Bins capped',
                       truncationTooltip: 'Requested bins exceeded the cap; histogram was downsampled.',
                       footerText: _asOfLabel(_keyMetricHist, useUtc: useUtc),
