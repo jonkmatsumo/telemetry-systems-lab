@@ -512,7 +512,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 return AnalyticsStatePanel(
                   state: AnalyticsState.error,
                   title: 'Summary unavailable',
-                  message: 'Request failed. Retry.',
+                  message: 'Request failed (timeout/auth). Retry.',
                   detail: snapshot.error.toString(),
                   onRetry: () {
                     setState(() => _load(datasetId, selectedMetric));
@@ -579,7 +579,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                           return AnalyticsStatePanel(
                             state: AnalyticsState.error,
                             title: 'Top regions failed',
-                            message: 'Request failed. Retry.',
+                            message: 'Request failed (timeout/auth). Retry.',
                             detail: snapshot.error.toString(),
                             onRetry: () {
                               setState(() => _load(datasetId, selectedMetric));
@@ -639,7 +639,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                           return AnalyticsStatePanel(
                             state: AnalyticsState.error,
                             title: 'Anomaly types failed',
-                            message: 'Request failed. Retry.',
+                            message: 'Request failed (timeout/auth). Retry.',
                             detail: snapshot.error.toString(),
                             onRetry: () {
                               setState(() => _load(datasetId, selectedMetric));
@@ -711,7 +711,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                                 return AnalyticsStatePanel(
                                   state: AnalyticsState.error,
                                   title: 'Histogram failed',
-                                  message: 'Request failed. Retry.',
+                                  message: 'Request failed (timeout/auth). Retry.',
                                   detail: snapshot.error.toString(),
                                   onRetry: () {
                                     setState(() => _load(datasetId, selectedMetric));
@@ -772,7 +772,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                         return AnalyticsStatePanel(
                           state: AnalyticsState.error,
                           title: 'Anomaly rate failed',
-                          message: 'Request failed. Retry.',
+                          message: 'Request failed (timeout/auth). Retry.',
                           detail: snapshot.error.toString(),
                           onRetry: () {
                             setState(() => _load(datasetId, selectedMetric));
@@ -831,7 +831,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     return AnalyticsStatePanel(
                       state: AnalyticsState.error,
                       title: 'Time series failed',
-                      message: 'Request failed. Retry.',
+                      message: 'Request failed (timeout/auth). Retry.',
                       detail: snapshot.error.toString(),
                       onRetry: () {
                         setState(() => _load(datasetId, selectedMetric));
@@ -885,7 +885,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       const AnalyticsStatePanel(
                         state: AnalyticsState.partial,
                         title: 'Partial data',
-                        message: 'Latest bucket is still filling.',
+                        message: 'Partial data: latest bucket incomplete.',
                       ),
                       const SizedBox(height: 8),
                       Expanded(child: chart),
@@ -1072,7 +1072,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
           return AnalyticsStatePanel(
             state: AnalyticsState.error,
             title: 'Chart failed',
-            message: 'Request failed. Retry.',
+            message: 'Request failed (timeout/auth). Retry.',
             detail: snapshot.error?.toString(),
             onRetry: onRetry,
           );
@@ -1144,7 +1144,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
               const AnalyticsStatePanel(
                 state: AnalyticsState.partial,
                 title: 'Partial data',
-                message: 'Latest bucket is still filling.',
+                message: 'Partial data: latest bucket incomplete.',
               ),
               const SizedBox(height: 8),
               Expanded(child: chart),
@@ -1170,7 +1170,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
           return AnalyticsStatePanel(
             state: AnalyticsState.error,
             title: 'Metric stats failed',
-            message: 'Request failed. Retry.',
+            message: 'Request failed (timeout/auth). Retry.',
             detail: snapshot.error.toString(),
             onRetry: () {
               setState(() => _load(datasetId, metric));
@@ -1363,7 +1363,7 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
                     ? AnalyticsStatePanel(
                         state: AnalyticsState.error,
                         title: 'Records failed',
-                        message: 'Request failed. Retry.',
+                        message: 'Request failed (timeout/auth). Retry.',
                         detail: _error,
                         onRetry: _load,
                       )
