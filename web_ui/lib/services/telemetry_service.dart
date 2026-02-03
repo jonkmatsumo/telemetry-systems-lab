@@ -127,6 +127,7 @@ class ResponseMeta {
   final String? compareMode;
   final String? baselineStartTime;
   final String? baselineEndTime;
+  final String? requestId;
   final double? durationMs;
   final int? rowsScanned;
   final int? rowsReturned;
@@ -148,6 +149,7 @@ class ResponseMeta {
     this.compareMode,
     this.baselineStartTime,
     this.baselineEndTime,
+    this.requestId,
     this.durationMs,
     this.rowsScanned,
     this.rowsReturned,
@@ -171,6 +173,7 @@ class ResponseMeta {
       compareMode: json['compare_mode'],
       baselineStartTime: json['baseline_start_time'],
       baselineEndTime: json['baseline_end_time'],
+      requestId: json['request_id'],
       durationMs: (json['duration_ms'] as num?)?.toDouble(),
       rowsScanned: json['rows_scanned'],
       rowsReturned: json['rows_returned'],

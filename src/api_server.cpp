@@ -393,6 +393,7 @@ void ApiServer::HandleDatasetSummary(const httplib::Request& req, httplib::Respo
         summary["meta"]["rows_scanned"] = nullptr;
         summary["meta"]["rows_returned"] = 1;
         summary["meta"]["cache_hit"] = false;
+        summary["meta"]["request_id"] = rid;
         if (debug) {
             long row_count = summary.value("row_count", 0L);
             summary["debug"] = BuildDebugMeta(duration_ms, row_count);
@@ -461,6 +462,7 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         resp["meta"]["rows_scanned"] = nullptr;
         resp["meta"]["rows_returned"] = static_cast<int>(items.size());
         resp["meta"]["cache_hit"] = false;
+        resp["meta"]["request_id"] = rid;
 
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
@@ -574,6 +576,7 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         resp["meta"]["rows_scanned"] = nullptr;
         resp["meta"]["rows_returned"] = static_cast<int>(data.size());
         resp["meta"]["cache_hit"] = false;
+        resp["meta"]["request_id"] = rid;
         if (debug) {
             nlohmann::json resolved;
             resolved["metrics"] = metrics;
@@ -641,6 +644,7 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         data["meta"]["rows_scanned"] = nullptr;
         data["meta"]["rows_returned"] = returned_bins;
         data["meta"]["cache_hit"] = false;
+        data["meta"]["request_id"] = rid;
         
         if (debug) {
             long row_count = data.value("counts", nlohmann::json::array()).size();
