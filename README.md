@@ -221,6 +221,14 @@ Paginated endpoints return:
 #### Time Semantics (Analytics UI)
 - The dashboard shows an explicit timezone indicator (UTC or Local) on time-based charts.
 - Bucket size is labeled (e.g., `1h buckets`) and drill-down uses exact bucket boundaries.
+
+#### Telemetry Analytics: Data Correctness Signals
+- **Truncation disclosure:** Top-K and histogram cards surface `Top K`/`Bins capped` with `meta.truncated`, `meta.limit`, and optional `meta.total_distinct`.
+- **Freshness + coherency:** Each widget shows an “As of” timestamp from `meta.server_time`; a banner appears when widgets are out of sync.
+- **Cost hints:** Tooltip shows `meta.duration_ms`, `meta.rows_scanned`, `meta.rows_returned`, and cache hits when present.
+- **Timezone + resolution:** Charts display timezone and bucket width; a global UTC/Local toggle controls formatting.
+- **Comparative context:** Optional `compare_mode=previous_period` overlays a baseline series with a delta summary.
+- **Debug panel:** Per-widget debug panel exposes `request_id`, params, and server timing for incident triage.
 - The UTC/Local toggle applies to all analytics charts and labels.
 
 #### Time-Series Resolution (Down-sampling)
