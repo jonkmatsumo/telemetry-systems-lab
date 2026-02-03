@@ -388,8 +388,12 @@ void ApiServer::HandleDatasetSummary(const httplib::Request& req, httplib::Respo
             SendError(res, "Dataset not found", 404, telemetry::obs::kErrHttpNotFound, rid);
             return;
         }
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        summary["meta"]["duration_ms"] = duration_ms;
+        summary["meta"]["rows_scanned"] = nullptr;
+        summary["meta"]["rows_returned"] = 1;
+        summary["meta"]["cache_hit"] = false;
         if (debug) {
-            double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             long row_count = summary.value("row_count", 0L);
             summary["debug"] = BuildDebugMeta(duration_ms, row_count);
         }
@@ -431,6 +435,7 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         auto start = std::chrono::steady_clock::now();
         auto data_obj = db_client_->GetTopK(run_id, allowed[column], k, region, is_anomaly, anomaly_type, start_time, end_time, include_total);
         auto end = std::chrono::steady_clock::now();
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
         
         nlohmann::json resp;
         auto& items = data_obj["items"];
@@ -451,6 +456,10 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         resp["meta"]["start_time"] = start_time;
         resp["meta"]["end_time"] = end_time;
         resp["meta"]["server_time"] = FormatServerTime();
+        resp["meta"]["duration_ms"] = duration_ms;
+        resp["meta"]["rows_scanned"] = nullptr;
+        resp["meta"]["rows_returned"] = static_cast<int>(items.size());
+        resp["meta"]["cache_hit"] = false;
 
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
@@ -516,6 +525,7 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         auto start = std::chrono::steady_clock::now();
         auto data = db_client_->GetTimeSeries(run_id, metrics, aggs, bucket_seconds, region, is_anomaly, anomaly_type, start_time, end_time);
         auto end = std::chrono::steady_clock::now();
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
         nlohmann::json resp;
         resp["items"] = data;
         resp["bucket_seconds"] = bucket_seconds;
@@ -524,8 +534,11 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         resp["meta"]["bucket_seconds"] = bucket_seconds;
         resp["meta"]["resolution"] = telemetry::api::BucketLabel(bucket_seconds);
         resp["meta"]["server_time"] = FormatServerTime();
+        resp["meta"]["duration_ms"] = duration_ms;
+        resp["meta"]["rows_scanned"] = nullptr;
+        resp["meta"]["rows_returned"] = static_cast<int>(data.size());
+        resp["meta"]["cache_hit"] = false;
         if (debug) {
-            double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
             resolved["metrics"] = metrics;
             resolved["aggs"] = aggs;
@@ -572,6 +585,7 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         auto start = std::chrono::steady_clock::now();
         auto data = db_client_->GetHistogram(run_id, metric, bins, min_val, max_val, region, is_anomaly, anomaly_type, start_time, end_time);
         auto end = std::chrono::steady_clock::now();
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
         
         int requested_bins = data.value("requested_bins", bins);
         int returned_bins = data.value("counts", nlohmann::json::array()).size();
@@ -587,9 +601,12 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         data["meta"]["start_time"] = start_time;
         data["meta"]["end_time"] = end_time;
         data["meta"]["server_time"] = FormatServerTime();
+        data["meta"]["duration_ms"] = duration_ms;
+        data["meta"]["rows_scanned"] = nullptr;
+        data["meta"]["rows_returned"] = returned_bins;
+        data["meta"]["cache_hit"] = false;
         
         if (debug) {
-            double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             long row_count = data.value("counts", nlohmann::json::array()).size();
             nlohmann::json resolved;
             resolved["metric"] = metric;
