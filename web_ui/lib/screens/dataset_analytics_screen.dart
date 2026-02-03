@@ -374,6 +374,16 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 ),
                 Row(
                   children: [
+                    Row(
+                      children: [
+                        const Text('UTC', style: TextStyle(color: Colors.white60, fontSize: 12)),
+                        Switch(
+                          value: useUtc,
+                          onChanged: (val) => appState.setUseUtc(val),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 8),
                     OutlinedButton.icon(
                       onPressed: () async {
                          final picked = await showDateRangePicker(
