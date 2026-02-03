@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/telemetry_service.dart';
+import 'investigation_context.dart';
 
 class PendingInferenceRequest {
   final String datasetId;
@@ -27,6 +28,7 @@ class AppState extends ChangeNotifier {
   bool useUtc = false;
 
   PendingInferenceRequest? pendingInference;
+  InvestigationContext? investigationContext;
 
   void setTabIndex(int index) {
     currentTabIndex = index;
@@ -45,6 +47,11 @@ class AppState extends ChangeNotifier {
 
   void clearPendingInference() {
     pendingInference = null;
+    notifyListeners();
+  }
+
+  void setInvestigationContext(InvestigationContext? ctx) {
+    investigationContext = ctx;
     notifyListeners();
   }
 
