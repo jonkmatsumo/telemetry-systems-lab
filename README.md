@@ -204,6 +204,7 @@ Top-K and histogram responses include a `meta` object:
 - `reason`: `top_k_limit`, `max_bins_cap`, or `histogram_bins`
 - `bins_requested`, `bins_returned`: histogram-specific counts
 - `server_time`: server timestamp when the response was generated
+- `request_id`: per-request identifier for debugging and trace correlation
 
 `total_distinct` is nullable because counting distinct values can be expensive; the API omits it unless explicitly requested.
 Pass `include_total_distinct=true` to compute and return it.
