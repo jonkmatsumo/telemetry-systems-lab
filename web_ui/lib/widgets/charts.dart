@@ -8,6 +8,7 @@ class LineChart extends StatelessWidget {
   final String Function(double)? xLabelBuilder;
   final String Function(double)? yLabelBuilder;
   final List<bool>? partial;
+  final void Function(int)? onTap;
 
   const LineChart({
     super.key,
@@ -18,22 +19,52 @@ class LineChart extends StatelessWidget {
     this.xLabelBuilder,
     this.yLabelBuilder,
     this.partial,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        return CustomPaint(
-          size: Size(constraints.maxWidth, constraints.maxHeight),
-          painter: _LineChartPainter(
-            x: x,
-            y: y,
-            lineColor: lineColor,
-            strokeWidth: strokeWidth,
-            xLabelBuilder: xLabelBuilder,
-            yLabelBuilder: yLabelBuilder,
-            partial: partial,
+        return GestureDetector(
+          onTapUp: (details) {
+            if (onTap == null || x.isEmpty) return;
+            final double leftMargin = (yLabelBuilder != null) ? 48.0 : 0.0;
+            final double w = constraints.maxWidth - leftMargin;
+            if (w <= 0) return;
+            
+            final double dxLocal = details.localPosition.dx - leftMargin;
+            if (dxLocal < 0 || dxLocal > w) return;
+
+            final minX = x.reduce((a, b) => a < b ? a : b);
+            final maxX = x.reduce((a, b) => a > b ? a : b);
+            final range = maxX - minX;
+            if (range == 0) return;
+
+            final double val = minX + (dxLocal / w) * range;
+            // Find closest index in x
+            int bestIdx = 0;
+            double bestDist = (x[0] - val).abs();
+            for (int i = 1; i < x.length; i++) {
+              double d = (x[i] - val).abs();
+              if (d < bestDist) {
+                bestDist = d;
+                bestIdx = i;
+              }
+            }
+            onTap!(bestIdx);
+          },
+          child: CustomPaint(
+            size: Size(constraints.maxWidth, constraints.maxHeight),
+            painter: _LineChartPainter(
+              x: x,
+              y: y,
+              lineColor: lineColor,
+              strokeWidth: strokeWidth,
+              xLabelBuilder: xLabelBuilder,
+              yLabelBuilder: yLabelBuilder,
+              partial: partial,
+            ),
           ),
         );
       },
@@ -201,22 +232,38 @@ class _LineChartPainter extends CustomPainter {
 
 class BarChart extends StatelessWidget {
   final List<double> values;
+  final List<double>? overlayValues;
   final List<String>? labels;
   final Color barColor;
+  final Color overlayColor;
+  final void Function(int)? onTap;
 
   const BarChart({
     super.key,
     required this.values,
+    this.overlayValues,
     this.labels,
     this.barColor = const Color(0xFF818CF8),
+    this.overlayColor = const Color(0xFFFF5252),
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
-      return CustomPaint(
-        size: Size(constraints.maxWidth, constraints.maxHeight),
-        painter: _BarChartPainter(values, labels, barColor),
+      return GestureDetector(
+        onTapUp: (details) {
+          if (onTap == null || values.isEmpty) return;
+          final double barWidth = constraints.maxWidth / values.length;
+          final int index = (details.localPosition.dx / barWidth).floor();
+          if (index >= 0 && index < values.length) {
+            onTap!(index);
+          }
+        },
+        child: CustomPaint(
+          size: Size(constraints.maxWidth, constraints.maxHeight),
+          painter: _BarChartPainter(values, overlayValues, labels, barColor, overlayColor),
+        ),
       );
     });
   }
@@ -224,10 +271,12 @@ class BarChart extends StatelessWidget {
 
 class _BarChartPainter extends CustomPainter {
   final List<double> values;
+  final List<double>? overlayValues;
   final List<String>? labels;
   final Color barColor;
+  final Color overlayColor;
 
-  _BarChartPainter(this.values, this.labels, this.barColor);
+  _BarChartPainter(this.values, this.overlayValues, this.labels, this.barColor, this.overlayColor);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -235,8 +284,6 @@ class _BarChartPainter extends CustomPainter {
     final maxV = values.reduce((a, b) => a > b ? a : b);
     
     // Margins
-    // If labels are present, give space. For topK, maybe rotate?
-    // Let's assume horizontal labels if few, or skip.
     final double bottomMargin = (labels != null) ? 24.0 : 0.0;
     final double h = size.height - bottomMargin;
     final double barWidth = size.width / values.length;
@@ -245,13 +292,30 @@ class _BarChartPainter extends CustomPainter {
       ..color = barColor
       ..style = PaintingStyle.fill;
 
+    final overlayPaint = Paint()
+      ..color = overlayColor
+      ..style = PaintingStyle.fill;
+
     for (int i = 0; i < values.length; i++) {
       final barH = maxV == 0 ? 0 : (values[i] / maxV) * h;
       final rect = Rect.fromLTWH(i * barWidth + 2, h - barH, barWidth - 4, barH.toDouble());
       canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(4)), paint);
       
+      if (overlayValues != null && i < overlayValues!.length) {
+         final ov = overlayValues![i];
+         if (ov > 0) {
+            final ovH = maxV == 0 ? 0 : (ov / maxV) * h;
+            // Draw overlay narrower or just on top?
+            // "Overlay anomaly distribution visually"
+            // Usually simpler to draw it "inside" the bar or on top.
+            // Drawing inside (narrower) is good for visibility.
+            final ovRect = Rect.fromLTWH(i * barWidth + 6, h - ovH, barWidth - 12, ovH.toDouble());
+            canvas.drawRRect(RRect.fromRectAndRadius(ovRect, const Radius.circular(2)), overlayPaint);
+         }
+      }
+
       if (labels != null && i < labels!.length) {
-         // Simple logic: show first, last, and some in between if crowded
+         // ... existing label logic
          bool show = true;
          if (values.length > 10) {
             show = i % (values.length ~/ 5) == 0;
@@ -264,7 +328,7 @@ class _BarChartPainter extends CustomPainter {
              maxLines: 1,
              ellipsis: '...',
            );
-           tp.layout(maxWidth: barWidth * 2); // Allow overlap/overflow slightly
+           tp.layout(maxWidth: barWidth * 2);
            tp.paint(canvas, Offset(i * barWidth + (barWidth - tp.width)/2, h + 6));
          }
       }
@@ -273,7 +337,10 @@ class _BarChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BarChartPainter oldDelegate) {
-    return oldDelegate.values != values || oldDelegate.barColor != barColor || oldDelegate.labels != labels;
+    return oldDelegate.values != values || 
+           oldDelegate.barColor != barColor || 
+           oldDelegate.labels != labels ||
+           oldDelegate.overlayValues != overlayValues;
   }
 }
 

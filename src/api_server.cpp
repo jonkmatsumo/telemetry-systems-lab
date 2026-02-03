@@ -555,11 +555,18 @@ void ApiServer::HandleGetDatasetSamples(const httplib::Request& req, httplib::Re
     std::string run_id = req.matches[1];
     log.AddFields({{"dataset_id", run_id}});
     int limit = GetIntParam(req, "limit", 20);
+    int offset = GetIntParam(req, "offset", 0);
+    
+    std::string start_time = GetStrParam(req, "start_time");
+    std::string end_time = GetStrParam(req, "end_time");
+    std::string is_anomaly = GetStrParam(req, "is_anomaly");
+    std::string anomaly_type = GetStrParam(req, "anomaly_type");
+    std::string host_id = GetStrParam(req, "host_id");
+    std::string region = GetStrParam(req, "region");
+
     try {
-        auto data = db_client_->GetDatasetSamples(run_id, limit);
-        nlohmann::json resp;
-        resp["items"] = data;
-        SendJson(res, resp, 200, rid);
+        auto data = db_client_->SearchDatasetRecords(run_id, limit, offset, start_time, end_time, is_anomaly, anomaly_type, host_id, region);
+        SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
         log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
         SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);

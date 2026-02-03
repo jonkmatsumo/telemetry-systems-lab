@@ -1500,3 +1500,62 @@ void DbClient::DeleteDatasetWithScores(const std::string& dataset_id) {
         throw;
     }
 }
+
+nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
+                                              int limit,
+                                              int offset,
+                                              const std::string& start_time,
+                                              const std::string& end_time,
+                                              const std::string& is_anomaly,
+                                              const std::string& anomaly_type,
+                                              const std::string& host_id,
+                                              const std::string& region) {
+    nlohmann::json out = nlohmann::json::object();
+    out["items"] = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        
+        std::string where = "WHERE run_id = " + N.quote(run_id);
+        if (!start_time.empty()) where += " AND metric_timestamp >= " + N.quote(start_time);
+        if (!end_time.empty()) where += " AND metric_timestamp <= " + N.quote(end_time);
+        if (!is_anomaly.empty()) where += " AND is_anomaly = " + N.quote(is_anomaly == "true");
+        if (!anomaly_type.empty()) where += " AND anomaly_type = " + N.quote(anomaly_type);
+        if (!host_id.empty()) where += " AND host_id = " + N.quote(host_id);
+        if (!region.empty()) where += " AND region = " + N.quote(region);
+
+        std::string query =
+            "SELECT record_id, host_id, metric_timestamp, cpu_usage, memory_usage, disk_utilization, "
+            "network_rx_rate, network_tx_rate, is_anomaly, anomaly_type, region, project_id, labels "
+            "FROM host_telemetry_archival " + where + " ORDER BY metric_timestamp DESC LIMIT $1 OFFSET $2";
+            
+        auto res = N.exec_params(query, limit, offset);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["record_id"] = row[0].as<long>();
+            j["host_id"] = row[1].as<std::string>();
+            j["timestamp"] = row[2].as<std::string>();
+            j["cpu_usage"] = row[3].as<double>();
+            j["memory_usage"] = row[4].as<double>();
+            j["disk_utilization"] = row[5].as<double>();
+            j["network_rx_rate"] = row[6].as<double>();
+            j["network_tx_rate"] = row[7].as<double>();
+            j["is_anomaly"] = row[8].as<bool>();
+            j["anomaly_type"] = row[9].is_null() ? "" : row[9].as<std::string>();
+            j["region"] = row[10].as<std::string>();
+            j["project_id"] = row[11].as<std::string>();
+            j["labels"] = row[12].is_null() ? nlohmann::json::object() : nlohmann::json::parse(row[12].c_str());
+            out["items"].push_back(j);
+        }
+        
+        auto count_res = N.exec("SELECT COUNT(*) FROM host_telemetry_archival " + where);
+        out["total"] = count_res.empty() ? 0 : count_res[0][0].as<long>();
+        out["limit"] = limit;
+        out["offset"] = offset;
+
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to search dataset records: {}", e.what());
+        throw;
+    }
+    return out;
+}
