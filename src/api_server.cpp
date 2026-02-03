@@ -1,5 +1,6 @@
 #include "detectors/pca_model.h"
 #include "api_server.h"
+#include "api_response_meta.h"
 #include "api_debug.h"
 #include "route_registry.h"
 #include "training/pca_trainer.h"
@@ -409,17 +410,33 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
     bool debug = GetStrParam(req, "debug") == "true";
     try {
         auto start = std::chrono::steady_clock::now();
-        auto data = db_client_->GetTopK(run_id, allowed[column], k, is_anomaly, anomaly_type, start_time, end_time);
+        auto data_obj = db_client_->GetTopK(run_id, allowed[column], k, is_anomaly, anomaly_type, start_time, end_time);
         auto end = std::chrono::steady_clock::now();
+        
         nlohmann::json resp;
-        resp["items"] = data;
+        auto& items = data_obj["items"];
+        resp["items"] = items;
+        
+        std::optional<long> total_distinct = std::nullopt;
+        if (data_obj.contains("total_distinct")) {
+            total_distinct = data_obj["total_distinct"].get<long>();
+        }
+
+        bool truncated = false;
+        resp["meta"] = telemetry::api::BuildResponseMeta(
+            k,
+            static_cast<int>(items.size()),
+            truncated,
+            total_distinct,
+            "top_k_limit");
         resp["meta"]["start_time"] = start_time;
         resp["meta"]["end_time"] = end_time;
+
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
             resolved["column"] = allowed[column];
-            resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(data.size()), resolved);
+            resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(items.size()), resolved);
         }
         SendJson(res, resp, 200, rid);
     } catch (const std::invalid_argument& e) {
@@ -527,8 +544,21 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         auto start = std::chrono::steady_clock::now();
         auto data = db_client_->GetHistogram(run_id, metric, bins, min_val, max_val, is_anomaly, anomaly_type, start_time, end_time);
         auto end = std::chrono::steady_clock::now();
+        
+        int requested_bins = data.value("requested_bins", bins);
+        int returned_bins = data.value("counts", nlohmann::json::array()).size();
+        bool truncated = false;
+        data["meta"] = telemetry::api::BuildResponseMeta(
+            requested_bins,
+            returned_bins,
+            truncated,
+            std::nullopt,
+            "histogram_bins");
+        data["meta"]["bins_requested"] = requested_bins;
+        data["meta"]["bins_returned"] = returned_bins;
         data["meta"]["start_time"] = start_time;
         data["meta"]["end_time"] = end_time;
+        
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             long row_count = data.value("counts", nlohmann::json::array()).size();

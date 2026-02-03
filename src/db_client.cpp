@@ -785,30 +785,34 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
     if (!IsValidDimension(column)) {
         throw std::invalid_argument("Invalid column: " + column);
     }
-    nlohmann::json out = nlohmann::json::array();
+    nlohmann::json out;
+    out["items"] = nlohmann::json::array();
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        std::string query = "SELECT " + column + ", COUNT(*) FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id);
+        
+        std::string filter = "WHERE run_id = " + W.quote(run_id);
         if (!is_anomaly.empty()) {
-            query += " AND is_anomaly = " + W.quote(is_anomaly == "true");
+            filter += " AND is_anomaly = " + W.quote(is_anomaly == "true");
         }
         if (!anomaly_type.empty()) {
-            query += " AND anomaly_type = " + W.quote(anomaly_type);
+            filter += " AND anomaly_type = " + W.quote(anomaly_type);
         }
         if (!start_time.empty()) {
-            query += " AND metric_timestamp >= " + W.quote(start_time);
+            filter += " AND metric_timestamp >= " + W.quote(start_time);
         }
         if (!end_time.empty()) {
-            query += " AND metric_timestamp <= " + W.quote(end_time);
+            filter += " AND metric_timestamp <= " + W.quote(end_time);
         }
-        query += " GROUP BY " + column + " ORDER BY COUNT(*) DESC LIMIT " + std::to_string(k);
+
+        std::string query = "SELECT " + column + ", COUNT(*) FROM host_telemetry_archival " + filter +
+                            " GROUP BY " + column + " ORDER BY COUNT(*) DESC LIMIT " + std::to_string(k);
         auto res = W.exec(query);
         for (const auto& row : res) {
             nlohmann::json j;
             j["label"] = row[0].is_null() ? "" : row[0].as<std::string>();
             j["count"] = row[1].as<long>();
-            out.push_back(j);
+            out["items"].push_back(j);
         }
         W.commit();
     } catch (const std::exception& e) {
@@ -909,7 +913,12 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
     if (!IsValidMetric(metric)) {
         throw std::invalid_argument("Invalid metric: " + metric);
     }
+    const int MAX_BINS = 500;
+    int requested_bins = bins;
+    if (bins > MAX_BINS) bins = MAX_BINS;
+
     nlohmann::json out;
+    out["requested_bins"] = requested_bins;
     out["edges"] = nlohmann::json::array();
     out["counts"] = nlohmann::json::array();
     try {

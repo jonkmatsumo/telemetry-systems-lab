@@ -188,8 +188,21 @@ See the [Production Hardening Runbook](docs/production_hardening.md) for details
 ### Dataset Analytics
 - `GET /datasets/:id/summary`
 - `GET /datasets/:id/topk?column=region|project_id|host_id|anomaly_type`
+  - Optional: `include_total_distinct=true` to compute `meta.total_distinct`
 - `GET /datasets/:id/timeseries?metrics=cpu_usage&aggs=mean&bucket=1h`
 - `GET /datasets/:id/histogram?metric=cpu_usage&bins=40&range=minmax`
+
+#### Analytics Response Metadata (Top-K + Histogram)
+Top-K and histogram responses include a `meta` object:
+- `limit`: requested K (Top-K) or requested bins (histogram)
+- `returned`: number of items/bins returned
+- `truncated`: `true` when results are capped (known truncation)
+- `total_distinct`: total distinct values for Top-K, or `null` when not computed
+- `reason`: `top_k_limit`, `max_bins_cap`, or `histogram_bins`
+- `bins_requested`, `bins_returned`: histogram-specific counts
+
+`total_distinct` is nullable because counting distinct values can be expensive; the API omits it unless explicitly requested.
+Pass `include_total_distinct=true` to compute and return it.
 
 ### Dataset-Wide Scoring + Eval
 - `POST /jobs/score_dataset`
