@@ -40,4 +40,20 @@ void main() {
     expect(find.text('Bins capped at 500'), findsOneWidget);
     expect(find.text('Bins capped'), findsOneWidget);
   });
+
+  testWidgets('ChartCard shows info icon when infoText provided', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: ChartCard(
+            title: 'Cost Info',
+            infoText: 'Duration 12ms',
+            child: SizedBox(),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byIcon(Icons.info_outline), findsOneWidget);
+  });
 }
