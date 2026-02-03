@@ -202,7 +202,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
           ),
           TextButton.icon(
             onPressed: () {
-              setState(() => _load(datasetId, metric, forceRefresh: true));
+              _refreshAll(datasetId, metric);
             },
             icon: const Icon(Icons.refresh, size: 16, color: Colors.orange),
             label: const Text('Refresh all', style: TextStyle(color: Colors.orange)),
@@ -323,6 +323,13 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     }
   }
 
+  void _refreshAll(String datasetId, String metric) {
+    setState(() {
+      _freshness.clear();
+      _load(datasetId, metric, forceRefresh: true);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
@@ -387,12 +394,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       children: [
                         IconButton(
                           onPressed: () {
-                            setState(() {
-                              _load(datasetId, selectedMetric, forceRefresh: true);
-                            });
+                            _refreshAll(datasetId, selectedMetric);
                           },
                           icon: const Icon(Icons.refresh),
-                          tooltip: 'Force Refresh',
+                          tooltip: 'Refresh all widgets',
                         ),
                         if (_lastUpdated != null)
                           Text(
