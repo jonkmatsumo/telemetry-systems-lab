@@ -3,6 +3,7 @@
 #include "api_response_meta.h"
 #include "api_debug.h"
 #include "route_registry.h"
+#include "time_resolution.h"
 #include "training/pca_trainer.h"
 #include <spdlog/spdlog.h>
 #include <filesystem>
@@ -504,8 +505,11 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
     if (bucket == "1m") bucket_seconds = 60;
     else if (bucket == "5m") bucket_seconds = 300;
     else if (bucket == "15m") bucket_seconds = 900;
-    else if (bucket == "1h" || bucket.empty()) bucket_seconds = 3600;
+    else if (bucket == "1h") bucket_seconds = 3600;
+    else if (bucket == "6h") bucket_seconds = 21600;
     else if (bucket == "1d") bucket_seconds = 86400;
+    else if (bucket == "7d") bucket_seconds = 604800;
+    else if (bucket.empty() || bucket == "auto") bucket_seconds = telemetry::api::SelectBucketSeconds(start_time, end_time);
 
     bool debug = GetStrParam(req, "debug") == "true";
     try {
@@ -517,6 +521,8 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         resp["bucket_seconds"] = bucket_seconds;
         resp["meta"]["start_time"] = start_time;
         resp["meta"]["end_time"] = end_time;
+        resp["meta"]["bucket_seconds"] = bucket_seconds;
+        resp["meta"]["resolution"] = telemetry::api::BucketLabel(bucket_seconds);
         resp["meta"]["server_time"] = FormatServerTime();
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
