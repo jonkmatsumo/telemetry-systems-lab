@@ -69,6 +69,15 @@ public:
                                       const std::string& created_to = "");
     nlohmann::json GetDatasetDetail(const std::string& run_id);
     nlohmann::json GetDatasetSamples(const std::string& run_id, int limit);
+    nlohmann::json SearchDatasetRecords(const std::string& run_id,
+                                        int limit,
+                                        int offset,
+                                        const std::string& start_time,
+                                        const std::string& end_time,
+                                        const std::string& is_anomaly,
+                                        const std::string& anomaly_type,
+                                        const std::string& host_id,
+                                        const std::string& region);
     nlohmann::json GetDatasetRecord(const std::string& run_id, long record_id);
     nlohmann::json ListModelRuns(int limit,
                                  int offset,

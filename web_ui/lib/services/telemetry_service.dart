@@ -121,17 +121,22 @@ class TopKEntry {
 class TimeSeriesPoint {
   final String ts;
   final Map<String, double> values;
+  final int count;
 
-  TimeSeriesPoint({required this.ts, required this.values});
+  TimeSeriesPoint({required this.ts, required this.values, required this.count});
 
   factory TimeSeriesPoint.fromJson(Map<String, dynamic> json) {
     final values = <String, double>{};
     json.forEach((key, value) {
-      if (key != 'ts') {
+      if (key != 'ts' && key != 'count') {
         values[key] = (value ?? 0.0).toDouble();
       }
     });
-    return TimeSeriesPoint(ts: json['ts'] ?? '', values: values);
+    return TimeSeriesPoint(
+      ts: json['ts'] ?? '', 
+      values: values,
+      count: json['count'] ?? 0,
+    );
   }
 }
 
@@ -614,10 +619,44 @@ class TelemetryService {
   Future<List<Map<String, dynamic>>> getDatasetSamples(String runId, {int limit = 20}) async {
     final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/samples?limit=$limit'));
     if (response.statusCode == 200) {
-      final List items = jsonDecode(response.body)['items'];
-      return items.map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m)).toList();
+      // Handle both old list format and new map format if necessary, but we changed API to return map.
+      // However, to keep compatibility with existing calls that expect List, we should check type.
+      final body = jsonDecode(response.body);
+      if (body is Map && body.containsKey('items')) {
+        final List items = body['items'];
+        return items.map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m)).toList();
+      } else if (body is List) {
+        return body.map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m)).toList();
+      }
+      return [];
     }
     _handleError(response, 'Failed to get dataset samples');
+    throw Exception('Unreachable');
+  }
+
+  Future<Map<String, dynamic>> searchDatasetRecords(String runId, {
+    int limit = 50,
+    int offset = 0,
+    String? startTime,
+    String? endTime,
+    String? isAnomaly,
+    String? anomalyType,
+    String? hostId,
+    String? region,
+  }) async {
+    final params = {'limit': '$limit', 'offset': '$offset'};
+    if (startTime != null) params['start_time'] = startTime;
+    if (endTime != null) params['end_time'] = endTime;
+    if (isAnomaly != null) params['is_anomaly'] = isAnomaly;
+    if (anomalyType != null) params['anomaly_type'] = anomalyType;
+    if (hostId != null) params['host_id'] = hostId;
+    if (region != null) params['region'] = region;
+    
+    final response = await _client.get(_buildUri('/datasets/$runId/samples', params));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    _handleError(response, 'Failed to search records');
     throw Exception('Unreachable');
   }
 
@@ -648,11 +687,13 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<DatasetSummary> getDatasetSummary(String runId, {int topk = 5}) async {
+  Future<DatasetSummary> getDatasetSummary(String runId, {int topk = 5, bool forceRefresh = false}) async {
     final params = {'topk': '$topk'};
     final key = _cacheKey('/datasets/$runId/summary', params);
-    final cached = _readCache<DatasetSummary>(key);
-    if (cached != null) return cached;
+    if (!forceRefresh) {
+      final cached = _readCache<DatasetSummary>(key);
+      if (cached != null) return cached;
+    }
     final response = await _client.get(_buildUri('/datasets/$runId/summary', params));
     if (response.statusCode == 200) {
       final summary = DatasetSummary.fromJson(jsonDecode(response.body));
@@ -668,7 +709,8 @@ class TelemetryService {
       String? isAnomaly,
       String? anomalyType,
       String? startTime,
-      String? endTime}) async {
+      String? endTime,
+      bool forceRefresh = false}) async {
     final params = <String, String>{
       'column': column,
       'k': '$k',
@@ -678,8 +720,10 @@ class TelemetryService {
     if (startTime != null) params['start_time'] = startTime;
     if (endTime != null) params['end_time'] = endTime;
     final key = _cacheKey('/datasets/$runId/topk', params);
-    final cached = _readCache<List<TopKEntry>>(key);
-    if (cached != null) return cached;
+    if (!forceRefresh) {
+      final cached = _readCache<List<TopKEntry>>(key);
+      if (cached != null) return cached;
+    }
     final response = await _client.get(_buildUri('/datasets/$runId/topk', params));
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
@@ -699,7 +743,8 @@ class TelemetryService {
       String? isAnomaly,
       String? anomalyType,
       String? startTime,
-      String? endTime}) async {
+      String? endTime,
+      bool forceRefresh = false}) async {
     final params = <String, String>{
       'metrics': metrics.join(','),
       'aggs': aggs.join(','),
@@ -710,8 +755,10 @@ class TelemetryService {
     if (startTime != null) params['start_time'] = startTime;
     if (endTime != null) params['end_time'] = endTime;
     final key = _cacheKey('/datasets/$runId/timeseries', params);
-    final cached = _readCache<List<TimeSeriesPoint>>(key);
-    if (cached != null) return cached;
+    if (!forceRefresh) {
+      final cached = _readCache<List<TimeSeriesPoint>>(key);
+      if (cached != null) return cached;
+    }
     final response = await _client.get(_buildUri('/datasets/$runId/timeseries', params));
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
@@ -733,7 +780,8 @@ class TelemetryService {
       String? isAnomaly,
       String? anomalyType,
       String? startTime,
-      String? endTime}) async {
+      String? endTime,
+      bool forceRefresh = false}) async {
     final params = <String, String>{
       'metric': metric,
       'bins': '$bins',
@@ -746,8 +794,10 @@ class TelemetryService {
     if (startTime != null) params['start_time'] = startTime;
     if (endTime != null) params['end_time'] = endTime;
     final key = _cacheKey('/datasets/$runId/histogram', params);
-    final cached = _readCache<HistogramData>(key);
-    if (cached != null) return cached;
+    if (!forceRefresh) {
+      final cached = _readCache<HistogramData>(key);
+      if (cached != null) return cached;
+    }
     final response = await _client.get(_buildUri('/datasets/$runId/histogram', params));
     if (response.statusCode == 200) {
       final data = HistogramData.fromJson(jsonDecode(response.body));

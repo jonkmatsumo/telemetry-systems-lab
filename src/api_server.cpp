@@ -413,6 +413,8 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         auto end = std::chrono::steady_clock::now();
         nlohmann::json resp;
         resp["items"] = data;
+        resp["meta"]["start_time"] = start_time;
+        resp["meta"]["end_time"] = end_time;
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
@@ -476,6 +478,8 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
         nlohmann::json resp;
         resp["items"] = data;
         resp["bucket_seconds"] = bucket_seconds;
+        resp["meta"]["start_time"] = start_time;
+        resp["meta"]["end_time"] = end_time;
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
@@ -523,6 +527,8 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         auto start = std::chrono::steady_clock::now();
         auto data = db_client_->GetHistogram(run_id, metric, bins, min_val, max_val, is_anomaly, anomaly_type, start_time, end_time);
         auto end = std::chrono::steady_clock::now();
+        data["meta"]["start_time"] = start_time;
+        data["meta"]["end_time"] = end_time;
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             long row_count = data.value("counts", nlohmann::json::array()).size();
@@ -549,11 +555,18 @@ void ApiServer::HandleGetDatasetSamples(const httplib::Request& req, httplib::Re
     std::string run_id = req.matches[1];
     log.AddFields({{"dataset_id", run_id}});
     int limit = GetIntParam(req, "limit", 20);
+    int offset = GetIntParam(req, "offset", 0);
+    
+    std::string start_time = GetStrParam(req, "start_time");
+    std::string end_time = GetStrParam(req, "end_time");
+    std::string is_anomaly = GetStrParam(req, "is_anomaly");
+    std::string anomaly_type = GetStrParam(req, "anomaly_type");
+    std::string host_id = GetStrParam(req, "host_id");
+    std::string region = GetStrParam(req, "region");
+
     try {
-        auto data = db_client_->GetDatasetSamples(run_id, limit);
-        nlohmann::json resp;
-        resp["items"] = data;
-        SendJson(res, resp, 200, rid);
+        auto data = db_client_->SearchDatasetRecords(run_id, limit, offset, start_time, end_time, is_anomaly, anomaly_type, host_id, region);
+        SendJson(res, data, 200, rid);
     } catch (const std::exception& e) {
         log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
         SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
