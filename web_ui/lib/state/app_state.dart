@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/telemetry_service.dart';
+import 'investigation_context.dart';
 
 class PendingInferenceRequest {
   final String datasetId;
@@ -22,13 +23,24 @@ class AppState extends ChangeNotifier {
   String? endTime;
   bool? isAnomaly;
   String? anomalyType;
+  String? filterRegion;
+  String? filterAnomalyType;
+  String? filterBucketStart;
+  String? filterBucketEnd;
 
   int currentTabIndex = 0;
+  bool useUtc = false;
 
   PendingInferenceRequest? pendingInference;
+  InvestigationContext? investigationContext;
 
   void setTabIndex(int index) {
     currentTabIndex = index;
+    notifyListeners();
+  }
+
+  void setUseUtc(bool value) {
+    useUtc = value;
     notifyListeners();
   }
 
@@ -39,6 +51,11 @@ class AppState extends ChangeNotifier {
 
   void clearPendingInference() {
     pendingInference = null;
+    notifyListeners();
+  }
+
+  void setInvestigationContext(InvestigationContext? ctx) {
+    investigationContext = ctx;
     notifyListeners();
   }
 
@@ -102,6 +119,30 @@ class AppState extends ChangeNotifier {
 
   void setAnomalyType(String? value) {
     anomalyType = value;
+    notifyListeners();
+  }
+
+  void setFilterRegion(String? value) {
+    filterRegion = value;
+    notifyListeners();
+  }
+
+  void setFilterAnomalyType(String? value) {
+    filterAnomalyType = value;
+    notifyListeners();
+  }
+
+  void setFilterBucket(String? start, String? end) {
+    filterBucketStart = start;
+    filterBucketEnd = end;
+    notifyListeners();
+  }
+
+  void clearFilters() {
+    filterRegion = null;
+    filterAnomalyType = null;
+    filterBucketStart = null;
+    filterBucketEnd = null;
     notifyListeners();
   }
 }

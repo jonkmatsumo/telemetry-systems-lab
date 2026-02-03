@@ -188,8 +188,58 @@ See the [Production Hardening Runbook](docs/production_hardening.md) for details
 ### Dataset Analytics
 - `GET /datasets/:id/summary`
 - `GET /datasets/:id/topk?column=region|project_id|host_id|anomaly_type`
+  - Optional: `include_total_distinct=true` to compute `meta.total_distinct`
 - `GET /datasets/:id/timeseries?metrics=cpu_usage&aggs=mean&bucket=1h`
+  - Optional: `compare_mode=previous_period` to return `baseline` series and baseline window metadata
 - `GET /datasets/:id/histogram?metric=cpu_usage&bins=40&range=minmax`
+- `GET /datasets/:id/samples?limit=50&offset=0&sort_by=metric_timestamp&sort_order=desc&anchor_time=2026-02-03T00:00:00Z`
+  - Optional: `start_time`, `end_time`, `is_anomaly`, `anomaly_type`, `host_id`, `region`
+
+#### Analytics Response Metadata (Top-K + Histogram)
+Top-K and histogram responses include a `meta` object:
+- `limit`: requested K (Top-K) or requested bins (histogram)
+- `returned`: number of items/bins returned
+- `truncated`: `true` when results are capped (known truncation)
+- `total_distinct`: total distinct values for Top-K, or `null` when not computed
+- `reason`: `top_k_limit`, `max_bins_cap`, or `histogram_bins`
+- `bins_requested`, `bins_returned`: histogram-specific counts
+- `server_time`: server timestamp when the response was generated
+- `request_id`: per-request identifier for debugging and trace correlation
+
+`total_distinct` is nullable because counting distinct values can be expensive; the API omits it unless explicitly requested.
+Pass `include_total_distinct=true` to compute and return it.
+
+#### Pagination Contract
+Paginated endpoints return:
+- `items`: records for the page
+- `limit`: page size requested
+- `offset`: page offset
+- `returned`: number of records in this page
+- `total`: total record count (nullable when not computed)
+- `has_more`: `true` when more pages are available
+
+#### Time Semantics (Analytics UI)
+- The dashboard shows an explicit timezone indicator (UTC or Local) on time-based charts.
+- Bucket size is labeled (e.g., `1h buckets`) and drill-down uses exact bucket boundaries.
+
+#### Telemetry Analytics: Data Correctness Signals
+- **Truncation disclosure:** Top-K and histogram cards surface `Top K`/`Bins capped` with `meta.truncated`, `meta.limit`, and optional `meta.total_distinct`.
+- **Freshness + coherency:** Each widget shows an “As of” timestamp from `meta.server_time`; a banner appears when widgets are out of sync.
+- **Cost hints:** Tooltip shows `meta.duration_ms`, `meta.rows_scanned`, `meta.rows_returned`, and cache hits when present.
+- **Timezone + resolution:** Charts display timezone and bucket width; a global UTC/Local toggle controls formatting.
+- **Comparative context:** Optional `compare_mode=previous_period` overlays a baseline series with a delta summary.
+- **Debug panel:** Per-widget debug panel exposes `request_id`, params, and server timing for incident triage.
+- The UTC/Local toggle applies to all analytics charts and labels.
+
+#### Time-Series Resolution (Down-sampling)
+When the client does not specify a bucket, the API selects a resolution based on the range:
+- <= 6h: `5m`
+- <= 2d: `1h`
+- <= 30d: `6h`
+- <= 180d: `1d`
+- > 180d: `7d`
+
+The response includes `meta.bucket_seconds` and `meta.resolution` so the UI can display the chosen bucket size.
 
 ### Dataset-Wide Scoring + Eval
 - `POST /jobs/score_dataset`

@@ -77,7 +77,10 @@ public:
                                         const std::string& is_anomaly,
                                         const std::string& anomaly_type,
                                         const std::string& host_id,
-                                        const std::string& region);
+                                        const std::string& region,
+                                        const std::string& sort_by,
+                                        const std::string& sort_order,
+                                        const std::string& anchor_time);
     nlohmann::json GetDatasetRecord(const std::string& run_id, long record_id);
     nlohmann::json ListModelRuns(int limit,
                                  int offset,
@@ -101,14 +104,17 @@ public:
     nlohmann::json GetTopK(const std::string& run_id,
                            const std::string& column,
                            int k,
+                           const std::string& region,
                            const std::string& is_anomaly,
                            const std::string& anomaly_type,
                            const std::string& start_time,
-                           const std::string& end_time);
+                           const std::string& end_time,
+                           bool include_total_distinct = false);
     nlohmann::json GetTimeSeries(const std::string& run_id,
                                  const std::vector<std::string>& metrics,
                                  const std::vector<std::string>& aggs,
                                  int bucket_seconds,
+                                 const std::string& region,
                                  const std::string& is_anomaly,
                                  const std::string& anomaly_type,
                                  const std::string& start_time,
@@ -118,6 +124,7 @@ public:
                                 int bins,
                                 double min_val,
                                 double max_val,
+                                const std::string& region,
                                 const std::string& is_anomaly,
                                 const std::string& anomaly_type,
                                 const std::string& start_time,

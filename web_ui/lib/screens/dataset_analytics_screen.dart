@@ -3,8 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
+import '../state/investigation_context.dart';
+import '../widgets/analytics_state_panel.dart';
+import '../widgets/analytics_debug_panel.dart';
 import '../widgets/charts.dart';
 import '../widgets/inline_alert.dart';
+import '../utils/freshness.dart';
+import '../utils/time_buckets.dart';
 
 class DatasetAnalyticsScreen extends StatefulWidget {
   const DatasetAnalyticsScreen({super.key});
@@ -15,14 +20,14 @@ class DatasetAnalyticsScreen extends StatefulWidget {
 
 class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   Future<DatasetSummary>? _summaryFuture;
-  Future<List<TopKEntry>>? _topRegionsFuture;
-  Future<List<TopKEntry>>? _topAnomalyFuture;
+  Future<TopKResponse>? _topRegionsFuture;
+  Future<TopKResponse>? _topAnomalyFuture;
   Future<HistogramData>? _metricHistFuture;
   Future<HistogramData>? _metricHistAnomalyFuture;
-  Future<List<TimeSeriesPoint>>? _metricTsFuture;
+  Future<TimeSeriesResponse>? _metricTsFuture;
 
   Future<HistogramData>? _comparisonHistFuture;
-  Future<List<TimeSeriesPoint>>? _comparisonTsFuture;
+  Future<TimeSeriesResponse>? _comparisonTsFuture;
 
   List<Map<String, String>> _availableMetrics = [];
   bool _loadingSchema = false;
@@ -35,6 +40,19 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   DateTimeRange? _timeRange;
   DateTime? _lastUpdated;
   bool _showAnomalyOverlay = false;
+  bool _comparePreviousPeriod = false;
+  String _bucketLabel = '1h';
+  int _bucketSeconds = 3600;
+
+  final Map<String, WidgetFreshness> _freshness = {};
+  static const String _keySummary = 'summary';
+  static const String _keyTopRegions = 'top_regions';
+  static const String _keyTopAnomaly = 'top_anomaly';
+  static const String _keyMetricHist = 'metric_hist';
+  static const String _keyMetricHistAnomaly = 'metric_hist_anomaly';
+  static const String _keyMetricTs = 'metric_ts';
+  static const String _keyComparisonHist = 'comparison_hist';
+  static const String _keyComparisonTs = 'comparison_ts';
 
   @override
   void initState() {
@@ -79,18 +97,211 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
   String _iso(DateTime dt) => dt.toIso8601String();
 
+  ResponseMeta _emptyMeta() {
+    return ResponseMeta(limit: 0, returned: 0, truncated: false, reason: '');
+  }
+
+  HistogramData _emptyHistogram() {
+    return HistogramData(edges: const [], counts: const [], meta: _emptyMeta());
+  }
+
+  TimeSeriesResponse _emptyTimeSeries() {
+    return TimeSeriesResponse(items: const [], meta: _emptyMeta());
+  }
+
+  DateTime? _parseServerTime(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return DateTime.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _formatTime(DateTime dt, {required bool useUtc}) {
+    final display = useUtc ? dt.toUtc() : dt.toLocal();
+    final hh = display.hour.toString().padLeft(2, '0');
+    final mm = display.minute.toString().padLeft(2, '0');
+    final ss = display.second.toString().padLeft(2, '0');
+    final tz = useUtc ? 'UTC' : 'Local';
+    return '$hh:$mm:$ss $tz';
+  }
+
+  bool _shouldShowTick(int idx, int total) {
+    if (total <= 12) return true;
+    if (total <= 48) return idx % 4 == 0;
+    if (total <= 120) return idx % 8 == 0;
+    return idx % 12 == 0;
+  }
+
+  String? _buildCostInfo(ResponseMeta? meta) {
+    if (meta == null) return null;
+    final parts = <String>[];
+    if (meta.durationMs != null) {
+      parts.add('Duration ${meta.durationMs!.toStringAsFixed(1)} ms');
+    }
+    if (meta.rowsScanned != null) {
+      parts.add('Scanned ${meta.rowsScanned}');
+    }
+    if (meta.rowsReturned != null) {
+      parts.add('Returned ${meta.rowsReturned}');
+    }
+    if (meta.cacheHit != null) {
+      parts.add(meta.cacheHit! ? 'Cache hit' : 'Cache miss');
+    }
+    if (parts.isEmpty) return null;
+    return parts.join(' • ');
+  }
+
+  Widget _buildDebugPanel(ResponseMeta? meta, Map<String, String> params) {
+    final summary = params.entries.map((e) => '${e.key}=${e.value}').join(', ');
+    return AnalyticsDebugPanel(
+      requestId: meta?.requestId,
+      paramsSummary: summary.isEmpty ? null : summary,
+      durationMs: meta?.durationMs,
+      cacheHit: meta?.cacheHit,
+      serverTime: meta?.serverTime,
+    );
+  }
+
+  Map<String, String> _debugParams(ResponseMeta? meta, Map<String, String> extra) {
+    final params = <String, String>{};
+    if (meta?.startTime != null && meta!.startTime!.isNotEmpty) {
+      params['start_time'] = meta.startTime!;
+    }
+    if (meta?.endTime != null && meta!.endTime!.isNotEmpty) {
+      params['end_time'] = meta.endTime!;
+    }
+    params.addAll(extra);
+    return params;
+  }
+
+  String? _asOfLabel(String key, {required bool useUtc}) {
+    final freshness = _freshness[key];
+    final time = freshness?.serverTime ?? freshness?.requestEnd;
+    if (time == null) return null;
+    return 'As of ${_formatTime(time, useUtc: useUtc)}';
+  }
+
+  void _setFreshness(String key, WidgetFreshness freshness) {
+    if (!mounted) return;
+    setState(() => _freshness[key] = freshness);
+  }
+
+  Future<T> _trackWidget<T>(String key, Future<T> future,
+      {bool forceRefresh = false,
+      String? startTime,
+      String? endTime,
+      DateTime? Function(T value)? serverTimeResolver}) {
+    _setFreshness(
+      key,
+      WidgetFreshness(
+        requestStart: DateTime.now(),
+        forceRefresh: forceRefresh,
+        startTime: startTime,
+        endTime: endTime,
+      ),
+    );
+    return future.then((value) {
+      final serverTime = serverTimeResolver != null ? serverTimeResolver(value) : null;
+      _setFreshness(
+        key,
+        _freshness[key]?.copyWith(
+              requestEnd: DateTime.now(),
+              serverTime: serverTime,
+            ) ??
+            WidgetFreshness(
+              requestEnd: DateTime.now(),
+              serverTime: serverTime,
+              forceRefresh: forceRefresh,
+              startTime: startTime,
+              endTime: endTime,
+            ),
+      );
+      return value;
+    }).catchError((e) {
+      _setFreshness(
+        key,
+        _freshness[key]?.copyWith(requestEnd: DateTime.now()) ??
+            WidgetFreshness(requestEnd: DateTime.now(), forceRefresh: forceRefresh),
+      );
+      throw e;
+    });
+  }
+
+  Widget? _buildFreshnessBanner(String datasetId, String metric) {
+    if (!shouldShowFreshnessBanner(_freshness.values)) return null;
+    final delta = maxFreshnessDelta(_freshness.values);
+    final details = <String>[];
+    if (delta != null && delta.inSeconds > 60) {
+      details.add('Max delta ${delta.inSeconds}s');
+    }
+    if (hasMixedRefreshMode(_freshness.values)) {
+      details.add('Mixed cache/refresh');
+    }
+    final detailText = details.isEmpty ? '' : ' (${details.join(' • ')})';
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Widgets are out of sync$detailText',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () {
+              _refreshAll(datasetId, metric);
+            },
+            icon: const Icon(Icons.refresh, size: 16, color: Colors.orange),
+            label: const Text('Refresh all', style: TextStyle(color: Colors.orange)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _load(String datasetId, String metric, {bool forceRefresh = false}) {
     _loadedMetric = metric;
     final service = context.read<TelemetryService>();
+    final appState = context.read<AppState>();
     _loadError = null;
     
     String? start, end;
-    if (_timeRange != null) {
+    if (appState.filterBucketStart != null || appState.filterBucketEnd != null) {
+      start = appState.filterBucketStart;
+      end = appState.filterBucketEnd;
+    } else if (_timeRange != null) {
       start = _iso(_timeRange!.start);
       end = _iso(_timeRange!.end);
     }
+    if (start != null && end != null) {
+      final range = DateTime.parse(end).difference(DateTime.parse(start));
+      _bucketLabel = selectBucketLabel(range);
+      _bucketSeconds = bucketSecondsForLabel(_bucketLabel);
+    } else {
+      _bucketLabel = '1h';
+      _bucketSeconds = 3600;
+    }
+    final regionFilter = appState.filterRegion;
+    final anomalyFilter = appState.filterAnomalyType;
 
-    _summaryFuture = service.getDatasetSummary(datasetId, forceRefresh: forceRefresh).then((data) {
+    _summaryFuture = _trackWidget(
+      _keySummary,
+      service.getDatasetSummary(datasetId, forceRefresh: forceRefresh),
+      forceRefresh: forceRefresh,
+      startTime: start,
+      endTime: end,
+      serverTimeResolver: (data) => _parseServerTime(data.serverTime),
+    ).then((data) {
       if (mounted) setState(() => _lastUpdated = DateTime.now());
       return data;
     }).catchError((e) {
@@ -99,10 +310,31 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       });
       throw e;
     });
-    _topRegionsFuture = service.getTopK(datasetId, 'region', k: 10, startTime: start, endTime: end, forceRefresh: forceRefresh);
-    _topAnomalyFuture = service.getTopK(datasetId, 'anomaly_type', k: 10, isAnomaly: 'true', startTime: start, endTime: end, forceRefresh: forceRefresh);
+    _topRegionsFuture = _trackWidget(
+      _keyTopRegions,
+      service.getTopK(datasetId, 'region', k: 10, region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
+      forceRefresh: forceRefresh,
+      startTime: start,
+      endTime: end,
+      serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+    );
+    _topAnomalyFuture = _trackWidget(
+      _keyTopAnomaly,
+      service.getTopK(datasetId, 'anomaly_type', k: 10, region: regionFilter, isAnomaly: 'true', anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
+      forceRefresh: forceRefresh,
+      startTime: start,
+      endTime: end,
+      serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+    );
     
-    _metricHistFuture = service.getHistogram(datasetId, metric: metric, bins: 30, startTime: start, endTime: end, forceRefresh: forceRefresh).catchError((e) {
+    _metricHistFuture = _trackWidget(
+      _keyMetricHist,
+      service.getHistogram(datasetId, metric: metric, bins: 30, region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
+      forceRefresh: forceRefresh,
+      startTime: start,
+      endTime: end,
+      serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+    ).catchError((e) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _loadError = 'Metric "$metric" is not supported.');
       });
@@ -110,13 +342,37 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     });
 
     if (_showAnomalyOverlay) {
-      _metricHistAnomalyFuture = service.getHistogram(datasetId, metric: metric, bins: 30, isAnomaly: 'true', startTime: start, endTime: end, forceRefresh: forceRefresh);
+      _metricHistAnomalyFuture = _trackWidget(
+        _keyMetricHistAnomaly,
+        service.getHistogram(datasetId, metric: metric, bins: 30, region: regionFilter, isAnomaly: 'true', anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
+        forceRefresh: forceRefresh,
+        startTime: start,
+        endTime: end,
+        serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+      );
     } else {
       _metricHistAnomalyFuture = null;
     }
 
-    _metricTsFuture =
-        service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: '1h', startTime: start, endTime: end, forceRefresh: forceRefresh).catchError((e) {
+    _metricTsFuture = _trackWidget(
+      _keyMetricTs,
+      service.getTimeSeries(
+        datasetId,
+        metrics: [metric],
+        aggs: ['mean'],
+        bucket: _bucketLabel,
+        region: regionFilter,
+        anomalyType: anomalyFilter,
+        startTime: start,
+        endTime: end,
+        compareMode: _comparePreviousPeriod ? 'previous_period' : null,
+        forceRefresh: forceRefresh,
+      ),
+      forceRefresh: forceRefresh,
+      startTime: start,
+      endTime: end,
+      serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+    ).catchError((e) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _loadError = 'Metric "$metric" is not supported.');
       });
@@ -124,25 +380,84 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     });
 
     if (_comparisonMetric != null) {
-      _comparisonHistFuture = service
-          .getHistogram(datasetId, metric: _comparisonMetric!, bins: 30, startTime: start, endTime: end, forceRefresh: forceRefresh)
-          .catchError((e) {
+      _comparisonHistFuture = _trackWidget(
+        _keyComparisonHist,
+        service.getHistogram(datasetId, metric: _comparisonMetric!, bins: 30, region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
+        forceRefresh: forceRefresh,
+        startTime: start,
+        endTime: end,
+        serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+      ).catchError((e) {
         debugPrint('Failed to load comparison histogram: $e');
-        return HistogramData(edges: const [], counts: const []);
+        return _emptyHistogram();
       });
-      _comparisonTsFuture = service
-          .getTimeSeries(datasetId, metrics: [_comparisonMetric!], aggs: ['mean'], bucket: '1h', startTime: start, endTime: end, forceRefresh: forceRefresh)
-          .catchError((e) {
+      _comparisonTsFuture = _trackWidget(
+        _keyComparisonTs,
+        service.getTimeSeries(
+          datasetId,
+          metrics: [_comparisonMetric!],
+          aggs: ['mean'],
+          bucket: _bucketLabel,
+          region: regionFilter,
+          anomalyType: anomalyFilter,
+          startTime: start,
+          endTime: end,
+          compareMode: _comparePreviousPeriod ? 'previous_period' : null,
+          forceRefresh: forceRefresh,
+        ),
+        forceRefresh: forceRefresh,
+        startTime: start,
+        endTime: end,
+        serverTimeResolver: (data) => _parseServerTime(data.meta.serverTime),
+      ).catchError((e) {
         debugPrint('Failed to load comparison time series: $e');
-        return <TimeSeriesPoint>[];
+        return _emptyTimeSeries();
       });
     }
+  }
+
+  void _refreshAll(String datasetId, String metric) {
+    setState(() {
+      _freshness.clear();
+      _load(datasetId, metric, forceRefresh: true);
+    });
+  }
+
+  InvestigationContext _buildContext({
+    required String datasetId,
+    required String metric,
+    required bool useUtc,
+    String? region,
+    String? anomalyType,
+    String? isAnomaly,
+    String? startTime,
+    String? endTime,
+    String? bucketStart,
+    String? bucketEnd,
+    int? offset,
+    int? limit,
+  }) {
+    return InvestigationContext(
+      datasetId: datasetId,
+      metric: metric,
+      useUtc: useUtc,
+      region: region,
+      anomalyType: anomalyType,
+      isAnomaly: isAnomaly,
+      startTime: startTime,
+      endTime: endTime,
+      bucketStart: bucketStart,
+      bucketEnd: bucketEnd,
+      offset: offset,
+      limit: limit,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
     final datasetId = appState.datasetId;
+    final useUtc = appState.useUtc;
     if (datasetId == null) {
       return const Center(child: Text('Select a dataset run to view analytics.'));
     }
@@ -153,6 +468,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       _load(datasetId, selectedMetric);
     }
 
+    final freshnessBanner = _buildFreshnessBanner(datasetId, selectedMetric);
+
     return Padding(
       padding: const EdgeInsets.all(24),
       child: DefaultTabController(
@@ -160,8 +477,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text('Dataset Analytics — $datasetId',
                     style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
@@ -176,7 +495,18 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                   ],
                 ),
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    Row(
+                      children: [
+                        const Text('UTC', style: TextStyle(color: Colors.white60, fontSize: 12)),
+                        Switch(
+                          value: useUtc,
+                          onChanged: (val) => appState.setUseUtc(val),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 8),
                     OutlinedButton.icon(
                       onPressed: () async {
                          final picked = await showDateRangePicker(
@@ -201,12 +531,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       children: [
                         IconButton(
                           onPressed: () {
-                            setState(() {
-                              _load(datasetId, selectedMetric, forceRefresh: true);
-                            });
+                            _refreshAll(datasetId, selectedMetric);
                           },
                           icon: const Icon(Icons.refresh),
-                          tooltip: 'Force Refresh',
+                          tooltip: 'Refresh all widgets',
                         ),
                         if (_lastUpdated != null)
                           Text(
@@ -218,10 +546,12 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     OutlinedButton.icon(
                       onPressed: () {
                         final uri = Uri.base;
+                        final ctxParams = appState.investigationContext?.toQueryParams() ?? {};
                         final link = uri.replace(queryParameters: {
                           ...uri.queryParameters,
                           'datasetId': datasetId,
                           'metric': selectedMetric,
+                          ...ctxParams,
                         }).toString();
                         Clipboard.setData(ClipboardData(text: link));
                         ScaffoldMessenger.of(context)
@@ -241,6 +571,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
               ),
               const SizedBox(height: 16),
             ],
+            if (freshnessBanner != null) ...[
+              freshnessBanner,
+              const SizedBox(height: 16),
+            ],
             const SizedBox(height: 16),
             Expanded(
               child: TabBarView(
@@ -257,6 +591,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   }
 
   Widget _buildDashboard(String datasetId, String selectedMetric, AppState appState) {
+    final useUtc = appState.useUtc;
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -301,18 +636,44 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
               },
             ),
           ],
+          if (_buildFilterChips(appState).isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _buildFilterChips(appState),
+            ),
+          ],
           const SizedBox(height: 16),
           FutureBuilder<DatasetSummary>(
             future: _summaryFuture,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
-                return const LinearProgressIndicator();
+                return const AnalyticsStatePanel(
+                  state: AnalyticsState.loading,
+                  title: 'Summary',
+                  message: 'Loading dataset summary.',
+                );
               }
               if (snapshot.hasError) {
-                return Text('Error: ${snapshot.error}');
+                return AnalyticsStatePanel(
+                  state: AnalyticsState.error,
+                  title: 'Summary unavailable',
+                  message: 'Request failed (timeout/auth). Retry.',
+                  detail: snapshot.error.toString(),
+                  onRetry: () {
+                    setState(() => _load(datasetId, selectedMetric));
+                  },
+                );
               }
               final summary = snapshot.data;
-              if (summary == null) return const SizedBox.shrink();
+              if (summary == null) {
+                return const AnalyticsStatePanel(
+                  state: AnalyticsState.empty,
+                  title: 'No summary data',
+                  message: 'No records in selected range.',
+                );
+              }
               return Wrap(
                 spacing: 16,
                 runSpacing: 16,
@@ -336,151 +697,308 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             children: [
               SizedBox(
                 width: 420,
-                child: ChartCard(
-                  title: 'Top Regions',
-                  child: FutureBuilder<List<TopKEntry>>(
-                    future: _topRegionsFuture,
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      if (snapshot.hasError) {
-                        return Text('Error: ${snapshot.error}');
-                      }
-                      final items = snapshot.data ?? [];
-                      if (items.isEmpty) return const SizedBox.shrink();
-                      return BarChart(
-                        values: items.map((e) => e.count.toDouble()).toList(),
-                        labels: items.map((e) => e.label).toList(),
-                        onTap: (i) {
-                          if (items.length > i) {
-                            _showRecordsBrowser(region: items[i].label);
-                          }
-                        },
-                      );
-                    },
-                  ),
+                child: FutureBuilder<TopKResponse>(
+                  future: _topRegionsFuture,
+                  builder: (context, snapshot) {
+                    final appState = context.read<AppState>();
+                    final meta = snapshot.data?.meta;
+                    final truncated = meta?.truncated ?? false;
+                    final total = meta?.totalDistinct;
+                    final returned = meta?.returned ?? 0;
+                    final limit = meta?.limit ?? 0;
+                    
+                    return ChartCard(
+                      title: 'Top Regions',
+                      pillLabel: limit > 0 ? 'Top $limit' : null,
+                      truncated: truncated,
+                      subtitle: total != null ? 'Showing $returned of $total' : null,
+                      truncationLabel: 'Truncated',
+                      truncationTooltip: 'This chart is showing the Top $limit values. Refine filters to see more.',
+                      footerText: _asOfLabel(_keyTopRegions, useUtc: useUtc),
+                      infoText: _buildCostInfo(meta),
+                      debugPanel: _buildDebugPanel(meta, _debugParams(meta, {
+                        'endpoint': 'topk',
+                        'column': 'region',
+                        if (limit > 0) 'k': '$limit',
+                        if (appState.filterAnomalyType != null) 'anomaly_type': appState.filterAnomalyType!,
+                        if (appState.filterRegion != null) 'region': appState.filterRegion!,
+                      })),
+                      child: Builder(builder: (context) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const AnalyticsStatePanel(
+                            state: AnalyticsState.loading,
+                            title: 'Top regions',
+                            message: 'Loading Top-K results.',
+                          );
+                        }
+                        if (snapshot.hasError) {
+                          return AnalyticsStatePanel(
+                            state: AnalyticsState.error,
+                            title: 'Top regions failed',
+                            message: 'Request failed (timeout/auth). Retry.',
+                            detail: snapshot.error.toString(),
+                            onRetry: () {
+                              setState(() => _load(datasetId, selectedMetric));
+                            },
+                          );
+                        }
+                        final items = snapshot.data?.items ?? [];
+                        if (items.isEmpty) {
+                          return const AnalyticsStatePanel(
+                            state: AnalyticsState.empty,
+                            title: 'No regions',
+                            message: 'No records in selected range.',
+                          );
+                        }
+                        return BarChart(
+                          values: items.map((e) => e.count.toDouble()).toList(),
+                          labels: items.map((e) => e.label).toList(),
+                          onTap: (i) {
+                            if (items.length > i) {
+                              final appState = context.read<AppState>();
+                              appState.setFilterRegion(items[i].label);
+                              _load(datasetId, selectedMetric);
+                              _showRecordsBrowser(region: items[i].label);
+                            }
+                          },
+                        );
+                      }),
+                    );
+                  },
                 ),
               ),
               SizedBox(
                 width: 420,
-                child: ChartCard(
-                  title: 'Anomaly Types',
-                  child: FutureBuilder<List<TopKEntry>>(
-                    future: _topAnomalyFuture,
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      if (snapshot.hasError) {
-                        return Text('Error: ${snapshot.error}');
-                      }
-                      final items = snapshot.data ?? [];
-                      if (items.isEmpty) return const SizedBox.shrink();
-                      return BarChart(
-                        values: items.map((e) => e.count.toDouble()).toList(),
-                        labels: items.map((e) => e.label).toList(),
-                        onTap: (i) {
-                          if (items.length > i) {
-                            _showRecordsBrowser(anomalyType: items[i].label, isAnomaly: 'true');
-                          }
-                        },
-                      );
-                    },
-                  ),
+                child: FutureBuilder<TopKResponse>(
+                  future: _topAnomalyFuture,
+                  builder: (context, snapshot) {
+                    final appState = context.read<AppState>();
+                    final meta = snapshot.data?.meta;
+                    final truncated = meta?.truncated ?? false;
+                    final total = meta?.totalDistinct;
+                    final returned = meta?.returned ?? 0;
+                    final limit = meta?.limit ?? 0;
+
+                    return ChartCard(
+                      title: 'Anomaly Types',
+                      pillLabel: limit > 0 ? 'Top $limit' : null,
+                      truncated: truncated,
+                      subtitle: total != null ? 'Showing $returned of $total' : null,
+                      truncationLabel: 'Truncated',
+                      truncationTooltip: 'This chart is showing the Top $limit values. Refine filters to see more.',
+                      footerText: _asOfLabel(_keyTopAnomaly, useUtc: useUtc),
+                      infoText: _buildCostInfo(meta),
+                      debugPanel: _buildDebugPanel(meta, _debugParams(meta, {
+                        'endpoint': 'topk',
+                        'column': 'anomaly_type',
+                        'is_anomaly': 'true',
+                        if (limit > 0) 'k': '$limit',
+                        if (appState.filterRegion != null) 'region': appState.filterRegion!,
+                        if (appState.filterAnomalyType != null) 'anomaly_type': appState.filterAnomalyType!,
+                      })),
+                      child: Builder(builder: (context) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const AnalyticsStatePanel(
+                            state: AnalyticsState.loading,
+                            title: 'Anomaly types',
+                            message: 'Loading Top-K results.',
+                          );
+                        }
+                        if (snapshot.hasError) {
+                          return AnalyticsStatePanel(
+                            state: AnalyticsState.error,
+                            title: 'Anomaly types failed',
+                            message: 'Request failed (timeout/auth). Retry.',
+                            detail: snapshot.error.toString(),
+                            onRetry: () {
+                              setState(() => _load(datasetId, selectedMetric));
+                            },
+                          );
+                        }
+                        final items = snapshot.data?.items ?? [];
+                        if (items.isEmpty) {
+                          return const AnalyticsStatePanel(
+                            state: AnalyticsState.empty,
+                            title: 'No anomaly types',
+                            message: 'No records in selected range.',
+                          );
+                        }
+                        return BarChart(
+                          values: items.map((e) => e.count.toDouble()).toList(),
+                          labels: items.map((e) => e.label).toList(),
+                          onTap: (i) {
+                            if (items.length > i) {
+                              final appState = context.read<AppState>();
+                              appState.setFilterAnomalyType(items[i].label);
+                              _load(datasetId, selectedMetric);
+                              _showRecordsBrowser(anomalyType: items[i].label, isAnomaly: 'true');
+                            }
+                          },
+                        );
+                      }),
+                    );
+                  },
                 ),
               ),
               SizedBox(
                 width: 420,
-                child: ChartCard(
-                  title: '$selectedMetric Histogram',
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
+                child: FutureBuilder<HistogramData>(
+                  future: _metricHistFuture,
+                  builder: (context, snapshot) {
+                    final appState = context.read<AppState>();
+                    final meta = snapshot.data?.meta;
+                    final truncated = meta?.truncated ?? false;
+                    final bins = meta?.limit ?? 0;
+                    return ChartCard(
+                      title: '$selectedMetric Histogram',
+                      truncated: truncated,
+                      subtitle: truncated && bins > 0 ? 'Bins capped at $bins' : null,
+                      truncationLabel: 'Bins capped',
+                      truncationTooltip: 'Requested bins exceeded the cap; histogram was downsampled.',
+                      footerText: _asOfLabel(_keyMetricHist, useUtc: useUtc),
+                      infoText: _buildCostInfo(meta),
+                      debugPanel: _buildDebugPanel(meta, _debugParams(meta, {
+                        'endpoint': 'histogram',
+                        'metric': selectedMetric,
+                        if (bins > 0) 'bins': '$bins',
+                        if (appState.filterRegion != null) 'region': appState.filterRegion!,
+                        if (appState.filterAnomalyType != null) 'anomaly_type': appState.filterAnomalyType!,
+                      })),
+                      child: Column(
                         children: [
-                          const Text('Anomalies', style: TextStyle(fontSize: 10, color: Colors.white54)),
-                          SizedBox(
-                            height: 24,
-                            child: Switch(
-                              value: _showAnomalyOverlay, 
-                              onChanged: (v) { setState(() { _showAnomalyOverlay = v; _load(datasetId, selectedMetric); }); }
-                            ),
-                          )
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              const Text('Anomalies', style: TextStyle(fontSize: 10, color: Colors.white54)),
+                              SizedBox(
+                                height: 24,
+                                child: Switch(
+                                  value: _showAnomalyOverlay, 
+                                  onChanged: (v) { setState(() { _showAnomalyOverlay = v; _load(datasetId, selectedMetric); }); }
+                                ),
+                              )
+                            ],
+                          ),
+                          Expanded(
+                            child: Builder(builder: (context) {
+                              if (snapshot.connectionState == ConnectionState.waiting) {
+                                return const AnalyticsStatePanel(
+                                  state: AnalyticsState.loading,
+                                  title: 'Histogram',
+                                  message: 'Loading distribution.',
+                                );
+                              }
+                              if (snapshot.hasError) {
+                                return AnalyticsStatePanel(
+                                  state: AnalyticsState.error,
+                                  title: 'Histogram failed',
+                                  message: 'Request failed (timeout/auth). Retry.',
+                                  detail: snapshot.error.toString(),
+                                  onRetry: () {
+                                    setState(() => _load(datasetId, selectedMetric));
+                                  },
+                                );
+                              }
+                              final hist = snapshot.data;
+                              final values = hist?.counts.map((e) => e.toDouble()).toList() ?? [];
+                              if (values.isEmpty) {
+                                return const AnalyticsStatePanel(
+                                  state: AnalyticsState.empty,
+                                  title: 'No histogram data',
+                                  message: 'No records in selected range.',
+                                );
+                              }
+                              final labels = List.generate(values.length, (i) {
+                                if (i < hist!.edges.length) {
+                                  return hist.edges[i].toStringAsFixed(1);
+                                }
+                                return "";
+                              });
+                              
+                              if (_showAnomalyOverlay && _metricHistAnomalyFuture != null) {
+                                return FutureBuilder<HistogramData>(
+                                    future: _metricHistAnomalyFuture,
+                                    builder: (context, snapshotOverlay) {
+                                      final overlayHist = snapshotOverlay.data;
+                                      final overlayValues = overlayHist?.counts.map((e) => e.toDouble()).toList();
+                                      return BarChart(values: values, labels: labels, overlayValues: overlayValues);
+                                    }
+                                );
+                              }
+                              return BarChart(values: values, labels: labels);
+                            }),
+                          ),
                         ],
                       ),
-                      Expanded(
-                        child: FutureBuilder<HistogramData>(
-                          future: _metricHistFuture,
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState == ConnectionState.waiting) {
-                              return const Center(child: CircularProgressIndicator());
-                            }
-                            if (snapshot.hasError) {
-                              return const SizedBox.shrink();
-                            }
-                            final hist = snapshot.data;
-                            final values = hist?.counts.map((e) => e.toDouble()).toList() ?? [];
-                            if (values.isEmpty) return const SizedBox.shrink();
-                            final labels = List.generate(values.length, (i) {
-                               if (i < hist!.edges.length) {
-                                 return hist.edges[i].toStringAsFixed(1);
-                               }
-                               return "";
-                            });
-                            
-                            if (_showAnomalyOverlay && _metricHistAnomalyFuture != null) {
-                               return FutureBuilder<HistogramData>(
-                                  future: _metricHistAnomalyFuture,
-                                  builder: (context, snapshotOverlay) {
-                                     final overlayHist = snapshotOverlay.data;
-                                     final overlayValues = overlayHist?.counts.map((e) => e.toDouble()).toList();
-                                     return BarChart(values: values, labels: labels, overlayValues: overlayValues);
-                                  }
-                               );
-                            }
-                            return BarChart(values: values, labels: labels);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
+                    );
+                  }
                 ),
               ),
               SizedBox(
                 width: 420,
-                child: ChartCard(
-                  title: 'Anomaly Rate Trend (1h)',
-                  child: FutureBuilder<DatasetSummary>(
-                    future: _summaryFuture,
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      if (snapshot.hasError) {
-                        return const SizedBox.shrink();
-                      }
-                      final trend = snapshot.data?.anomalyRateTrend ?? [];
-                      if (trend.isEmpty) return const SizedBox.shrink();
-                      final xs = List<double>.generate(trend.length, (i) => i.toDouble());
-                      final ys = trend.map((e) => e.anomalyRate).toList();
-                      return LineChart(
-                        x: xs, 
-                        y: ys,
-                        xLabelBuilder: (val) {
-                          int idx = val.round();
-                          if (idx >= 0 && idx < trend.length) {
-                             try {
-                               final dt = DateTime.parse(trend[idx].ts).toLocal();
-                               return "${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}";
-                             } catch (_) {}
-                          }
-                          return "";
-                        },
-                        yLabelBuilder: (val) => val.toStringAsFixed(2),
-                      );
-                    },
-                  ),
+                child: FutureBuilder<DatasetSummary>(
+                  future: _summaryFuture,
+                  builder: (context, snapshot) {
+                    return ChartCard(
+                      title: 'Anomaly Rate Trend ($_bucketLabel)',
+                      pillLabels: [
+                        '${_bucketLabel} buckets',
+                        useUtc ? 'UTC' : 'Local',
+                      ],
+                      footerText: _asOfLabel(_keySummary, useUtc: useUtc),
+                      infoText: _buildCostInfo(snapshot.data?.meta),
+                      debugPanel: _buildDebugPanel(snapshot.data?.meta, _debugParams(snapshot.data?.meta, {
+                        'endpoint': 'summary',
+                        'bucket': _bucketLabel,
+                      })),
+                      child: Builder(builder: (context) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const AnalyticsStatePanel(
+                            state: AnalyticsState.loading,
+                            title: 'Anomaly rate trend',
+                            message: 'Loading trend data.',
+                          );
+                        }
+                        if (snapshot.hasError) {
+                          return AnalyticsStatePanel(
+                            state: AnalyticsState.error,
+                            title: 'Anomaly rate failed',
+                            message: 'Request failed (timeout/auth). Retry.',
+                            detail: snapshot.error.toString(),
+                            onRetry: () {
+                              setState(() => _load(datasetId, selectedMetric));
+                            },
+                          );
+                        }
+                        final trend = snapshot.data?.anomalyRateTrend ?? [];
+                        if (trend.isEmpty) {
+                          return const AnalyticsStatePanel(
+                            state: AnalyticsState.empty,
+                            title: 'No trend data',
+                            message: 'No records in selected range.',
+                          );
+                        }
+                        final xs = List<double>.generate(trend.length, (i) => i.toDouble());
+                        final ys = trend.map((e) => e.anomalyRate).toList();
+                        return LineChart(
+                          x: xs,
+                          y: ys,
+                          xLabelBuilder: (val) {
+                            int idx = val.round();
+                            if (idx >= 0 && idx < trend.length) {
+                              if (!_shouldShowTick(idx, trend.length)) return '';
+                              try {
+                                final dt = DateTime.parse(trend[idx].ts);
+                                return formatBucketLabel(dt, useUtc: useUtc);
+                              } catch (_) {}
+                            }
+                            return "";
+                          },
+                          yLabelBuilder: (val) => val.toStringAsFixed(2),
+                        );
+                      }),
+                    );
+                  },
                 ),
               ),
             ],
@@ -488,55 +1006,216 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
-            child: ChartCard(
-              title: '$selectedMetric Mean (1h)',
-              height: 240,
-              child: FutureBuilder<List<TimeSeriesPoint>>(
-                future: _metricTsFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snapshot.hasError) {
-                    return const SizedBox.shrink();
-                  }
-                  final points = snapshot.data ?? [];
-                  if (points.isEmpty) return const SizedBox.shrink();
-                  final xs = List<double>.generate(points.length, (i) => i.toDouble());
-                  final ys = points.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
-                  
-                  final maxCount = points.isEmpty ? 0 : points.map((e) => e.count).reduce((a, b) => a > b ? a : b);
-                  final partial = points.map((e) => e.count < maxCount * 0.9).toList();
+            child: FutureBuilder<TimeSeriesResponse>(
+              future: _metricTsFuture,
+              builder: (context, snapshot) {
+                return ChartCard(
+                  title: '$selectedMetric Mean ($_bucketLabel)',
+                  height: 240,
+                  pillLabels: [
+                    '${_bucketLabel} buckets',
+                    useUtc ? 'UTC' : 'Local',
+                  ],
+                  footerText: _asOfLabel(_keyMetricTs, useUtc: useUtc),
+                  infoText: _buildCostInfo(snapshot.data?.meta),
+                  debugPanel: _buildDebugPanel(snapshot.data?.meta, _debugParams(snapshot.data?.meta, {
+                    'endpoint': 'timeseries',
+                    'metric': selectedMetric,
+                    'agg': 'mean',
+                    'bucket': _bucketLabel,
+                    if (_comparePreviousPeriod) 'compare_mode': 'previous_period',
+                  })),
+                  child: Builder(builder: (context) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const AnalyticsStatePanel(
+                        state: AnalyticsState.loading,
+                        title: 'Time series',
+                        message: 'Loading trend data.',
+                      );
+                    }
+                    if (snapshot.hasError) {
+                      return AnalyticsStatePanel(
+                        state: AnalyticsState.error,
+                        title: 'Time series failed',
+                        message: 'Request failed (timeout/auth). Retry.',
+                        detail: snapshot.error.toString(),
+                        onRetry: () {
+                          setState(() => _load(datasetId, selectedMetric));
+                        },
+                      );
+                    }
+                    final points = snapshot.data?.items ?? [];
+                    if (points.isEmpty) {
+                      return const AnalyticsStatePanel(
+                        state: AnalyticsState.empty,
+                        title: 'No trend data',
+                        message: 'No records in selected range.',
+                      );
+                    }
+                    final xs = List<double>.generate(points.length, (i) => i.toDouble());
+                    final ys = points.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
+                    final baseline = snapshot.data?.baseline ?? const [];
+                    final baselineYs = baseline.map((e) => e.values['${selectedMetric}_mean'] ?? 0.0).toList();
+                    final canOverlay = baselineYs.isNotEmpty && baselineYs.length == ys.length;
+                    final baselineSummary = _buildBaselineSummary(snapshot.data?.meta, ys, baselineYs);
 
-                  return LineChart(
-                    x: xs, 
-                    y: ys,
-                    partial: partial,
-                    xLabelBuilder: (val) {
-                      int idx = val.round();
-                      if (idx >= 0 && idx < points.length) {
-                         try {
-                           final dt = DateTime.parse(points[idx].ts).toLocal();
-                           return "${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}";
-                         } catch (_) {}
-                      }
-                      return "";
-                    },
-                    yLabelBuilder: (val) => val.toStringAsFixed(1),
-                    onTap: (i) {
-                      if (points.length > i) {
-                        final start = points[i].ts;
-                        try {
-                          final dt = DateTime.parse(start);
-                          final next = dt.add(const Duration(hours: 1)); // Assuming 1h bucket
-                          _showRecordsBrowser(startTime: start, endTime: next.toIso8601String());
-                        } catch (_) {}
-                      }
-                    },
-                  );
-                },
-              ),
+                    final maxCount = points.isEmpty ? 0 : points.map((e) => e.count).reduce((a, b) => a > b ? a : b);
+                    final partial = points.map((e) => e.count < maxCount * 0.9).toList();
+                    final hasPartial = partial.any((p) => p);
+
+                    final chart = LineChart(
+                      x: xs,
+                      y: ys,
+                      overlayY: canOverlay ? baselineYs : null,
+                      overlayColor: const Color(0xFF94A3B8),
+                      partial: partial,
+                      xLabelBuilder: (val) {
+                        int idx = val.round();
+                        if (idx >= 0 && idx < points.length) {
+                           if (!_shouldShowTick(idx, points.length)) return '';
+                           try {
+                             final dt = DateTime.parse(points[idx].ts);
+                             return formatBucketLabel(dt, useUtc: useUtc);
+                           } catch (_) {}
+                        }
+                        return "";
+                      },
+                      yLabelBuilder: (val) => val.toStringAsFixed(1),
+                      onTap: (i) {
+                        if (points.length > i) {
+                          final start = points[i].ts;
+                          final bucketSeconds = snapshot.data?.bucketSeconds ?? 3600;
+                          final next = bucketEndFromIso(start, bucketSeconds);
+                          if (next != null) {
+                            final appState = context.read<AppState>();
+                            appState.setFilterBucket(start, next.toIso8601String());
+                            _load(datasetId, selectedMetric);
+                            _showRecordsBrowser(startTime: start, endTime: next.toIso8601String());
+                          }
+                        }
+                      },
+                    );
+                    return Column(
+                      children: [
+                        _buildCompareControls(),
+                        if (baselineSummary != null) ...[
+                          const SizedBox(height: 6),
+                          Text(baselineSummary, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                        ],
+                        const SizedBox(height: 8),
+                        Expanded(
+                          child: hasPartial
+                              ? Column(
+                                  children: [
+                                    const AnalyticsStatePanel(
+                                      state: AnalyticsState.partial,
+                                      title: 'Partial data',
+                                      message: 'Partial data: latest bucket incomplete.',
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Expanded(child: chart),
+                                  ],
+                                )
+                              : chart,
+                        ),
+                      ],
+                    );
+                  }),
+                );
+              },
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildFilterChips(AppState appState) {
+    final chips = <Widget>[];
+    if (appState.filterRegion != null) {
+      chips.add(_filterChip('region=${appState.filterRegion}', () {
+        appState.setFilterRegion(null);
+        _load(appState.datasetId!, appState.getSelectedMetric(appState.datasetId!));
+      }));
+    }
+    if (appState.filterAnomalyType != null) {
+      chips.add(_filterChip('type=${appState.filterAnomalyType}', () {
+        appState.setFilterAnomalyType(null);
+        _load(appState.datasetId!, appState.getSelectedMetric(appState.datasetId!));
+      }));
+    }
+    if (appState.filterBucketStart != null || appState.filterBucketEnd != null) {
+      chips.add(_filterChip('bucket', () {
+        appState.setFilterBucket(null, null);
+        _load(appState.datasetId!, appState.getSelectedMetric(appState.datasetId!));
+      }));
+    }
+    if (chips.length > 1) {
+      chips.add(TextButton(
+        onPressed: () {
+          appState.clearFilters();
+          _load(appState.datasetId!, appState.getSelectedMetric(appState.datasetId!));
+        },
+        child: const Text('Clear all'),
+      ));
+    }
+    return chips;
+  }
+
+  Widget _buildCompareControls() {
+    final appState = context.read<AppState>();
+    final hasRange = _timeRange != null ||
+        (appState.filterBucketStart != null && appState.filterBucketEnd != null);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        const Text('Compare to previous period', style: TextStyle(color: Colors.white54, fontSize: 12)),
+        Switch(
+          key: const Key('compare-mode-switch'),
+          value: _comparePreviousPeriod,
+          onChanged: hasRange ? (value) {
+            setState(() {
+              _comparePreviousPeriod = value;
+              if (appState.datasetId != null) {
+                _load(appState.datasetId!, appState.getSelectedMetric(appState.datasetId!));
+              }
+            });
+          } : null,
+        ),
+      ],
+    );
+  }
+
+  String? _buildBaselineSummary(ResponseMeta? meta, List<double> current, List<double> baseline) {
+    if (!_comparePreviousPeriod || baseline.isEmpty || current.isEmpty) return null;
+    double avg(List<double> values) => values.reduce((a, b) => a + b) / values.length;
+    final currentAvg = avg(current);
+    final baselineAvg = avg(baseline);
+    final delta = currentAvg - baselineAvg;
+    final deltaSign = delta >= 0 ? '+' : '';
+    final pct = baselineAvg == 0 ? 'n/a' : '${(delta / baselineAvg * 100).toStringAsFixed(1)}%';
+    final window = (meta?.baselineStartTime != null && meta?.baselineEndTime != null)
+        ? '${meta!.baselineStartTime} → ${meta.baselineEndTime}'
+        : 'previous period';
+    return 'Baseline: $window • Δ ${deltaSign}${delta.toStringAsFixed(2)} ($pct)';
+  }
+
+  Widget _filterChip(String label, VoidCallback onClear) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11, color: Colors.white70)),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: onClear,
+            child: const Icon(Icons.close, size: 12, color: Colors.white60),
           ),
         ],
       ),
@@ -621,10 +1300,24 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                 ),
                 const SizedBox(height: 24),
                 _buildChartRow('Distribution (Histogram)', selectedMetric, _metricHistFuture,
-                    _comparisonMetric, _comparisonHistFuture, true),
+                    _comparisonMetric, _comparisonHistFuture, true,
+                    footerKey1: _keyMetricHist, footerKey2: _keyComparisonHist,
+                    onRetry: () => _load(datasetId, selectedMetric),
+                    useUtc: appState.useUtc),
                 const SizedBox(height: 24),
-                _buildChartRow('Trend (1h Mean)', selectedMetric, _metricTsFuture, _comparisonMetric,
-                    _comparisonTsFuture, false),
+                _buildChartRow('Trend ($_bucketLabel Mean)', selectedMetric, _metricTsFuture, _comparisonMetric,
+                    _comparisonTsFuture, false,
+                    footerKey1: _keyMetricTs, footerKey2: _keyComparisonTs,
+                    onRetry: () => _load(datasetId, selectedMetric),
+                    useUtc: appState.useUtc,
+                    pillLabels1: [
+                      '${_bucketLabel} buckets',
+                      appState.useUtc ? 'UTC' : 'Local',
+                    ],
+                    pillLabels2: [
+                      '${_bucketLabel} buckets',
+                      appState.useUtc ? 'UTC' : 'Local',
+                    ]),
               ],
             ),
           ),
@@ -664,7 +1357,13 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     );
   }
 
-  Widget _buildChartRow(String title, String m1, Future? f1, String? m2, Future? f2, bool isHist) {
+  Widget _buildChartRow(String title, String m1, Future? f1, String? m2, Future? f2, bool isHist,
+      {String? footerKey1,
+      String? footerKey2,
+      VoidCallback? onRetry,
+      required bool useUtc,
+      List<String>? pillLabels1,
+      List<String>? pillLabels2}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -675,7 +1374,9 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             Expanded(
               child: ChartCard(
                 title: m1,
-                child: _buildChart(f1, isHist, m1),
+                footerText: footerKey1 != null ? _asOfLabel(footerKey1, useUtc: useUtc) : null,
+                pillLabels: pillLabels1,
+                child: _buildChart(f1, isHist, m1, onRetry: onRetry, useUtc: useUtc),
               ),
             ),
             if (m2 != null) ...[
@@ -683,7 +1384,9 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
               Expanded(
                 child: ChartCard(
                   title: m2,
-                  child: _buildChart(f2, isHist, m2, color: const Color(0xFF818CF8)),
+                  footerText: footerKey2 != null ? _asOfLabel(footerKey2, useUtc: useUtc) : null,
+                  pillLabels: pillLabels2,
+                  child: _buildChart(f2, isHist, m2, color: const Color(0xFF818CF8), onRetry: onRetry, useUtc: useUtc),
                 ),
               ),
             ],
@@ -693,15 +1396,26 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     );
   }
 
-  Widget _buildChart(Future? future, bool isHist, String metric, {Color? color}) {
+  Widget _buildChart(Future? future, bool isHist, String metric,
+      {Color? color, VoidCallback? onRetry, required bool useUtc}) {
     return FutureBuilder(
       future: future,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const AnalyticsStatePanel(
+            state: AnalyticsState.loading,
+            title: 'Loading',
+            message: 'Fetching chart data.',
+          );
         }
         if (snapshot.hasError || snapshot.data == null) {
-          return const Center(child: Text('Failed to load'));
+          return AnalyticsStatePanel(
+            state: AnalyticsState.error,
+            title: 'Chart failed',
+            message: 'Request failed (timeout/auth). Retry.',
+            detail: snapshot.error?.toString(),
+            onRetry: onRetry,
+          );
         }
         if (isHist) {
           final hist = snapshot.data as HistogramData;
@@ -712,17 +1426,32 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
              }
              return "";
           });
+          if (values.isEmpty) {
+            return const AnalyticsStatePanel(
+              state: AnalyticsState.empty,
+              title: 'No histogram data',
+              message: 'No records in selected range.',
+            );
+          }
           return BarChart(values: values, labels: labels, barColor: color ?? const Color(0xFF818CF8));
         } else {
-          final points = snapshot.data as List<TimeSeriesPoint>;
-          if (points.isEmpty) return const Center(child: Text('No data'));
+          final response = snapshot.data as TimeSeriesResponse;
+          final points = response.items;
+          if (points.isEmpty) {
+            return const AnalyticsStatePanel(
+              state: AnalyticsState.empty,
+              title: 'No trend data',
+              message: 'No records in selected range.',
+            );
+          }
           final xs = List<double>.generate(points.length, (i) => i.toDouble());
           final ys = points.map((e) => e.values['${metric}_mean'] ?? 0.0).toList();
           
           final maxCount = points.map((e) => e.count).reduce((a, b) => a > b ? a : b);
           final partial = points.map((e) => e.count < maxCount * 0.9).toList();
+          final hasPartial = partial.any((p) => p);
 
-          return LineChart(
+          final chart = LineChart(
             x: xs, 
             y: ys, 
             lineColor: color ?? const Color(0xFF38BDF8),
@@ -730,9 +1459,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
             xLabelBuilder: (val) {
               int idx = val.round();
               if (idx >= 0 && idx < points.length) {
+                 if (!_shouldShowTick(idx, points.length)) return '';
                  try {
-                   final dt = DateTime.parse(points[idx].ts).toLocal();
-                   return "${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}";
+                   final dt = DateTime.parse(points[idx].ts);
+                   return formatBucketLabel(dt, useUtc: useUtc);
                  } catch (_) {}
               }
               return "";
@@ -742,12 +1472,29 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                if (points.length > i) {
                   final start = points[i].ts;
                   try {
-                    final dt = DateTime.parse(start);
-                    final next = dt.add(const Duration(hours: 1)); 
-                    _showRecordsBrowser(startTime: start, endTime: next.toIso8601String());
+                    final bucketSeconds = response.bucketSeconds ?? 3600;
+                    final next = bucketEndFromIso(start, bucketSeconds);
+                    if (next != null) {
+                      final appState = context.read<AppState>();
+                      appState.setFilterBucket(start, next.toIso8601String());
+                      _load(appState.datasetId!, appState.getSelectedMetric(appState.datasetId!));
+                      _showRecordsBrowser(startTime: start, endTime: next.toIso8601String());
+                    }
                   } catch (_) {}
                }
             },
+          );
+          if (!hasPartial) return chart;
+          return Column(
+            children: [
+              const AnalyticsStatePanel(
+                state: AnalyticsState.partial,
+                title: 'Partial data',
+                message: 'Partial data: latest bucket incomplete.',
+              ),
+              const SizedBox(height: 8),
+              Expanded(child: chart),
+            ],
           );
         }
       },
@@ -759,10 +1506,22 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       future: context.read<TelemetryService>().getMetricStats(datasetId, metric),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const LinearProgressIndicator();
+          return const AnalyticsStatePanel(
+            state: AnalyticsState.loading,
+            title: 'Metric stats',
+            message: 'Loading summary statistics.',
+          );
         }
         if (snapshot.hasError) {
-          return const SizedBox.shrink();
+          return AnalyticsStatePanel(
+            state: AnalyticsState.error,
+            title: 'Metric stats failed',
+            message: 'Request failed (timeout/auth). Retry.',
+            detail: snapshot.error.toString(),
+            onRetry: () {
+              setState(() => _load(datasetId, metric));
+            },
+          );
         }
         final stats = snapshot.data!;
         return Container(
@@ -829,13 +1588,33 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
   void _showRecordsBrowser({String? region, String? anomalyType, String? isAnomaly, String? startTime, String? endTime}) {
      final appState = context.read<AppState>();
+     final datasetId = appState.datasetId!;
+     final metric = appState.getSelectedMetric(datasetId);
+     final useUtc = appState.useUtc;
+     final ctx = _buildContext(
+       datasetId: datasetId,
+       metric: metric,
+       useUtc: useUtc,
+       region: region,
+       anomalyType: anomalyType,
+       isAnomaly: isAnomaly,
+       startTime: startTime,
+       endTime: endTime,
+       bucketStart: startTime,
+       bucketEnd: endTime,
+     );
+     appState.setInvestigationContext(ctx);
      showModalBottomSheet(
         context: context,
         isScrollControlled: true,
         backgroundColor: const Color(0xFF0F172A),
         shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
         builder: (_) => RecordsBrowser(
-           datasetId: appState.datasetId!,
+           datasetId: datasetId,
+           metric: metric,
+           useUtc: useUtc,
+           contextSeed: ctx,
+           onContextChanged: appState.setInvestigationContext,
            region: region,
            anomalyType: anomalyType,
            isAnomaly: isAnomaly,
@@ -848,6 +1627,10 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
 class RecordsBrowser extends StatefulWidget {
   final String datasetId;
+  final String metric;
+  final bool useUtc;
+  final InvestigationContext? contextSeed;
+  final ValueChanged<InvestigationContext?>? onContextChanged;
   final String? region;
   final String? anomalyType;
   final String? isAnomaly;
@@ -857,6 +1640,10 @@ class RecordsBrowser extends StatefulWidget {
   const RecordsBrowser({
     super.key,
     required this.datasetId,
+    required this.metric,
+    required this.useUtc,
+    this.contextSeed,
+    this.onContextChanged,
     this.region,
     this.anomalyType,
     this.isAnomaly,
@@ -871,15 +1658,37 @@ class RecordsBrowser extends StatefulWidget {
 class _RecordsBrowserState extends State<RecordsBrowser> {
   final int _limit = 20;
   int _offset = 0;
-  int _total = 0;
+  int? _total;
+  bool? _hasMore;
+  String _sortBy = 'metric_timestamp';
+  String _sortOrder = 'desc';
+  String? _anchorTime;
+  final TextEditingController _jumpToTimeController = TextEditingController();
   List<Map<String, dynamic>> _items = [];
   bool _loading = false;
   String? _error;
+  InvestigationContext? _context;
 
   @override
   void initState() {
     super.initState();
+    if (widget.contextSeed != null) {
+      _context = widget.contextSeed;
+      _offset = widget.contextSeed!.offset ?? 0;
+      _sortBy = widget.contextSeed!.sortBy ?? _sortBy;
+      _sortOrder = widget.contextSeed!.sortOrder ?? _sortOrder;
+      _anchorTime = widget.contextSeed!.anchorTime;
+      if (_anchorTime != null) {
+        _jumpToTimeController.text = _anchorTime!;
+      }
+    }
     _load();
+  }
+
+  @override
+  void dispose() {
+    _jumpToTimeController.dispose();
+    super.dispose();
   }
 
   void _load() {
@@ -891,6 +1700,9 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
       widget.datasetId,
       limit: _limit,
       offset: _offset,
+      sortBy: _sortBy,
+      sortOrder: _sortOrder,
+      anchorTime: _anchorTime,
       region: widget.region,
       anomalyType: widget.anomalyType,
       isAnomaly: widget.isAnomaly,
@@ -900,8 +1712,37 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
       if (mounted) {
         setState(() {
           _items = (data['items'] as List).map((e) => Map<String, dynamic>.from(e)).toList();
-          _total = data['total'] ?? 0;
+          _total = data['total'];
+          _hasMore = data['has_more'];
           _loading = false;
+          _context = _context?.copyWith(
+                offset: _offset,
+                limit: _limit,
+                region: widget.region,
+                anomalyType: widget.anomalyType,
+                isAnomaly: widget.isAnomaly,
+                startTime: widget.startTime,
+                endTime: widget.endTime,
+                sortBy: _sortBy,
+                sortOrder: _sortOrder,
+                anchorTime: _anchorTime,
+              ) ??
+              InvestigationContext(
+                datasetId: widget.datasetId,
+                metric: widget.metric,
+                useUtc: widget.useUtc,
+                offset: _offset,
+                limit: _limit,
+                region: widget.region,
+                anomalyType: widget.anomalyType,
+                isAnomaly: widget.isAnomaly,
+                startTime: widget.startTime,
+                endTime: widget.endTime,
+                sortBy: _sortBy,
+                sortOrder: _sortOrder,
+                anchorTime: _anchorTime,
+              );
+          widget.onContextChanged?.call(_context);
         });
       }
     }).catchError((e) {
@@ -916,6 +1757,7 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
 
   @override
   Widget build(BuildContext context) {
+    final chips = _contextChips();
     return Container(
       padding: const EdgeInsets.all(24),
       height: MediaQuery.of(context).size.height * 0.8,
@@ -923,53 +1765,89 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Records Browser', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    Text(
+                      '${widget.region ?? "All Regions"} • ${widget.anomalyType ?? "All Types"} • ${widget.startTime != null ? "Time Filtered" : "All Time"}',
+                      style: const TextStyle(color: Colors.white54, fontSize: 12),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('Records Browser', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  Text(
-                    '${widget.region ?? "All Regions"} • ${widget.anomalyType ?? "All Types"} • ${widget.startTime != null ? "Time Filtered" : "All Time"}',
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  TextButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back, size: 16),
+                    label: const Text('Back to aggregate'),
                   ),
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
                 ],
               ),
-              IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
             ],
           ),
-          const SizedBox(height: 16),
-          if (_loading) const LinearProgressIndicator(),
-          if (_error != null) InlineAlert(message: _error!),
+          if (chips.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(spacing: 8, runSpacing: 8, children: chips),
+          ],
+          const SizedBox(height: 12),
+          _buildSortControls(),
+          const SizedBox(height: 12),
+          _buildJumpControls(),
           const SizedBox(height: 16),
           Expanded(
-            child: _items.isEmpty && !_loading
-                ? const Center(child: Text('No records found'))
-                : ListView.builder(
-                    itemCount: _items.length,
-                    itemBuilder: (context, index) {
-                      final item = _items[index];
-                      final isAnomaly = item['is_anomaly'] == true;
-                      return Card(
-                        color: isAnomaly ? Colors.red.withOpacity(0.1) : Colors.white.withOpacity(0.05),
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          title: Text('${item['host_id']}'),
-                          subtitle: Text('${item['timestamp'].substring(11, 19)} • ${item['region']}'),
-                          trailing: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text('CPU: ${item['cpu_usage'].toStringAsFixed(1)}%'),
-                              if (isAnomaly)
-                                Text(item['anomaly_type'] ?? 'ANOMALY', 
-                                     style: const TextStyle(color: Colors.redAccent, fontSize: 10)),
-                            ],
+            child: _loading
+                ? const AnalyticsStatePanel(
+                    state: AnalyticsState.loading,
+                    title: 'Records loading',
+                    message: 'Fetching records for the selected filters.',
+                  )
+                : _error != null
+                    ? AnalyticsStatePanel(
+                        state: AnalyticsState.error,
+                        title: 'Records failed',
+                        message: 'Request failed (timeout/auth). Retry.',
+                        detail: _error,
+                        onRetry: _load,
+                      )
+                    : _items.isEmpty
+                        ? const AnalyticsStatePanel(
+                            state: AnalyticsState.empty,
+                            title: 'No records found',
+                            message: 'No records in selected range.',
+                          )
+                        : ListView.builder(
+                            itemCount: _items.length,
+                            itemBuilder: (context, index) {
+                              final item = _items[index];
+                              final isAnomaly = item['is_anomaly'] == true;
+                              return Card(
+                                color: isAnomaly ? Colors.red.withOpacity(0.1) : Colors.white.withOpacity(0.05),
+                                margin: const EdgeInsets.only(bottom: 8),
+                                child: ListTile(
+                                  title: Text('${item['host_id']}'),
+                                  subtitle: Text('${item['timestamp'].substring(11, 19)} • ${item['region']}'),
+                                  trailing: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text('CPU: ${item['cpu_usage'].toStringAsFixed(1)}%'),
+                                      if (isAnomaly)
+                                        Text(item['anomaly_type'] ?? 'ANOMALY',
+                                            style: const TextStyle(color: Colors.redAccent, fontSize: 10)),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                        ),
-                      );
-                    },
-                  ),
           ),
           _buildPagination(),
         ],
@@ -977,7 +1855,135 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
     );
   }
 
+  List<Widget> _contextChips() {
+    final items = <Widget>[];
+    final tz = widget.useUtc ? 'UTC' : 'Local';
+    items.add(_contextChip('TZ: $tz'));
+    items.add(_contextChip('Sort: ${_sortOrder == "asc" ? "Oldest" : "Newest"}'));
+    if (widget.region != null) items.add(_contextChip('Region: ${widget.region}'));
+    if (widget.anomalyType != null) items.add(_contextChip('Type: ${widget.anomalyType}'));
+    if (widget.isAnomaly != null) items.add(_contextChip('Anomaly: ${widget.isAnomaly}'));
+    if (widget.startTime != null || widget.endTime != null) {
+      items.add(_contextChip('Range: ${widget.startTime ?? "-"} → ${widget.endTime ?? "-"}'));
+    }
+    if (_anchorTime != null && _anchorTime!.isNotEmpty) {
+      items.add(_contextChip('Anchor: $_anchorTime'));
+    }
+    return items;
+  }
+
+  Widget _contextChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Text(label, style: const TextStyle(fontSize: 11, color: Colors.white70)),
+    );
+  }
+
+  Widget _buildSortControls() {
+    return Row(
+      children: [
+        const Text('Sort by', style: TextStyle(color: Colors.white70)),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: Colors.white10,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white24),
+          ),
+          child: DropdownButton<String>(
+            key: const Key('records-sort-order'),
+            value: _sortOrder,
+            dropdownColor: const Color(0xFF0F172A),
+            underline: const SizedBox.shrink(),
+            style: const TextStyle(color: Colors.white),
+            items: const [
+              DropdownMenuItem(value: 'desc', child: Text('Newest first')),
+              DropdownMenuItem(value: 'asc', child: Text('Oldest first')),
+            ],
+            onChanged: (value) {
+              if (value == null) return;
+              setState(() {
+                _sortOrder = value;
+                _offset = 0;
+              });
+              _load();
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildJumpControls() {
+    final bucketStart = _context?.bucketStart;
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            key: const Key('records-jump-input'),
+            controller: _jumpToTimeController,
+            decoration: const InputDecoration(
+              labelText: 'Jump to time (ISO)',
+              hintText: '2026-02-03T00:00:00Z',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
+        const SizedBox(width: 8),
+        TextButton(
+          key: const Key('records-jump-apply'),
+          onPressed: () {
+            setState(() {
+              _anchorTime = _jumpToTimeController.text.trim();
+              _offset = 0;
+            });
+            _load();
+          },
+          child: const Text('Jump'),
+        ),
+        const SizedBox(width: 4),
+        if (bucketStart != null)
+          TextButton(
+            key: const Key('records-jump-bucket'),
+            onPressed: () {
+              setState(() {
+                _anchorTime = bucketStart;
+                _jumpToTimeController.text = bucketStart;
+                _offset = 0;
+              });
+              _load();
+            },
+            child: const Text('Use bucket'),
+          ),
+        const SizedBox(width: 4),
+        TextButton(
+          key: const Key('records-jump-clear'),
+          onPressed: () {
+            setState(() {
+              _anchorTime = null;
+              _jumpToTimeController.clear();
+              _offset = 0;
+            });
+            _load();
+          },
+          child: const Text('Clear'),
+        ),
+      ],
+    );
+  }
+
   Widget _buildPagination() {
+    final total = _total;
+    final end = _offset + _items.length;
+    final hasMore = _hasMore ?? (total != null ? end < total : _items.length == _limit);
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -985,15 +1991,17 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
           icon: const Icon(Icons.chevron_left),
           onPressed: _offset > 0 ? () {
             setState(() {
-              _offset = (_offset - _limit).clamp(0, _total);
+              _offset = (_offset - _limit).clamp(0, total ?? _offset);
               _load();
             });
           } : null,
         ),
-        Text('${_offset + 1}-${(_offset + _items.length).clamp(0, _total)} of $_total'),
+        Text(total != null
+            ? '${_offset + 1}-${end.clamp(0, total)} of $total'
+            : '${_offset + 1}-${end}'),
         IconButton(
           icon: const Icon(Icons.chevron_right),
-          onPressed: (_offset + _limit) < _total ? () {
+          onPressed: hasMore ? () {
             setState(() {
               _offset += _limit;
               _load();

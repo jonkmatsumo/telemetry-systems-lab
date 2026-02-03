@@ -4,6 +4,7 @@
 #include <string_view>
 #include <vector>
 #include "obs/metrics.h"
+#include "pagination.h"
 #include "obs/context.h"
 #include <google/protobuf/util/json_util.h>
 #include <fmt/chrono.h>
@@ -163,27 +164,23 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
         pqxx::work W(C);
         
 #if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
-        // Use explicit std::vector<std::string> to avoid pqxx iterator overload
-        // ambiguity that can treat const char* as char iterator range.
-        const std::vector<std::string> columns = {
-            "ingestion_time",
-            "metric_timestamp",
-            "host_id",
-            "project_id",
-            "region",
-            "cpu_usage",
-            "memory_usage",
-            "disk_utilization",
-            "network_rx_rate",
-            "network_tx_rate",
-            "labels",
-            "run_id",
-            "is_anomaly",
-            "anomaly_type"};
         auto stream = pqxx::stream_to::table(
             W,
             pqxx::table_path{"host_telemetry_archival"},
-            columns);
+            {"ingestion_time",
+             "metric_timestamp",
+             "host_id",
+             "project_id",
+             "region",
+             "cpu_usage",
+             "memory_usage",
+             "disk_utilization",
+             "network_rx_rate",
+             "network_tx_rate",
+             "labels",
+             "run_id",
+             "is_anomaly",
+             "anomaly_type"});
 #else
         const std::vector<std::string> columns = {
             "ingestion_time",
@@ -778,37 +775,51 @@ nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) 
 nlohmann::json DbClient::GetTopK(const std::string& run_id,
                                  const std::string& column,
                                  int k,
+                                 const std::string& region,
                                  const std::string& is_anomaly,
                                  const std::string& anomaly_type,
                                  const std::string& start_time,
-                                 const std::string& end_time) {
+                                 const std::string& end_time,
+                                 bool include_total_distinct) {
     if (!IsValidDimension(column)) {
         throw std::invalid_argument("Invalid column: " + column);
     }
-    nlohmann::json out = nlohmann::json::array();
+    nlohmann::json out;
+    out["items"] = nlohmann::json::array();
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        std::string query = "SELECT " + column + ", COUNT(*) FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id);
+        
+        std::string filter = "WHERE run_id = " + W.quote(run_id);
+        if (!region.empty()) {
+            filter += " AND region = " + W.quote(region);
+        }
         if (!is_anomaly.empty()) {
-            query += " AND is_anomaly = " + W.quote(is_anomaly == "true");
+            filter += " AND is_anomaly = " + W.quote(is_anomaly == "true");
         }
         if (!anomaly_type.empty()) {
-            query += " AND anomaly_type = " + W.quote(anomaly_type);
+            filter += " AND anomaly_type = " + W.quote(anomaly_type);
         }
         if (!start_time.empty()) {
-            query += " AND metric_timestamp >= " + W.quote(start_time);
+            filter += " AND metric_timestamp >= " + W.quote(start_time);
         }
         if (!end_time.empty()) {
-            query += " AND metric_timestamp <= " + W.quote(end_time);
+            filter += " AND metric_timestamp <= " + W.quote(end_time);
         }
-        query += " GROUP BY " + column + " ORDER BY COUNT(*) DESC LIMIT " + std::to_string(k);
+
+        if (include_total_distinct) {
+            auto res_count = W.exec("SELECT COUNT(DISTINCT " + column + ") FROM host_telemetry_archival " + filter);
+            out["total_distinct"] = res_count.empty() ? 0 : res_count[0][0].as<long>();
+        }
+
+        std::string query = "SELECT " + column + ", COUNT(*) FROM host_telemetry_archival " + filter +
+                            " GROUP BY " + column + " ORDER BY COUNT(*) DESC LIMIT " + std::to_string(k);
         auto res = W.exec(query);
         for (const auto& row : res) {
             nlohmann::json j;
             j["label"] = row[0].is_null() ? "" : row[0].as<std::string>();
             j["count"] = row[1].as<long>();
-            out.push_back(j);
+            out["items"].push_back(j);
         }
         W.commit();
     } catch (const std::exception& e) {
@@ -822,6 +833,7 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
                                        const std::vector<std::string>& metrics,
                                        const std::vector<std::string>& aggs,
                                        int bucket_seconds,
+                                       const std::string& region,
                                        const std::string& is_anomaly,
                                        const std::string& anomaly_type,
                                        const std::string& start_time,
@@ -860,6 +872,9 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
         select += ", COUNT(*) AS bucket_count";
 
         std::string query = "SELECT " + select + " FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id);
+        if (!region.empty()) {
+            query += " AND region = " + W.quote(region);
+        }
         if (!is_anomaly.empty()) {
             query += " AND is_anomaly = " + W.quote(is_anomaly == "true");
         }
@@ -901,6 +916,7 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
                                       int bins,
                                       double min_val,
                                       double max_val,
+                                      const std::string& region,
                                       const std::string& is_anomaly,
                                       const std::string& anomaly_type,
                                       const std::string& start_time,
@@ -909,7 +925,12 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
     if (!IsValidMetric(metric)) {
         throw std::invalid_argument("Invalid metric: " + metric);
     }
+    const int MAX_BINS = 500;
+    int requested_bins = bins;
+    if (bins > MAX_BINS) bins = MAX_BINS;
+
     nlohmann::json out;
+    out["requested_bins"] = requested_bins;
     out["edges"] = nlohmann::json::array();
     out["counts"] = nlohmann::json::array();
     try {
@@ -936,6 +957,9 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
         std::string query = "SELECT width_bucket(" + metric + ", " + std::to_string(min_val) + ", " +
                             std::to_string(max_val) + ", " + std::to_string(bins) + ") AS b, COUNT(*) "
                             "FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id);
+        if (!region.empty()) {
+            query += " AND region = " + W.quote(region);
+        }
         if (!is_anomaly.empty()) {
             query += " AND is_anomaly = " + W.quote(is_anomaly == "true");
         }
@@ -1216,18 +1240,14 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
 #if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
-        // Use explicit std::vector<std::string> to avoid pqxx iterator overload
-        // ambiguity that can treat const char* as char iterator range.
-        const std::vector<std::string> columns = {
-            "dataset_id",
-            "model_run_id",
-            "record_id",
-            "reconstruction_error",
-            "predicted_is_anomaly"};
         auto stream = pqxx::stream_to::table(
             W,
             pqxx::table_path{"dataset_scores"},
-            columns);
+            {"dataset_id",
+             "model_run_id",
+             "record_id",
+             "reconstruction_error",
+             "predicted_is_anomaly"});
 #else
         const std::vector<std::string> columns = {
             "dataset_id",
@@ -1509,16 +1529,40 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
                                               const std::string& is_anomaly,
                                               const std::string& anomaly_type,
                                               const std::string& host_id,
-                                              const std::string& region) {
+                                              const std::string& region,
+                                              const std::string& sort_by,
+                                              const std::string& sort_order,
+                                              const std::string& anchor_time) {
     nlohmann::json out = nlohmann::json::object();
     out["items"] = nlohmann::json::array();
     try {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
         
+        std::string sort_column = "metric_timestamp";
+        if (!sort_by.empty() && sort_by != "metric_timestamp") {
+            throw std::invalid_argument("Invalid sort_by: " + sort_by);
+        }
+        std::string sort_dir = "desc";
+        if (!sort_order.empty()) {
+            std::string lower = sort_order;
+            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+            if (lower != "asc" && lower != "desc") {
+                throw std::invalid_argument("Invalid sort_order: " + sort_order);
+            }
+            sort_dir = lower;
+        }
+
         std::string where = "WHERE run_id = " + N.quote(run_id);
         if (!start_time.empty()) where += " AND metric_timestamp >= " + N.quote(start_time);
         if (!end_time.empty()) where += " AND metric_timestamp <= " + N.quote(end_time);
+        if (!anchor_time.empty()) {
+            if (sort_dir == "asc") {
+                where += " AND metric_timestamp >= " + N.quote(anchor_time);
+            } else {
+                where += " AND metric_timestamp <= " + N.quote(anchor_time);
+            }
+        }
         if (!is_anomaly.empty()) where += " AND is_anomaly = " + N.quote(is_anomaly == "true");
         if (!anomaly_type.empty()) where += " AND anomaly_type = " + N.quote(anomaly_type);
         if (!host_id.empty()) where += " AND host_id = " + N.quote(host_id);
@@ -1527,7 +1571,7 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
         std::string query =
             "SELECT record_id, host_id, metric_timestamp, cpu_usage, memory_usage, disk_utilization, "
             "network_rx_rate, network_tx_rate, is_anomaly, anomaly_type, region, project_id, labels "
-            "FROM host_telemetry_archival " + where + " ORDER BY metric_timestamp DESC LIMIT $1 OFFSET $2";
+            "FROM host_telemetry_archival " + where + " ORDER BY " + sort_column + " " + sort_dir + " LIMIT $1 OFFSET $2";
             
         auto res = N.exec_params(query, limit, offset);
         for (const auto& row : res) {
@@ -1549,9 +1593,18 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
         }
         
         auto count_res = N.exec("SELECT COUNT(*) FROM host_telemetry_archival " + where);
-        out["total"] = count_res.empty() ? 0 : count_res[0][0].as<long>();
+        long total = count_res.empty() ? 0 : count_res[0][0].as<long>();
+        int returned = static_cast<int>(out["items"].size());
+        out["total"] = total;
         out["limit"] = limit;
         out["offset"] = offset;
+        out["returned"] = returned;
+        out["has_more"] = telemetry::api::HasMore(limit, offset, returned, total);
+        out["sort_by"] = sort_column;
+        out["sort_order"] = sort_dir;
+        if (!anchor_time.empty()) {
+            out["anchor_time"] = anchor_time;
+        }
 
     } catch (const std::exception& e) {
         spdlog::error("Failed to search dataset records: {}", e.what());

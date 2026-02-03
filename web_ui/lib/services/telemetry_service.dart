@@ -50,7 +50,8 @@ class DatasetSummary {
   final double ingestionLatencyP50;
   final double ingestionLatencyP95;
   final List<AnomalyRatePoint> anomalyRateTrend;
-
+  final String? serverTime;
+  final ResponseMeta? meta;
   DatasetSummary({
     required this.rowCount,
     required this.minTs,
@@ -61,6 +62,8 @@ class DatasetSummary {
     required this.ingestionLatencyP50,
     required this.ingestionLatencyP95,
     required this.anomalyRateTrend,
+    this.serverTime,
+    this.meta,
   });
 
   factory DatasetSummary.fromJson(Map<String, dynamic> json) {
@@ -84,6 +87,10 @@ class DatasetSummary {
       anomalyRateTrend: (json['anomaly_rate_trend'] as List? ?? [])
           .map((e) => AnomalyRatePoint.fromJson(e as Map<String, dynamic>))
           .toList(),
+      serverTime: (json['meta'] as Map<String, dynamic>?)?['server_time'],
+      meta: (json['meta'] as Map<String, dynamic>?) != null
+          ? ResponseMeta.fromJson(json['meta'] as Map<String, dynamic>)
+          : null,
     );
   }
 }
@@ -104,6 +111,77 @@ class AnomalyRatePoint {
   }
 }
 
+class ResponseMeta {
+  final int limit;
+  final int returned;
+  final bool truncated;
+  final int? totalDistinct;
+  final String reason;
+  final String? startTime;
+  final String? endTime;
+  final String? serverTime;
+  final int? binsRequested;
+  final int? binsReturned;
+  final int? bucketSeconds;
+  final String? resolution;
+  final String? compareMode;
+  final String? baselineStartTime;
+  final String? baselineEndTime;
+  final String? requestId;
+  final double? durationMs;
+  final int? rowsScanned;
+  final int? rowsReturned;
+  final bool? cacheHit;
+
+  ResponseMeta({
+    required this.limit,
+    required this.returned,
+    required this.truncated,
+    this.totalDistinct,
+    required this.reason,
+    this.startTime,
+    this.endTime,
+    this.serverTime,
+    this.binsRequested,
+    this.binsReturned,
+    this.bucketSeconds,
+    this.resolution,
+    this.compareMode,
+    this.baselineStartTime,
+    this.baselineEndTime,
+    this.requestId,
+    this.durationMs,
+    this.rowsScanned,
+    this.rowsReturned,
+    this.cacheHit,
+  });
+
+  factory ResponseMeta.fromJson(Map<String, dynamic> json) {
+    return ResponseMeta(
+      limit: json['limit'] ?? 0,
+      returned: json['returned'] ?? 0,
+      truncated: json['truncated'] ?? false,
+      totalDistinct: json['total_distinct'],
+      reason: json['reason'] ?? '',
+      startTime: json['start_time'],
+      endTime: json['end_time'],
+      serverTime: json['server_time'],
+      binsRequested: json['bins_requested'],
+      binsReturned: json['bins_returned'],
+      bucketSeconds: json['bucket_seconds'],
+      resolution: json['resolution'],
+      compareMode: json['compare_mode'],
+      baselineStartTime: json['baseline_start_time'],
+      baselineEndTime: json['baseline_end_time'],
+      requestId: json['request_id'],
+      durationMs: (json['duration_ms'] as num?)?.toDouble(),
+      rowsScanned: json['rows_scanned'],
+      rowsReturned: json['rows_returned'],
+      cacheHit: json['cache_hit'],
+    );
+  }
+}
+
 class TopKEntry {
   final String label;
   final int count;
@@ -114,6 +192,22 @@ class TopKEntry {
     return TopKEntry(
       label: json['label'] ?? '',
       count: json['count'] ?? 0,
+    );
+  }
+}
+
+class TopKResponse {
+  final List<TopKEntry> items;
+  final ResponseMeta meta;
+
+  TopKResponse({required this.items, required this.meta});
+
+  factory TopKResponse.fromJson(Map<String, dynamic> json) {
+    return TopKResponse(
+      items: (json['items'] as List? ?? [])
+          .map((e) => TopKEntry.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      meta: ResponseMeta.fromJson(json['meta'] ?? {}),
     );
   }
 }
@@ -140,11 +234,35 @@ class TimeSeriesPoint {
   }
 }
 
+class TimeSeriesResponse {
+  final List<TimeSeriesPoint> items;
+  final List<TimeSeriesPoint> baseline;
+  final ResponseMeta meta;
+  final int? bucketSeconds;
+
+  TimeSeriesResponse({required this.items, required this.meta, this.bucketSeconds, this.baseline = const []});
+
+  factory TimeSeriesResponse.fromJson(Map<String, dynamic> json) {
+    final meta = ResponseMeta.fromJson(json['meta'] ?? {});
+    return TimeSeriesResponse(
+      items: (json['items'] as List? ?? [])
+          .map((e) => TimeSeriesPoint.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      baseline: (json['baseline'] as List? ?? [])
+          .map((e) => TimeSeriesPoint.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      meta: meta,
+      bucketSeconds: json['bucket_seconds'] ?? meta.bucketSeconds,
+    );
+  }
+}
+
 class HistogramData {
   final List<double> edges;
   final List<int> counts;
+  final ResponseMeta meta;
 
-  HistogramData({required this.edges, required this.counts});
+  HistogramData({required this.edges, required this.counts, required this.meta});
 
   factory HistogramData.fromJson(Map<String, dynamic> json) {
     return HistogramData(
@@ -152,6 +270,7 @@ class HistogramData {
           .map<double>((e) => (e ?? 0.0).toDouble())
           .toList(),
       counts: (json['counts'] as List? ?? []).map((e) => e as int).toList(),
+      meta: ResponseMeta.fromJson(json['meta'] ?? {}),
     );
   }
 }
@@ -637,6 +756,9 @@ class TelemetryService {
   Future<Map<String, dynamic>> searchDatasetRecords(String runId, {
     int limit = 50,
     int offset = 0,
+    String? sortBy,
+    String? sortOrder,
+    String? anchorTime,
     String? startTime,
     String? endTime,
     String? isAnomaly,
@@ -645,6 +767,9 @@ class TelemetryService {
     String? region,
   }) async {
     final params = {'limit': '$limit', 'offset': '$offset'};
+    if (sortBy != null) params['sort_by'] = sortBy;
+    if (sortOrder != null) params['sort_order'] = sortOrder;
+    if (anchorTime != null) params['anchor_time'] = anchorTime;
     if (startTime != null) params['start_time'] = startTime;
     if (endTime != null) params['end_time'] = endTime;
     if (isAnomaly != null) params['is_anomaly'] = isAnomaly;
@@ -704,68 +829,73 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<List<TopKEntry>> getTopK(String runId, String column,
+  Future<TopKResponse> getTopK(String runId, String column,
       {int k = 10,
+      String? region,
       String? isAnomaly,
       String? anomalyType,
       String? startTime,
       String? endTime,
+      bool includeTotalDistinct = false,
       bool forceRefresh = false}) async {
     final params = <String, String>{
       'column': column,
       'k': '$k',
     };
+    if (region != null) params['region'] = region;
     if (isAnomaly != null) params['is_anomaly'] = isAnomaly;
     if (anomalyType != null) params['anomaly_type'] = anomalyType;
     if (startTime != null) params['start_time'] = startTime;
     if (endTime != null) params['end_time'] = endTime;
+    if (includeTotalDistinct) params['include_total_distinct'] = 'true';
+
     final key = _cacheKey('/datasets/$runId/topk', params);
     if (!forceRefresh) {
-      final cached = _readCache<List<TopKEntry>>(key);
+      final cached = _readCache<TopKResponse>(key);
       if (cached != null) return cached;
     }
     final response = await _client.get(_buildUri('/datasets/$runId/topk', params));
     if (response.statusCode == 200) {
-      final items = (jsonDecode(response.body)['items'] as List? ?? [])
-          .map((e) => TopKEntry.fromJson(e as Map<String, dynamic>))
-          .toList();
-      _writeCache(key, items);
-      return items;
+      final data = TopKResponse.fromJson(jsonDecode(response.body));
+      _writeCache(key, data);
+      return data;
     }
     _handleError(response, 'Failed to get topk');
     throw Exception('Unreachable');
   }
 
-  Future<List<TimeSeriesPoint>> getTimeSeries(String runId,
+  Future<TimeSeriesResponse> getTimeSeries(String runId,
       {required List<String> metrics,
       List<String> aggs = const ['mean'],
       String bucket = '1h',
+      String? region,
       String? isAnomaly,
       String? anomalyType,
       String? startTime,
       String? endTime,
+      String? compareMode,
       bool forceRefresh = false}) async {
     final params = <String, String>{
       'metrics': metrics.join(','),
       'aggs': aggs.join(','),
       'bucket': bucket,
     };
+    if (region != null) params['region'] = region;
     if (isAnomaly != null) params['is_anomaly'] = isAnomaly;
     if (anomalyType != null) params['anomaly_type'] = anomalyType;
     if (startTime != null) params['start_time'] = startTime;
     if (endTime != null) params['end_time'] = endTime;
+    if (compareMode != null) params['compare_mode'] = compareMode;
     final key = _cacheKey('/datasets/$runId/timeseries', params);
     if (!forceRefresh) {
-      final cached = _readCache<List<TimeSeriesPoint>>(key);
+      final cached = _readCache<TimeSeriesResponse>(key);
       if (cached != null) return cached;
     }
     final response = await _client.get(_buildUri('/datasets/$runId/timeseries', params));
     if (response.statusCode == 200) {
-      final items = (jsonDecode(response.body)['items'] as List? ?? [])
-          .map((e) => TimeSeriesPoint.fromJson(e as Map<String, dynamic>))
-          .toList();
-      _writeCache(key, items);
-      return items;
+      final data = TimeSeriesResponse.fromJson(jsonDecode(response.body));
+      _writeCache(key, data);
+      return data;
     }
     _handleError(response, 'Failed to get timeseries');
     throw Exception('Unreachable');
@@ -777,6 +907,7 @@ class TelemetryService {
       String range = 'minmax',
       double? min,
       double? max,
+      String? region,
       String? isAnomaly,
       String? anomalyType,
       String? startTime,
@@ -787,6 +918,7 @@ class TelemetryService {
       'bins': '$bins',
       'range': range,
     };
+    if (region != null) params['region'] = region;
     if (min != null) params['min'] = '$min';
     if (max != null) params['max'] = '$max';
     if (isAnomaly != null) params['is_anomaly'] = isAnomaly;
