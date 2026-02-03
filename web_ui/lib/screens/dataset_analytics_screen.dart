@@ -219,13 +219,19 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   void _load(String datasetId, String metric, {bool forceRefresh = false}) {
     _loadedMetric = metric;
     final service = context.read<TelemetryService>();
+    final appState = context.read<AppState>();
     _loadError = null;
     
     String? start, end;
-    if (_timeRange != null) {
+    if (appState.filterBucketStart != null || appState.filterBucketEnd != null) {
+      start = appState.filterBucketStart;
+      end = appState.filterBucketEnd;
+    } else if (_timeRange != null) {
       start = _iso(_timeRange!.start);
       end = _iso(_timeRange!.end);
     }
+    final regionFilter = appState.filterRegion;
+    final anomalyFilter = appState.filterAnomalyType;
 
     _summaryFuture = _trackWidget(
       _keySummary,
@@ -245,7 +251,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     });
     _topRegionsFuture = _trackWidget(
       _keyTopRegions,
-      service.getTopK(datasetId, 'region', k: 10, startTime: start, endTime: end, forceRefresh: forceRefresh),
+      service.getTopK(datasetId, 'region', k: 10, region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
       forceRefresh: forceRefresh,
       startTime: start,
       endTime: end,
@@ -253,7 +259,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     );
     _topAnomalyFuture = _trackWidget(
       _keyTopAnomaly,
-      service.getTopK(datasetId, 'anomaly_type', k: 10, isAnomaly: 'true', startTime: start, endTime: end, forceRefresh: forceRefresh),
+      service.getTopK(datasetId, 'anomaly_type', k: 10, region: regionFilter, isAnomaly: 'true', anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
       forceRefresh: forceRefresh,
       startTime: start,
       endTime: end,
@@ -262,7 +268,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     
     _metricHistFuture = _trackWidget(
       _keyMetricHist,
-      service.getHistogram(datasetId, metric: metric, bins: 30, startTime: start, endTime: end, forceRefresh: forceRefresh),
+      service.getHistogram(datasetId, metric: metric, bins: 30, region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
       forceRefresh: forceRefresh,
       startTime: start,
       endTime: end,
@@ -277,7 +283,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     if (_showAnomalyOverlay) {
       _metricHistAnomalyFuture = _trackWidget(
         _keyMetricHistAnomaly,
-        service.getHistogram(datasetId, metric: metric, bins: 30, isAnomaly: 'true', startTime: start, endTime: end, forceRefresh: forceRefresh),
+        service.getHistogram(datasetId, metric: metric, bins: 30, region: regionFilter, isAnomaly: 'true', anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
         forceRefresh: forceRefresh,
         startTime: start,
         endTime: end,
@@ -289,7 +295,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
 
     _metricTsFuture = _trackWidget(
       _keyMetricTs,
-      service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: '1h', startTime: start, endTime: end, forceRefresh: forceRefresh),
+      service.getTimeSeries(datasetId, metrics: [metric], aggs: ['mean'], bucket: '1h', region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
       forceRefresh: forceRefresh,
       startTime: start,
       endTime: end,
@@ -304,7 +310,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     if (_comparisonMetric != null) {
       _comparisonHistFuture = _trackWidget(
         _keyComparisonHist,
-        service.getHistogram(datasetId, metric: _comparisonMetric!, bins: 30, startTime: start, endTime: end, forceRefresh: forceRefresh),
+        service.getHistogram(datasetId, metric: _comparisonMetric!, bins: 30, region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
         forceRefresh: forceRefresh,
         startTime: start,
         endTime: end,
@@ -315,7 +321,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       });
       _comparisonTsFuture = _trackWidget(
         _keyComparisonTs,
-        service.getTimeSeries(datasetId, metrics: [_comparisonMetric!], aggs: ['mean'], bucket: '1h', startTime: start, endTime: end, forceRefresh: forceRefresh),
+        service.getTimeSeries(datasetId, metrics: [_comparisonMetric!], aggs: ['mean'], bucket: '1h', region: regionFilter, anomalyType: anomalyFilter, startTime: start, endTime: end, forceRefresh: forceRefresh),
         forceRefresh: forceRefresh,
         startTime: start,
         endTime: end,

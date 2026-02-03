@@ -774,6 +774,7 @@ nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) 
 nlohmann::json DbClient::GetTopK(const std::string& run_id,
                                  const std::string& column,
                                  int k,
+                                 const std::string& region,
                                  const std::string& is_anomaly,
                                  const std::string& anomaly_type,
                                  const std::string& start_time,
@@ -789,6 +790,9 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
         pqxx::work W(C);
         
         std::string filter = "WHERE run_id = " + W.quote(run_id);
+        if (!region.empty()) {
+            filter += " AND region = " + W.quote(region);
+        }
         if (!is_anomaly.empty()) {
             filter += " AND is_anomaly = " + W.quote(is_anomaly == "true");
         }
@@ -828,6 +832,7 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
                                        const std::vector<std::string>& metrics,
                                        const std::vector<std::string>& aggs,
                                        int bucket_seconds,
+                                       const std::string& region,
                                        const std::string& is_anomaly,
                                        const std::string& anomaly_type,
                                        const std::string& start_time,
@@ -866,6 +871,9 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
         select += ", COUNT(*) AS bucket_count";
 
         std::string query = "SELECT " + select + " FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id);
+        if (!region.empty()) {
+            query += " AND region = " + W.quote(region);
+        }
         if (!is_anomaly.empty()) {
             query += " AND is_anomaly = " + W.quote(is_anomaly == "true");
         }
@@ -907,6 +915,7 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
                                       int bins,
                                       double min_val,
                                       double max_val,
+                                      const std::string& region,
                                       const std::string& is_anomaly,
                                       const std::string& anomaly_type,
                                       const std::string& start_time,
@@ -947,6 +956,9 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
         std::string query = "SELECT width_bucket(" + metric + ", " + std::to_string(min_val) + ", " +
                             std::to_string(max_val) + ", " + std::to_string(bins) + ") AS b, COUNT(*) "
                             "FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id);
+        if (!region.empty()) {
+            query += " AND region = " + W.quote(region);
+        }
         if (!is_anomaly.empty()) {
             query += " AND is_anomaly = " + W.quote(is_anomaly == "true");
         }

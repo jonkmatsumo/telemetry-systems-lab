@@ -407,6 +407,7 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
     log.AddFields({{"dataset_id", run_id}});
     std::string column = GetStrParam(req, "column");
     int k = GetIntParam(req, "k", 10);
+    std::string region = GetStrParam(req, "region");
     std::string is_anomaly = GetStrParam(req, "is_anomaly");
     std::string anomaly_type = GetStrParam(req, "anomaly_type");
     std::string start_time = GetStrParam(req, "start_time");
@@ -427,7 +428,7 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
     bool include_total = GetStrParam(req, "include_total_distinct") == "true";
     try {
         auto start = std::chrono::steady_clock::now();
-        auto data_obj = db_client_->GetTopK(run_id, allowed[column], k, is_anomaly, anomaly_type, start_time, end_time, include_total);
+        auto data_obj = db_client_->GetTopK(run_id, allowed[column], k, region, is_anomaly, anomaly_type, start_time, end_time, include_total);
         auto end = std::chrono::steady_clock::now();
         
         nlohmann::json resp;
@@ -475,6 +476,7 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
     // ... (rest of parsing)
     std::string aggs_param = GetStrParam(req, "aggs");
     std::string bucket = GetStrParam(req, "bucket");
+    std::string region = GetStrParam(req, "region");
     std::string is_anomaly = GetStrParam(req, "is_anomaly");
     std::string anomaly_type = GetStrParam(req, "anomaly_type");
     std::string start_time = GetStrParam(req, "start_time");
@@ -508,7 +510,7 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
     bool debug = GetStrParam(req, "debug") == "true";
     try {
         auto start = std::chrono::steady_clock::now();
-        auto data = db_client_->GetTimeSeries(run_id, metrics, aggs, bucket_seconds, is_anomaly, anomaly_type, start_time, end_time);
+        auto data = db_client_->GetTimeSeries(run_id, metrics, aggs, bucket_seconds, region, is_anomaly, anomaly_type, start_time, end_time);
         auto end = std::chrono::steady_clock::now();
         nlohmann::json resp;
         resp["items"] = data;
@@ -553,6 +555,7 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         min_val = 0.0;
         max_val = 0.0;
     }
+    std::string region = GetStrParam(req, "region");
     std::string is_anomaly = GetStrParam(req, "is_anomaly");
     std::string anomaly_type = GetStrParam(req, "anomaly_type");
     std::string start_time = GetStrParam(req, "start_time");
@@ -561,7 +564,7 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
     bool debug = GetStrParam(req, "debug") == "true";
     try {
         auto start = std::chrono::steady_clock::now();
-        auto data = db_client_->GetHistogram(run_id, metric, bins, min_val, max_val, is_anomaly, anomaly_type, start_time, end_time);
+        auto data = db_client_->GetHistogram(run_id, metric, bins, min_val, max_val, region, is_anomaly, anomaly_type, start_time, end_time);
         auto end = std::chrono::steady_clock::now();
         
         int requested_bins = data.value("requested_bins", bins);

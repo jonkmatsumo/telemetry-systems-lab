@@ -785,6 +785,7 @@ class TelemetryService {
 
   Future<TopKResponse> getTopK(String runId, String column,
       {int k = 10,
+      String? region,
       String? isAnomaly,
       String? anomalyType,
       String? startTime,
@@ -795,6 +796,7 @@ class TelemetryService {
       'column': column,
       'k': '$k',
     };
+    if (region != null) params['region'] = region;
     if (isAnomaly != null) params['is_anomaly'] = isAnomaly;
     if (anomalyType != null) params['anomaly_type'] = anomalyType;
     if (startTime != null) params['start_time'] = startTime;
@@ -820,6 +822,7 @@ class TelemetryService {
       {required List<String> metrics,
       List<String> aggs = const ['mean'],
       String bucket = '1h',
+      String? region,
       String? isAnomaly,
       String? anomalyType,
       String? startTime,
@@ -830,6 +833,7 @@ class TelemetryService {
       'aggs': aggs.join(','),
       'bucket': bucket,
     };
+    if (region != null) params['region'] = region;
     if (isAnomaly != null) params['is_anomaly'] = isAnomaly;
     if (anomalyType != null) params['anomaly_type'] = anomalyType;
     if (startTime != null) params['start_time'] = startTime;
@@ -855,6 +859,7 @@ class TelemetryService {
       String range = 'minmax',
       double? min,
       double? max,
+      String? region,
       String? isAnomaly,
       String? anomalyType,
       String? startTime,
@@ -865,6 +870,7 @@ class TelemetryService {
       'bins': '$bins',
       'range': range,
     };
+    if (region != null) params['region'] = region;
     if (min != null) params['min'] = '$min';
     if (max != null) params['max'] = '$max';
     if (isAnomaly != null) params['is_anomaly'] = isAnomaly;
