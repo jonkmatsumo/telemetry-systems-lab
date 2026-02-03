@@ -10,6 +10,7 @@
 #include <chrono>
 #include <fstream>
 #include <unordered_map>
+#include <iomanip>
 #include <sstream>
 #include <pqxx/pqxx>
 #include "detectors/detector_a.h"
@@ -29,7 +30,15 @@ namespace api {
 std::string FormatServerTime() {
     auto now = std::chrono::system_clock::now();
     auto now_t = std::chrono::system_clock::to_time_t(now);
-    return fmt::format("{:%Y-%m-%dT%H:%M:%SZ}", *std::gmtime(&now_t));
+    std::tm tm{};
+#if defined(_WIN32)
+    gmtime_s(&tm, &now_t);
+#else
+    gmtime_r(&now_t, &tm);
+#endif
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+    return oss.str();
 }
 
 std::string GenerateUuid() {
