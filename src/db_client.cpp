@@ -4,6 +4,7 @@
 #include <string_view>
 #include <vector>
 #include "obs/metrics.h"
+#include "pagination.h"
 #include "obs/context.h"
 #include <google/protobuf/util/json_util.h>
 #include <fmt/chrono.h>
@@ -1592,9 +1593,13 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
         }
         
         auto count_res = N.exec("SELECT COUNT(*) FROM host_telemetry_archival " + where);
-        out["total"] = count_res.empty() ? 0 : count_res[0][0].as<long>();
+        long total = count_res.empty() ? 0 : count_res[0][0].as<long>();
+        int returned = static_cast<int>(out["items"].size());
+        out["total"] = total;
         out["limit"] = limit;
         out["offset"] = offset;
+        out["returned"] = returned;
+        out["has_more"] = telemetry::api::HasMore(limit, offset, returned, total);
         out["sort_by"] = sort_column;
         out["sort_order"] = sort_dir;
         if (!anchor_time.empty()) {
