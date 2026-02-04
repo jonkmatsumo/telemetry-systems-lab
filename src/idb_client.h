@@ -42,6 +42,7 @@ public:
                                       const std::string& artifact_path = "", 
                                       const std::string& error = "") = 0;
     virtual nlohmann::json GetModelRun(const std::string& model_run_id) = 0;
+    virtual nlohmann::json GetHpoTrials(const std::string& parent_run_id) = 0;
 
     virtual std::string CreateInferenceRun(const std::string& model_run_id) = 0;
     virtual void UpdateInferenceRunStatus(const std::string& inference_id, 

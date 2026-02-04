@@ -63,6 +63,7 @@ public:
                                       const std::string& artifact_path = "", 
                                       const std::string& error = "") override;
     nlohmann::json GetModelRun(const std::string& model_run_id) override;
+    nlohmann::json GetHpoTrials(const std::string& parent_run_id) override;
 
     std::string CreateInferenceRun(const std::string& model_run_id) override;
     void UpdateInferenceRunStatus(const std::string& inference_id, 

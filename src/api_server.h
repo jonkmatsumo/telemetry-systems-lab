@@ -52,6 +52,12 @@ private:
     void HandleModelEval(const httplib::Request& req, httplib::Response& res);
     void HandleModelErrorDistribution(const httplib::Request& req, httplib::Response& res);
 
+    void RunPcaTraining(const std::string& model_run_id, 
+                         const std::string& dataset_id, 
+                         int n_components, 
+                         double percentile, 
+                         const std::string& rid);
+
     void ValidateRoutes();
 
     // Helpers

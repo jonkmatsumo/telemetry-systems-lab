@@ -410,6 +410,32 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
     return j;
 }
 
+nlohmann::json DbClient::GetHpoTrials(const std::string& parent_run_id) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT model_run_id, status, trial_index, trial_params, created_at, completed_at, error "
+            "FROM model_runs WHERE parent_run_id = $1 ORDER BY trial_index ASC",
+            parent_run_id);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["model_run_id"] = row[0].as<std::string>();
+            j["status"] = row[1].as<std::string>();
+            j["trial_index"] = row[2].as<int>();
+            j["trial_params"] = nlohmann::json::parse(row[3].as<std::string>());
+            j["created_at"] = row[4].as<std::string>();
+            j["completed_at"] = row[5].is_null() ? "" : row[5].as<std::string>();
+            j["error"] = row[6].is_null() ? "" : row[6].as<std::string>();
+            out.push_back(j);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get HPO trials for parent {}: {}", parent_run_id, e.what());
+    }
+    return out;
+}
+
 std::string DbClient::CreateInferenceRun(const std::string& model_run_id) {
     try {
         pqxx::connection C(conn_str_);
