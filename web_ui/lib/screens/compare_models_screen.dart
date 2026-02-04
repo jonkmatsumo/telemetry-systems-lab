@@ -178,6 +178,8 @@ class _CompareModelsScreenState extends State<CompareModelsScreen> {
         _kv('Status', detail['status']),
         _kv('Created', _formatTs(detail['created_at'])),
         _kv('Dataset', '${(detail['dataset_id'] ?? '').toString().substring(0, 8)}...'),
+        if (detail['parent_run_id'] != null) _kv('Parent Run', '${detail['parent_run_id'].toString().substring(0, 8)}...'),
+        if (detail['trial_index'] != null) _kv('Trial Index', detail['trial_index'].toString()),
         
         // Training Config
         ..._buildConfigRows(detail['training_config'] ?? {}, isLeft),

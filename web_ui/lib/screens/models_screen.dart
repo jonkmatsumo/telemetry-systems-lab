@@ -97,11 +97,12 @@ class _ModelsScreenState extends State<ModelsScreen> {
               Padding(padding: EdgeInsets.all(8), child: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
               Padding(padding: EdgeInsets.all(8), child: Text('Params', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
               Padding(padding: EdgeInsets.all(8), child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-              Padding(padding: EdgeInsets.all(8), child: Text('Action', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              Padding(padding: EdgeInsets.all(8), child: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
             ],
           ),
           ...trials.map((t) {
             final isBest = t['model_run_id'] == bestTrialId;
+            final trialId = t['model_run_id'];
             return TableRow(
               children: [
                 Padding(padding: const EdgeInsets.all(8), child: Text(t['trial_index']?.toString() ?? 'N/A', style: const TextStyle(fontSize: 12))),
@@ -117,9 +118,27 @@ class _ModelsScreenState extends State<ModelsScreen> {
                 Padding(padding: const EdgeInsets.all(8), child: Text(t['status'] ?? 'N/A', style: TextStyle(fontSize: 11, color: _getStatusColor(t['status'] ?? '')))),
                 Padding(
                   padding: const EdgeInsets.all(4), 
-                  child: TextButton(
-                    onPressed: () => _selectById(t['model_run_id']), 
-                    child: const Text('View', style: TextStyle(fontSize: 11))
+                  child: Row(
+                    children: [
+                      TextButton(
+                        onPressed: () => _selectById(trialId), 
+                        child: const Text('View', style: TextStyle(fontSize: 11))
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => CompareModelsScreen(
+                                leftRunId: _selectedDetail!['model_run_id'],
+                                rightRunId: trialId,
+                              ),
+                            ),
+                          );
+                        }, 
+                        child: const Text('Compare', style: TextStyle(fontSize: 11))
+                      ),
+                    ],
                   )
                 ),
               ],
