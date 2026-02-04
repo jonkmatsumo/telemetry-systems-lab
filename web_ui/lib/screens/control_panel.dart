@@ -506,9 +506,10 @@ class _ControlPanelState extends State<ControlPanel> {
                 ),
               ),
               _buildCard(
-                title: '2. Model Training',
+                title: '2. Training Parameters',
                 enabled: canTrain,
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (!canTrain)
                       Padding(
@@ -520,20 +521,39 @@ class _ControlPanelState extends State<ControlPanel> {
                           style: const TextStyle(color: Colors.amberAccent, fontSize: 13),
                         ),
                       ),
-                    _buildTextField('Model Name', _modelNameController),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(child: _buildTextField('N Components (1-5)', _nComponentsController)),
-                        const SizedBox(width: 16),
-                        Expanded(child: _buildTextField('Percentile (50-99.9)', _percentileController)),
-                      ],
+                    
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Column(
+                        children: [
+                          _buildTextField('Model Name (optional)', _modelNameController),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildTextField('N Components (1-5)', _nComponentsController),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: _buildTextField('Percentile (50-99.9)', _percentileController),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 16),
                     _buildButton('Start Training', _train, enabled: !_loading && canTrain),
                     const SizedBox(height: 16),
                     const Divider(color: Colors.white24),
                     const SizedBox(height: 16),
+                    const Text('Saved Models', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
+                    const SizedBox(height: 8),
                     _buildModelSelector(appState),
                     if (currentModel != null) _buildModelStatus(currentModel),
                   ],

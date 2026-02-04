@@ -235,6 +235,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
             ),
           ),
           _kv('n_components', _displayValue(nComponentsValue, zeroIsNa: true)),
+          _kv('Percentile (%)', _displayValue(detail['training_config']?['percentile'])),
+          _kv('Feature Set', _displayValue(detail['training_config']?['feature_set'])),
           _kv('Anomaly Threshold', _displayValue(thresholdValue)),
           if (detail['artifact_error'] != null && detail['artifact_error'].toString().isNotEmpty)
             Padding(
