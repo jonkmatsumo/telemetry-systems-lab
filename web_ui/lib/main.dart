@@ -323,7 +323,7 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
                   Tab(text: 'Control'),
                   Tab(text: 'Runs'),
                   Tab(text: 'Dataset Analytics'),
-                  Tab(text: 'Models'),
+                  Tab(text: 'Training Runs'),
                   Tab(text: 'Inference History'),
                 ],
               ),

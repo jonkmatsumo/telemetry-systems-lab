@@ -97,6 +97,17 @@ class _ModelsScreenState extends State<ModelsScreen> {
     });
   }
 
+  String _formatCreatedAt(String raw) {
+    if (raw.isEmpty) return '';
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    final month = parsed.month.toString().padLeft(2, '0');
+    final day = parsed.day.toString().padLeft(2, '0');
+    final hour = parsed.hour.toString().padLeft(2, '0');
+    final minute = parsed.minute.toString().padLeft(2, '0');
+    return '${parsed.year}-$month-$day $hour:$minute';
+  }
+
   @override
   Widget build(BuildContext context) {
     final datasetId = context.watch<AppState>().datasetId;
@@ -112,7 +123,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Model Runs', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                    const Text('Training Runs', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                     IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
                   ],
                 ),
@@ -133,10 +144,14 @@ class _ModelsScreenState extends State<ModelsScreen> {
                         separatorBuilder: (context, _) => const Divider(height: 1, color: Colors.white12),
                         itemBuilder: (context, index) {
                           final model = models[index];
+                          final config = model.trainingConfig;
+                          final components = config['n_components'] ?? 'N/A';
+                          final percentile = config['percentile'] ?? 'N/A';
                           return ListTile(
-                            title: Text(model.name),
-                            subtitle: Text('${model.status} • dataset: ${model.datasetId.substring(0, 8)}...'),
-                            trailing: Text(model.createdAt, style: const TextStyle(fontSize: 11, color: Colors.white54)),
+                            title: Text(model.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            subtitle: Text('${model.status} • Dataset: ${model.datasetId.substring(0, 8)}...\nPCA: $components comps • $percentile%'),
+                            isThreeLine: true,
+                            trailing: Text(_formatCreatedAt(model.createdAt), style: const TextStyle(fontSize: 11, color: Colors.white54)),
                             onTap: () => _selectModel(model),
                           );
                         },
