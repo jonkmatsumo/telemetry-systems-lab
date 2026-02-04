@@ -7,6 +7,7 @@ import '../widgets/charts.dart';
 import '../widgets/copy_share_link_button.dart';
 import '../widgets/inline_alert.dart';
 import 'scoring_results_screen.dart';
+import 'compare_models_screen.dart';
 
 class ModelsScreen extends StatefulWidget {
   const ModelsScreen({super.key});
@@ -258,6 +259,18 @@ class _ModelsScreenState extends State<ModelsScreen> {
                 ElevatedButton(
                   onPressed: () => _loadEval(datasetId, modelRunId),
                   child: const Text('Load Eval Metrics'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => CompareModelsScreen(leftRunId: modelRunId),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.compare_arrows),
+                  label: const Text('Compare'),
                 ),
                 ElevatedButton.icon(
                   onPressed: () {

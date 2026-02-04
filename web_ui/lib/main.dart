@@ -9,6 +9,7 @@ import 'screens/dataset_analytics_screen.dart';
 import 'screens/models_screen.dart';
 import 'screens/inference_history_screen.dart';
 import 'screens/scoring_results_screen.dart';
+import 'screens/compare_models_screen.dart';
 import 'widgets/context_bar.dart';
 import 'utils/verbose_mode_storage.dart';
 
@@ -178,6 +179,31 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
           ),
         ),
       );
+    }
+
+    final cLeft = _cleanParam(uri.queryParameters['compareLeft']);
+    final cRight = _cleanParam(uri.queryParameters['compareRight']);
+    if (cLeft != null) {
+      bool valid = true;
+      try {
+        await service.getModelStatus(cLeft);
+        if (cRight != null) await service.getModelStatus(cRight);
+      } catch (e) {
+        valid = false;
+      }
+      if (!mounted) return;
+      if (valid) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CompareModelsScreen(leftRunId: cLeft, rightRunId: cRight),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Comparison link is invalid.'), backgroundColor: Colors.orange),
+        );
+      }
     }
   }
 
