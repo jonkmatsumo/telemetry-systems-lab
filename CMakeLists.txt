@@ -299,3 +299,16 @@ target_link_libraries(api_route_tests
 if(HTTPLIB_FOUND)
     target_link_libraries(api_route_tests PkgConfig::HTTPLIB)
 endif()
+
+# Training Validation Integration Test
+add_executable(training_validation_tests
+    tests/integration/test_training_validation.cpp
+)
+target_link_libraries(training_validation_tests
+    GTest::GTest
+    GTest::Main
+    nlohmann_json::nlohmann_json
+)
+if(HTTPLIB_FOUND)
+    target_link_libraries(training_validation_tests PkgConfig::HTTPLIB)
+endif()
