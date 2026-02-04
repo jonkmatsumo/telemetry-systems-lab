@@ -45,10 +45,10 @@ class _ModelsScreenState extends State<ModelsScreen> {
     });
   }
 
-  Future<void> _selectModel(ModelRunSummary model) async {
+  Future<void> _selectById(String id) async {
     setState(() => _loadingDetail = true);
     try {
-      final detail = await context.read<TelemetryService>().getModelDetail(model.modelRunId);
+      final detail = await context.read<TelemetryService>().getModelDetail(id);
       if (!mounted) return;
       setState(() {
         _selectedDetail = detail;
@@ -56,12 +56,70 @@ class _ModelsScreenState extends State<ModelsScreen> {
         _errorDist = [];
         _jobStatus = null;
       });
-      context.read<AppState>().setModel(model.modelRunId);
+      context.read<AppState>().setModel(id);
     } finally {
       if (mounted) {
         setState(() => _loadingDetail = false);
       }
     }
+  }
+
+  Future<void> _selectModel(ModelRunSummary model) async {
+    _selectById(model.modelRunId);
+  }
+
+  Widget _buildTrialsTable(List<dynamic> trials, String? bestTrialId) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black26,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Table(
+        columnWidths: const {
+          0: FixedColumnWidth(50),
+          1: FlexColumnWidth(2),
+          2: FlexColumnWidth(1),
+          3: FixedColumnWidth(100),
+        },
+        children: [
+          const TableRow(
+            decoration: BoxDecoration(color: Colors.white10),
+            children: [
+              Padding(padding: EdgeInsets.all(8), child: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              Padding(padding: EdgeInsets.all(8), child: Text('Params', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              Padding(padding: EdgeInsets.all(8), child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              Padding(padding: EdgeInsets.all(8), child: Text('Action', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+            ],
+          ),
+          ...trials.map((t) {
+            final isBest = t['model_run_id'] == bestTrialId;
+            return TableRow(
+              children: [
+                Padding(padding: const EdgeInsets.all(8), child: Text(t['trial_index']?.toString() ?? 'N/A', style: const TextStyle(fontSize: 12))),
+                Padding(
+                  padding: const EdgeInsets.all(8), 
+                  child: Row(
+                    children: [
+                      if (isBest) const Padding(padding: EdgeInsets.only(right: 4), child: Icon(Icons.star, color: Colors.amber, size: 12)),
+                      Expanded(child: Text(t['trial_params']?.toString() ?? 'N/A', style: const TextStyle(fontSize: 11, fontFamily: 'monospace'), overflow: TextOverflow.ellipsis)),
+                    ],
+                  )
+                ),
+                Padding(padding: const EdgeInsets.all(8), child: Text(t['status'] ?? 'N/A', style: TextStyle(fontSize: 11, color: _getStatusColor(t['status'] ?? '')))),
+                Padding(
+                  padding: const EdgeInsets.all(4), 
+                  child: TextButton(
+                    onPressed: () => _selectById(t['model_run_id']), 
+                    child: const Text('View', style: TextStyle(fontSize: 11))
+                  )
+                ),
+              ],
+            );
+          }),
+        ],
+      ),
+    );
   }
 
   Future<void> _startScoring(String datasetId, String modelRunId) async {
@@ -218,6 +276,13 @@ class _ModelsScreenState extends State<ModelsScreen> {
     final nComponentsValue = detail['n_components'] ?? nComponents;
     final artifactPath = (detail['artifact_path'] ?? '').toString();
 
+    final hpoConfig = detail['hpo_config'];
+    final isParent = hpoConfig != null;
+    final parentRunId = detail['parent_run_id'];
+    final trialIndex = detail['trial_index'];
+    final trialParams = detail['trial_params'];
+    final bestTrialId = detail['best_trial_run_id'];
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: ListView(
@@ -225,19 +290,48 @@ class _ModelsScreenState extends State<ModelsScreen> {
           _kv('Model Run ID', modelRunId),
           _kv('Dataset ID', detail['dataset_id'] ?? ''),
           _kv('Status', detail['status'] ?? ''),
+          if (parentRunId != null) _kvWidget('Parent Run', TextButton(onPressed: () => _selectById(parentRunId), child: Text(parentRunId))),
+          if (trialIndex != null) _kv('Trial Index', trialIndex.toString()),
+          if (trialParams != null) _kv('Trial Params', trialParams.toString()),
+          
           const SizedBox(height: 12),
           const Text('Configuration', style: TextStyle(fontWeight: FontWeight.bold)),
-          _kvWidget(
-            'Artifact Path',
-            SelectableText(
-              artifactPath.isNotEmpty ? artifactPath : 'N/A',
-              style: const TextStyle(fontFamily: 'monospace'),
+          if (!isParent) ...[
+            _kvWidget(
+              'Artifact Path',
+              SelectableText(
+                artifactPath.isNotEmpty ? artifactPath : 'N/A',
+                style: const TextStyle(fontFamily: 'monospace'),
+              ),
             ),
-          ),
-          _kv('n_components', _displayValue(nComponentsValue, zeroIsNa: true)),
-          _kv('Percentile (%)', _displayValue(detail['training_config']?['percentile'])),
-          _kv('Feature Set', _displayValue(detail['training_config']?['feature_set'])),
-          _kv('Anomaly Threshold', _displayValue(thresholdValue)),
+            _kv('n_components', _displayValue(nComponentsValue, zeroIsNa: true)),
+            _kv('Percentile (%)', _displayValue(detail['training_config']?['percentile'])),
+            _kv('Feature Set', _displayValue(detail['training_config']?['feature_set'])),
+            _kv('Anomaly Threshold', _displayValue(thresholdValue)),
+          ],
+          if (isParent) ...[
+            _kv('Algorithm', hpoConfig['algorithm'] ?? 'N/A'),
+            _kv('Max Trials', _displayValue(hpoConfig['max_trials'])),
+            _kv('Search Space', hpoConfig['search_space']?.toString() ?? 'N/A'),
+            if (bestTrialId != null) 
+              _kvWidget('Best Trial', 
+                Row(
+                  children: [
+                    const Icon(Icons.star, color: Colors.amber, size: 16),
+                    const SizedBox(width: 4),
+                    TextButton(onPressed: () => _selectById(bestTrialId), child: Text('View Best Trial ($bestTrialId)')),
+                  ],
+                )
+              ),
+          ],
+          
+          if (isParent && detail['trials'] != null) ...[
+            const SizedBox(height: 24),
+            const Text('Trials', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF38BDF8))),
+            const SizedBox(height: 8),
+            _buildTrialsTable(detail['trials'], bestTrialId),
+          ],
+
           if (detail['artifact_error'] != null && detail['artifact_error'].toString().isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 8),
