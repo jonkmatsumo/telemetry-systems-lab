@@ -38,8 +38,19 @@ public:
     std::string CreateModelRun(const std::string& dataset_id, 
                                const std::string& name,
                                const nlohmann::json& training_config = {},
-                               const std::string& request_id = "") override {
+                               const std::string& request_id = "",
+                               const nlohmann::json& hpo_config = nlohmann::json::object()) override {
         return "mock-model-run-id";
+    }
+
+    std::string CreateHpoTrialRun(const std::string& dataset_id,
+                                  const std::string& name,
+                                  const nlohmann::json& training_config,
+                                  const std::string& request_id,
+                                  const std::string& parent_run_id,
+                                  int trial_index,
+                                  const nlohmann::json& trial_params) override {
+        return "mock-trial-id";
     }
 
     void UpdateModelRunStatus(const std::string& model_run_id, 
@@ -55,6 +66,17 @@ public:
         j["status"] = "COMPLETED";
         j["artifact_path"] = "artifacts/pca/default/model.json";
         return j;
+    }
+
+    nlohmann::json GetHpoTrials(const std::string& parent_run_id) override {
+        return nlohmann::json::array();
+    }
+
+    void UpdateBestTrial(const std::string& parent_run_id,
+                         const std::string& best_trial_run_id,
+                         double best_metric_value,
+                         const std::string& best_metric_name) override {
+        // No-op
     }
 
     std::string CreateInferenceRun(const std::string& model_run_id) override {

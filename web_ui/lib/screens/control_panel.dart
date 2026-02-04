@@ -918,7 +918,7 @@ class _ControlPanelState extends State<ControlPanel> {
               Switch(
                 value: _hpoEnabled,
                 onChanged: (val) => setState(() => _hpoEnabled = val),
-                activeColor: const Color(0xFF38BDF8),
+                activeThumbColor: const Color(0xFF38BDF8),
               ),
             ],
           ),

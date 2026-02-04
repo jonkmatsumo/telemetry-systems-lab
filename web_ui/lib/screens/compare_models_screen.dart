@@ -227,6 +227,9 @@ class _CompareModelsScreenState extends State<CompareModelsScreen> {
   }
 
   Widget _buildModelSelector({required bool isLeft}) {
+    final otherDetail = isLeft ? _rightDetail : _leftDetail;
+    final otherId = otherDetail?['model_run_id'];
+    
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -238,12 +241,13 @@ class _CompareModelsScreenState extends State<CompareModelsScreen> {
             child: DropdownButton<String>(
               isExpanded: true,
               hint: const Text('Choose model'),
-              items: _availableModels.where((m) => m.modelRunId != (isLeft ? _rightDetail?['model_run_id'] : _leftDetail?['model_run_id'])).map((m) {
-                return DropdownMenuItem(
-                  value: m.modelRunId,
-                  child: Text('${m.name} (${m.status})'),
-                );
-              }).toList(),
+              items: _availableModels
+                  .where((m) => m.modelRunId != otherId)
+                  .map((m) => DropdownMenuItem<String>(
+                        value: m.modelRunId,
+                        child: Text('${m.name} (${m.status})'),
+                      ))
+                  .toList(),
               onChanged: isLeft ? _updateLeft : _updateRight,
             ),
           ),

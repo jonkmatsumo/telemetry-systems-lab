@@ -233,6 +233,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
                         itemCount: models.length,
                         separatorBuilder: (context, _) => const Divider(height: 1, color: Colors.white12),
                         itemBuilder: (context, index) {
+                          final model = models[index];
                           final config = model.trainingConfig;
                           final components = config['n_components'] ?? 'N/A';
                           final percentile = config['percentile'] ?? 'N/A';
@@ -254,8 +255,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
                                 Text('${model.status} • Dataset: ${model.datasetId.substring(0, 8)}...'),
                                 if (isTuning)
                                   Text(
-                                    'Trials: ${model.hpoSummary!['completed_count']} / ${model.hpoSummary!['trial_count']} complete' +
-                                    (model.hpoSummary!['best_metric_value'] != null ? ' • Best: ${model.hpoSummary!['best_metric_value'].toStringAsFixed(4)}' : ''),
+                                    'Trials: ${model.hpoSummary!['completed_count']} / ${model.hpoSummary!['trial_count']} complete'
+                                    '${model.hpoSummary!['best_metric_value'] != null ? ' • Best: ${model.hpoSummary!['best_metric_value'].toStringAsFixed(4)}' : ''}',
                                     style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 12),
                                   )
                                 else
@@ -313,6 +314,20 @@ class _ModelsScreenState extends State<ModelsScreen> {
         ],
       ),
     );
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'SUCCEEDED':
+      case 'COMPLETED':
+        return const Color(0xFF4ADE80);
+      case 'FAILED':
+        return const Color(0xFFF87171);
+      case 'RUNNING':
+        return const Color(0xFFFBBF24);
+      default:
+        return Colors.white54;
+    }
   }
 
   Widget _buildDetail(String? datasetId) {

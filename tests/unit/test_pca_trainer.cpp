@@ -74,12 +74,15 @@ TEST(HpoContractTest, ValidatesEmptySearchSpace) {
 TEST(HpoContractTest, ValidatesGridSearchCap) {
     telemetry::training::HpoConfig config;
     config.algorithm = "grid";
-    config.search_space.n_components = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
-    config.search_space.percentile = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-    // 11 * 10 = 110 combinations, cap is 100
+    // Valid n_components (1-5), but many of them
+    config.search_space.n_components = {1, 2, 3, 4, 5}; 
+    // Valid percentiles, but many of them
+    config.search_space.percentile = {90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 99.1, 99.2, 99.3, 99.4, 99.5, 99.6, 99.7, 99.8, 99.9, 99.99, 99.999};
+    // 5 * 21 = 105 combinations, cap is 100
     auto errors = telemetry::training::ValidateHpoConfig(config);
     ASSERT_FALSE(errors.empty());
     EXPECT_EQ(errors[0].field, "search_space");
+    EXPECT_EQ(errors[0].message, "Grid search space too large (max 100 combinations)");
 }
 
 TEST(HpoContractTest, GeneratesDeterministicGrid) {
