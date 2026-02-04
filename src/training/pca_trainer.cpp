@@ -332,5 +332,47 @@ void WriteArtifactJson(const PcaArtifact& artifact, const std::string& output_pa
     }
 }
 
+std::vector<HpoValidationError> ValidateHpoConfig(const HpoConfig& config) {
+    std::vector<HpoValidationError> errors;
+
+    if (config.algorithm != "grid" && config.algorithm != "random") {
+        errors.push_back({"algorithm", "Algorithm must be 'grid' or 'random'"});
+    }
+
+    if (config.max_trials <= 0 || config.max_trials > 50) {
+        errors.push_back({"max_trials", "max_trials must be between 1 and 50"});
+    }
+
+    if (config.search_space.n_components.empty() && config.search_space.percentile.empty()) {
+        errors.push_back({"search_space", "Search space cannot be empty"});
+    }
+
+    for (int n : config.search_space.n_components) {
+        if (n <= 0 || n > 5) {
+            errors.push_back({"search_space.n_components", "n_components must be between 1 and 5"});
+            break;
+        }
+    }
+
+    for (double p : config.search_space.percentile) {
+        if (p < 50.0 || p >= 100.0) {
+            errors.push_back({"search_space.percentile", "percentile must be between 50.0 and 99.99"});
+            break;
+        }
+    }
+
+    if (config.algorithm == "grid") {
+        size_t total_combinations = 1;
+        if (!config.search_space.n_components.empty()) total_combinations *= config.search_space.n_components.size();
+        if (!config.search_space.percentile.empty()) total_combinations *= config.search_space.percentile.size();
+
+        if (total_combinations > 100) {
+             errors.push_back({"search_space", "Grid search space too large (max 100 combinations)"});
+        }
+    }
+
+    return errors;
+}
+
 } // namespace training
 } // namespace telemetry

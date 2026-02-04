@@ -9,6 +9,7 @@
 #include "telemetry.grpc.pb.h"
 #include "db_client.h"
 #include "job_manager.h"
+#include "training/pca_trainer.h"
 
 namespace telemetry {
 namespace api {
