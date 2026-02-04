@@ -1,3 +1,4 @@
+// ignore_for_file: use_build_context_synchronously
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -45,10 +46,12 @@ class _ModelsScreenState extends State<ModelsScreen> {
     });
   }
 
-  Future<void> _selectById(String id) async {
+  Future<void> _selectById(String id, {TelemetryService? service}) async {
+    final s = service ?? context.read<TelemetryService>();
+    final appState = context.read<AppState>();
     setState(() => _loadingDetail = true);
     try {
-      final detail = await context.read<TelemetryService>().getModelDetail(id);
+      final detail = await s.getModelDetail(id);
       if (!mounted) return;
       setState(() {
         _selectedDetail = detail;
@@ -56,7 +59,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
         _errorDist = [];
         _jobStatus = null;
       });
-      context.read<AppState>().setModel(id);
+      appState.setModel(id);
     } finally {
       if (mounted) {
         setState(() => _loadingDetail = false);
@@ -210,6 +213,38 @@ class _ModelsScreenState extends State<ModelsScreen> {
       final artifact = _selectedDetail?['artifact'] ?? {};
       _currentThreshold = (artifact['threshold'] ?? artifact['thresholds']?['reconstruction_error'])?.toDouble();
     });
+  }
+
+  Future<void> _cancelRun(String modelRunId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel Training?'),
+        content: const Text('This will stop the current training job and all associated trials if this is a tuning run.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+            child: const Text('Yes, Cancel'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final service = context.read<TelemetryService>();
+    final sm = ScaffoldMessenger.of(context);
+    try {
+      await service.cancelModelRun(modelRunId);
+      if (!mounted) return;
+      sm.showSnackBar(const SnackBar(content: Text('Cancellation requested.')));
+        _selectById(modelRunId, service: service); // Refresh detail
+    } catch (e) {
+      if (!mounted) return;
+        sm.showSnackBar(SnackBar(content: Text('Failed to cancel: $e'), backgroundColor: Colors.red));
+    }
   }
 
   String _formatCreatedAt(String raw) {
@@ -375,6 +410,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
     final trialParams = detail['trial_params'];
     final bestTrialId = detail['best_trial_run_id'];
 
+    final isTerminal = detail['status'] == 'COMPLETED' || detail['status'] == 'FAILED' || detail['status'] == 'CANCELLED';
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: ListView(
@@ -387,6 +424,16 @@ class _ModelsScreenState extends State<ModelsScreen> {
           if (trialParams != null) _kv('Trial Params', trialParams.toString()),
           
           const SizedBox(height: 12),
+          if (!isTerminal)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ElevatedButton.icon(
+                onPressed: () => _cancelRun(modelRunId),
+                icon: const Icon(Icons.stop_circle_outlined),
+                label: const Text('Cancel Training Run'),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent.withValues(alpha: 0.2), foregroundColor: Colors.redAccent),
+              ),
+            ),
           const Text('Configuration', style: TextStyle(fontWeight: FontWeight.bold)),
           if (!isParent) ...[
             _kvWidget(

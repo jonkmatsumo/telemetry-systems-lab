@@ -674,6 +674,14 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
+  Future<void> cancelModelRun(String id) async {
+    final response = await _client.delete(Uri.parse('$baseUrl/train/$id'));
+    if (response.statusCode == 200) {
+      return;
+    }
+    _handleError(response, 'Failed to cancel training run');
+  }
+
   Future<InferenceResponse> runInference(String modelId, List<Map<String, dynamic>> samples) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/inference'),
