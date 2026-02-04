@@ -34,6 +34,8 @@ struct HpoValidationError {
 
 std::vector<HpoValidationError> ValidateHpoConfig(const HpoConfig& config);
 
+std::vector<TrainingConfig> GenerateTrials(const HpoConfig& hpo, const std::string& dataset_id);
+
 struct PcaArtifact {
     linalg::Vector scaler_mean;
     linalg::Vector scaler_scale;

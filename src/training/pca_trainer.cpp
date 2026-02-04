@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <random>
 #include <stdexcept>
 
 #include <nlohmann/json.hpp>
@@ -372,6 +373,47 @@ std::vector<HpoValidationError> ValidateHpoConfig(const HpoConfig& config) {
     }
 
     return errors;
+}
+
+std::vector<TrainingConfig> GenerateTrials(const HpoConfig& hpo, const std::string& dataset_id) {
+    std::vector<TrainingConfig> trials;
+
+    // Use default search values if space is partially defined
+    std::vector<int> n_components_space = hpo.search_space.n_components;
+    if (n_components_space.empty()) n_components_space = {3};
+
+    std::vector<double> percentile_space = hpo.search_space.percentile;
+    if (percentile_space.empty()) percentile_space = {99.5};
+
+    if (hpo.algorithm == "grid") {
+        for (int n : n_components_space) {
+            for (double p : percentile_space) {
+                if (static_cast<int>(trials.size()) >= hpo.max_trials) break;
+                TrainingConfig config;
+                config.dataset_id = dataset_id;
+                config.n_components = n;
+                config.percentile = p;
+                trials.push_back(config);
+            }
+            if (static_cast<int>(trials.size()) >= hpo.max_trials) break;
+        }
+    } else if (hpo.algorithm == "random") {
+        unsigned int seed = hpo.seed.has_value() ? static_cast<unsigned int>(hpo.seed.value()) : 
+                            static_cast<unsigned int>(std::chrono::system_clock::now().time_since_epoch().count());
+        std::mt19937 gen(seed);
+        std::uniform_int_distribution<> n_dist(0, static_cast<int>(n_components_space.size()) - 1);
+        std::uniform_int_distribution<> p_dist(0, static_cast<int>(percentile_space.size()) - 1);
+
+        for (int i = 0; i < hpo.max_trials; ++i) {
+            TrainingConfig config;
+            config.dataset_id = dataset_id;
+            config.n_components = n_components_space[static_cast<size_t>(n_dist(gen))];
+            config.percentile = percentile_space[static_cast<size_t>(p_dist(gen))];
+            trials.push_back(config);
+        }
+    }
+
+    return trials;
 }
 
 } // namespace training
