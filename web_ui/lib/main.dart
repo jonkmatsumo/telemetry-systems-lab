@@ -10,6 +10,7 @@ import 'screens/models_screen.dart';
 import 'screens/inference_history_screen.dart';
 import 'screens/scoring_results_screen.dart';
 import 'widgets/context_bar.dart';
+import 'utils/verbose_mode_storage.dart';
 
 void main() {
   runApp(
@@ -76,6 +77,15 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
     final uri = Uri.base;
     final appState = context.read<AppState>();
     final service = context.read<TelemetryService>();
+
+    final verboseParam = _cleanParam(uri.queryParameters['verbose']);
+    final verboseFromUrl = _parseVerbose(verboseParam);
+    if (verboseFromUrl != null) {
+      appState.setVerboseMode(verboseFromUrl);
+      VerboseModeStorage.write(verboseFromUrl);
+    } else {
+      appState.setVerboseMode(VerboseModeStorage.read());
+    }
 
     final dsId = _cleanParam(uri.queryParameters['datasetId']);
     final mId = _cleanParam(uri.queryParameters['modelId']);
@@ -177,6 +187,14 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
     return trimmed.isEmpty ? null : trimmed;
   }
 
+  bool? _parseVerbose(String? value) {
+    if (value == null) return null;
+    final normalized = value.toLowerCase();
+    if (normalized == '1' || normalized == 'true' || normalized == 'yes') return true;
+    if (normalized == '0' || normalized == 'false' || normalized == 'no') return false;
+    return null;
+  }
+
   Future<String> _resolveMetric(String metric) async {
     try {
       final service = context.read<TelemetryService>();
@@ -241,6 +259,19 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
         backgroundColor: const Color(0xFF0F172A),
         title: const Text('TADS Dashboard', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Verbose Mode', style: TextStyle(fontSize: 12, color: Colors.white70)),
+              Switch(
+                value: appState.verboseMode,
+                onChanged: (value) {
+                  appState.setVerboseMode(value);
+                  VerboseModeStorage.write(value);
+                },
+              ),
+            ],
+          ),
           Stack(
             alignment: Alignment.center,
             children: [

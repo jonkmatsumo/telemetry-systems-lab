@@ -30,6 +30,7 @@ class AppState extends ChangeNotifier {
 
   int currentTabIndex = 0;
   bool useUtc = false;
+  bool verboseMode = false;
 
   PendingInferenceRequest? pendingInference;
   InvestigationContext? investigationContext;
@@ -41,6 +42,11 @@ class AppState extends ChangeNotifier {
 
   void setUseUtc(bool value) {
     useUtc = value;
+    notifyListeners();
+  }
+
+  void setVerboseMode(bool value) {
+    verboseMode = value;
     notifyListeners();
   }
 

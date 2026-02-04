@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import '../state/app_state.dart';
+import '../utils/verbose_steps.dart';
+import 'verbose_stepper.dart';
 
 const String _traceBaseUrl = String.fromEnvironment('TRACE_BASE_URL', defaultValue: '');
 
@@ -10,6 +14,7 @@ class AnalyticsDebugPanel extends StatelessWidget {
   final bool? cacheHit;
   final String? serverTime;
   final String? traceUrlOverride;
+  final List<TraceSpan>? traceSpans;
 
   const AnalyticsDebugPanel({
     super.key,
@@ -19,6 +24,7 @@ class AnalyticsDebugPanel extends StatelessWidget {
     this.cacheHit,
     this.serverTime,
     this.traceUrlOverride,
+    this.traceSpans,
   });
 
   @override
@@ -33,6 +39,9 @@ class AnalyticsDebugPanel extends StatelessWidget {
     final traceUrl = (traceUrlOverride != null && traceUrlOverride!.isNotEmpty)
         ? traceUrlOverride
         : (requestId != null && _traceBaseUrl.isNotEmpty ? '$_traceBaseUrl/$requestId' : null);
+    final verboseMode = context.watch<AppState>().verboseMode;
+    final steps = buildVerboseSteps(traceSpans ?? const []);
+    final verboseTraceUrl = (traceUrl != null) ? '$traceUrl?verbose=1' : null;
     return ExpansionTile(
       tilePadding: EdgeInsets.zero,
       childrenPadding: const EdgeInsets.only(left: 8, right: 8, bottom: 8),
@@ -44,6 +53,13 @@ class AnalyticsDebugPanel extends StatelessWidget {
         if (cacheHit != null) _debugRow(context, 'Cache', cacheHit! ? 'hit' : 'miss'),
         if (serverTime != null) _debugRow(context, 'Server time', serverTime!),
         if (traceUrl != null) _debugRow(context, 'Trace URL', traceUrl, copyable: true),
+        if (verboseMode && verboseTraceUrl != null)
+          _debugRow(context, 'Trace URL (Verbose)', verboseTraceUrl, copyable: true),
+        if (verboseMode) ...[
+          const SizedBox(height: 8),
+          const Text('Verbose / Diagnostic View', style: TextStyle(color: Colors.white70, fontSize: 12)),
+          VerboseStepper(steps: steps, traceBaseUrl: traceUrlOverride ?? _traceBaseUrl),
+        ],
       ],
     );
   }
