@@ -58,6 +58,9 @@ std::string GetRequestId(const httplib::Request& req) {
 }
 
 static const char* ClassifyTrainError(const std::string& msg) {
+    if (msg.find("Cancelled") != std::string::npos) {
+        return "E_CANCELLED";
+    }
     if (msg.find("Not enough samples") != std::string::npos ||
         msg.find("No samples") != std::string::npos) {
         return telemetry::obs::kErrTrainNoData;
@@ -243,6 +246,49 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
 
     svr_.Get("/train/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetTrainStatus(req, res);
+    });
+
+    svr_.Delete("/train/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
+        std::string rid = GetRequestId(req);
+        telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
+        std::string model_run_id = req.matches[1];
+        log.AddFields({{"model_run_id", model_run_id}});
+        
+        auto j = db_client_->GetModelRun(model_run_id);
+        if (j.empty()) {
+            log.RecordError(telemetry::obs::kErrHttpNotFound, "Model run not found", 404);
+            SendError(res, "Model run not found", 404, telemetry::obs::kErrHttpNotFound, rid);
+            return;
+        }
+
+        std::string status = j["status"];
+        if (status == "COMPLETED" || status == "FAILED" || status == "CANCELLED") {
+            SendError(res, "Cannot cancel terminal run", 400, "E_TERMINAL", rid);
+            return;
+        }
+
+        // 1. If it's a parent, cancel all trials
+        if (!j["hpo_config"].is_null()) {
+            auto trials = db_client_->GetHpoTrials(model_run_id);
+            for (const auto& t : trials) {
+                std::string tid = t["model_run_id"];
+                std::string tst = t["status"];
+                if (tst == "PENDING" || tst == "RUNNING") {
+                    job_manager_->CancelJob("train-" + tid);
+                    db_client_->UpdateModelRunStatus(tid, "CANCELLED", "", "Cancelled by parent tuning run request");
+                    db_client_->UpdateTrialEligibility(tid, false, "CANCELED", 0.0);
+                }
+            }
+        }
+
+        // 2. Cancel the run itself (or parent)
+        job_manager_->CancelJob("train-" + model_run_id);
+        db_client_->UpdateModelRunStatus(model_run_id, "CANCELLED", "", "Cancelled by user request");
+        
+        nlohmann::json resp;
+        resp["status"] = "CANCEL_REQUESTED";
+        resp["model_run_id"] = model_run_id;
+        SendJson(res, resp, 200, rid);
     });
 
     // Model listing route
@@ -797,13 +843,27 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
         std::string output_dir = "artifacts/pca/" + model_run_id;
         std::string output_path = output_dir + "/model.json";
 
-                    try {
+                                try {
 
-                        std::filesystem::create_directories(output_dir);
+                                    std::filesystem::create_directories(output_dir);
 
-                        auto artifact = telemetry::training::TrainPcaFromDb(db_conn_str_, dataset_id, n_components, percentile);
+                                    auto artifact = telemetry::training::TrainPcaFromDb(db_conn_str_, dataset_id, n_components, percentile);
 
-                        telemetry::training::WriteArtifactJson(artifact, output_path);
+                                    
+
+                                    if (stop_flag->load()) {
+
+                                        spdlog::info("Training for model {} aborted by cancellation.", model_run_id);
+
+                                        return;
+
+                                    }
+
+                    
+
+                                    telemetry::training::WriteArtifactJson(artifact, output_path);
+
+                    
 
         
 

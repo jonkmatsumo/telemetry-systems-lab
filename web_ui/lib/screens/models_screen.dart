@@ -348,6 +348,9 @@ class _ModelsScreenState extends State<ModelsScreen> {
         return const Color(0xFF4ADE80);
       case 'FAILED':
         return const Color(0xFFF87171);
+      case 'CANCELLED':
+      case 'CANCELED':
+        return Colors.orangeAccent;
       case 'RUNNING':
         return const Color(0xFFFBBF24);
       default:
