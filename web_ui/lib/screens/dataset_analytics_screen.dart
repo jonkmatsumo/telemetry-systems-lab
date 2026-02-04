@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
@@ -7,6 +6,7 @@ import '../state/investigation_context.dart';
 import '../widgets/analytics_state_panel.dart';
 import '../widgets/analytics_debug_panel.dart';
 import '../widgets/charts.dart';
+import '../widgets/copy_share_link_button.dart';
 import '../widgets/inline_alert.dart';
 import '../utils/freshness.dart';
 import '../utils/time_buckets.dart';
@@ -543,22 +543,13 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                           ),
                       ],
                     ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        final uri = Uri.base;
-                        final ctxParams = appState.investigationContext?.toQueryParams() ?? {};
-                        final link = uri.replace(queryParameters: {
-                          ...uri.queryParameters,
-                          'datasetId': datasetId,
-                          'metric': selectedMetric,
-                          ...ctxParams,
-                        }).toString();
-                        Clipboard.setData(ClipboardData(text: link));
-                        ScaffoldMessenger.of(context)
-                            .showSnackBar(const SnackBar(content: Text('Link copied to clipboard')));
+                    CopyShareLinkButton(
+                      label: 'Copy Link',
+                      overrideParams: {
+                        'datasetId': datasetId,
+                        'metric': selectedMetric,
+                        ...?appState.investigationContext?.toQueryParams(),
                       },
-                      icon: const Icon(Icons.link),
-                      label: const Text('Copy Link'),
                     ),
                   ],
                 ),

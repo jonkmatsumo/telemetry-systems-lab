@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
 import '../widgets/charts.dart';
+import '../widgets/copy_share_link_button.dart';
 import '../widgets/inline_alert.dart';
 import 'scoring_results_screen.dart';
 
@@ -235,20 +235,13 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   label: const Text('Inference Preview'),
                 ),
                 const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    final uri = Uri.base;
-                    final link = uri.replace(queryParameters: {
-                      ...uri.queryParameters,
-                      'datasetId': detail['dataset_id'],
-                      'modelId': modelRunId,
-                    }).toString();
-                    Clipboard.setData(ClipboardData(text: link));
-                    ScaffoldMessenger.of(context)
-                        .showSnackBar(const SnackBar(content: Text('Link copied to clipboard')));
+                CopyShareLinkButton(
+                  label: 'Copy Shareable Link',
+                  overrideParams: {
+                    if ((detail['dataset_id'] ?? '').toString().isNotEmpty)
+                      'datasetId': detail['dataset_id'].toString(),
+                    if (modelRunId.isNotEmpty) 'modelId': modelRunId,
                   },
-                  icon: const Icon(Icons.link),
-                  label: const Text('Copy Shareable Link'),
                 ),
               ],
             ),

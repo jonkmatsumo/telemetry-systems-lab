@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
+import '../widgets/copy_share_link_button.dart';
 import '../widgets/inline_alert.dart';
 
 class ControlPanel extends StatefulWidget {
@@ -593,21 +594,32 @@ class _ControlPanelState extends State<ControlPanel> {
   }
 
   Widget _buildHeader() {
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ShaderMask(
-          shaderCallback: (bounds) => const LinearGradient(
-            colors: [Color(0xFF38BDF8), Color(0xFF818CF8)],
-          ).createShader(bounds),
-          child: const Text(
-            'TADS Dashboard',
-            style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ShaderMask(
+                shaderCallback: (bounds) => const LinearGradient(
+                  colors: [Color(0xFF38BDF8), Color(0xFF818CF8)],
+                ).createShader(bounds),
+                child: const Text(
+                  'TADS Dashboard',
+                  style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+              const Text(
+                'Telemetry Anomaly Detection System',
+                style: TextStyle(fontSize: 16, color: Color(0xFF94A3B8)),
+              ),
+            ],
           ),
         ),
-        const Text(
-          'Telemetry Anomaly Detection System',
-          style: TextStyle(fontSize: 16, color: Color(0xFF94A3B8)),
+        const CopyShareLinkButton(
+          label: 'Copy Link',
+          tooltip: 'Copy share link',
         ),
       ],
     );
