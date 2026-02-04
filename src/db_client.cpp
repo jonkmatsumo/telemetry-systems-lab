@@ -1358,6 +1358,18 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
             out["items"].push_back(j);
         }
 
+        // Include training_config in results response
+        auto config_res = N.exec_params("SELECT training_config FROM model_runs WHERE model_run_id = $1", model_run_id);
+        if (!config_res.empty() && !config_res[0][0].is_null()) {
+            try {
+                out["training_config"] = nlohmann::json::parse(config_res[0][0].as<std::string>());
+            } catch (...) {
+                out["training_config"] = nlohmann::json::object();
+            }
+        } else {
+            out["training_config"] = nlohmann::json::object();
+        }
+
         auto count_res = N.exec("SELECT COUNT(*) FROM dataset_scores s " + where);
         out["total"] = count_res.empty() ? 0 : count_res[0][0].as<long>();
 
@@ -1480,6 +1492,18 @@ nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
         }
         out["roc"] = roc;
         out["pr"] = pr;
+
+        // Include training_config in results response
+        auto config_res = N.exec_params("SELECT training_config FROM model_runs WHERE model_run_id = $1", model_run_id);
+        if (!config_res.empty() && !config_res[0][0].is_null()) {
+            try {
+                out["training_config"] = nlohmann::json::parse(config_res[0][0].as<std::string>());
+            } catch (...) {
+                out["training_config"] = nlohmann::json::object();
+            }
+        } else {
+            out["training_config"] = nlohmann::json::object();
+        }
     } catch (const std::exception& e) {
         spdlog::error("Failed to get eval metrics: {}", e.what());
     }
