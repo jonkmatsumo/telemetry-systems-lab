@@ -518,6 +518,11 @@ class _ModelsScreenState extends State<ModelsScreen> {
   Widget _buildEvalSummary() {
     if (_evalMetrics == null || _currentThreshold == null) return const SizedBox.shrink();
 
+    final detail = _selectedDetail!;
+    final isTrial = detail['parent_run_id'] != null;
+    final bestMetricValue = detail['best_metric_value'];
+    final bestMetricName = detail['best_metric_name'];
+
     // Find closest point in PR curve
     Map<String, double>? closest;
     double minDist = double.infinity;
@@ -581,6 +586,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
             _metricCard('Precision', p.toStringAsFixed(4)),
             _metricCard('Recall', r.toStringAsFixed(4)),
             _metricCard('F1 Score', f1.toStringAsFixed(4)),
+            if (isTrial && bestMetricValue != null)
+              _metricCard('Tuning Metric ($bestMetricName)', bestMetricValue.toStringAsFixed(6), color: Colors.purpleAccent),
           ],
         ),
       ],
@@ -691,21 +698,21 @@ class _ModelsScreenState extends State<ModelsScreen> {
     return text.isEmpty ? 'N/A' : text;
   }
 
-  Widget _metricCard(String title, String value) {
+  Widget _metricCard(String title, String value, {Color? color}) {
     return Container(
       width: 220,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white12),
+        border: Border.all(color: color?.withValues(alpha: 0.5) ?? Colors.white12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(color: Colors.white60, fontSize: 12)),
+          Text(title, style: TextStyle(color: color ?? Colors.white60, fontSize: 12)),
           const SizedBox(height: 6),
-          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+          Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
         ],
       ),
     );
