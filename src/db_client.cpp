@@ -274,13 +274,14 @@ telemetry::RunStatus DbClient::GetRunStatus(const std::string& run_id) {
 
 std::string DbClient::CreateModelRun(const std::string& dataset_id, 
                                      const std::string& name,
+                                     const nlohmann::json& training_config,
                                      const std::string& request_id) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id) "
-                                 "VALUES ($1, $2, 'PENDING', $3) RETURNING model_run_id",
-                                 dataset_id, name, request_id);
+        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config) "
+                                 "VALUES ($1, $2, 'PENDING', $3, $4) RETURNING model_run_id",
+                                 dataset_id, name, request_id, training_config.dump());
         W.commit();
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
@@ -320,7 +321,7 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
 
         pqxx::nontransaction N(C);
 
-        auto res = N.exec_params("SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id "
+        auto res = N.exec_params("SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id, training_config "
                                  "FROM model_runs WHERE model_run_id = $1", model_run_id);
 
         if (!res.empty()) {
@@ -342,6 +343,16 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
             j["completed_at"] = res[0][7].is_null() ? "" : res[0][7].as<std::string>();
 
             j["request_id"] = res[0][8].is_null() ? "" : res[0][8].as<std::string>();
+
+            if (!res[0][9].is_null()) {
+                try {
+                    j["training_config"] = nlohmann::json::parse(res[0][9].as<std::string>());
+                } catch (...) {
+                    j["training_config"] = nlohmann::json::object();
+                }
+            } else {
+                j["training_config"] = nlohmann::json::object();
+            }
 
         }
 
@@ -521,7 +532,7 @@ nlohmann::json DbClient::ListModelRuns(int limit,
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
         std::string query =
-            "SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at "
+            "SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, training_config "
             "FROM model_runs ";
         std::vector<std::string> where;
         if (!status.empty()) where.push_back("status = " + N.quote(status));
@@ -548,6 +559,15 @@ nlohmann::json DbClient::ListModelRuns(int limit,
             j["error"] = row[5].is_null() ? "" : row[5].as<std::string>();
             j["created_at"] = row[6].as<std::string>();
             j["completed_at"] = row[7].is_null() ? "" : row[7].as<std::string>();
+            if (!row[8].is_null()) {
+                try {
+                    j["training_config"] = nlohmann::json::parse(row[8].as<std::string>());
+                } catch (...) {
+                    j["training_config"] = nlohmann::json::object();
+                }
+            } else {
+                j["training_config"] = nlohmann::json::object();
+            }
             out.push_back(j);
         }
     } catch (const std::exception& e) {
@@ -1454,8 +1474,8 @@ nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
                 double fpr = negatives > 0 ? static_cast<double>(tfp) / static_cast<double>(negatives) : 0.0;
                 double precision = (ttp + tfp) > 0 ? static_cast<double>(ttp) / static_cast<double>(ttp + tfp) : 0.0;
                 double recall = tpr;
-                roc.push_back({{"fpr", fpr}, {"tpr", tpr}});
-                pr.push_back({{"precision", precision}, {"recall", recall}});
+                roc.push_back({{"fpr", fpr}, {"tpr", tpr}, {"threshold", threshold}});
+                pr.push_back({{"precision", precision}, {"recall", recall}, {"threshold", threshold}});
             }
         }
         out["roc"] = roc;

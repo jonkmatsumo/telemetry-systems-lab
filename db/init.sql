@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS model_runs (
     artifact_path TEXT NULL,
     error TEXT NULL,
     request_id TEXT NULL,
+    training_config JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ NULL
 );

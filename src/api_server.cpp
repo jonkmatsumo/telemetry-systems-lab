@@ -784,10 +784,33 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         auto j = nlohmann::json::parse(req.body);
         std::string dataset_id = j.at("dataset_id");
         std::string name = j.value("name", "pca_default");
-        log.AddFields({{"dataset_id", dataset_id}});
+        
+        // Phase 2: Training parameters with guardrails
+        int n_components = j.value("n_components", 3);
+        double percentile = j.value("percentile", 99.5);
+
+        if (n_components <= 0 || n_components > 5) { // 5 features max in current schema
+             log.RecordError(telemetry::obs::kErrHttpBadRequest, "n_components must be between 1 and 5", 400);
+             SendError(res, "n_components must be between 1 and 5", 400, telemetry::obs::kErrHttpBadRequest, rid);
+             return;
+        }
+        if (percentile < 50.0 || percentile >= 100.0) {
+             log.RecordError(telemetry::obs::kErrHttpBadRequest, "percentile must be between 50.0 and 99.99", 400);
+             SendError(res, "percentile must be between 50.0 and 99.99", 400, telemetry::obs::kErrHttpBadRequest, rid);
+             return;
+        }
+
+        nlohmann::json training_config = {
+            {"dataset_id", dataset_id},
+            {"n_components", n_components},
+            {"percentile", percentile},
+            {"feature_set", "cpu,mem,disk,rx,tx"}
+        };
+
+        log.AddFields({{"dataset_id", dataset_id}, {"training_config", training_config.dump()}});
 
         // 1. Create DB entry
-        std::string model_run_id = db_client_->CreateModelRun(dataset_id, name, rid);
+        std::string model_run_id = db_client_->CreateModelRun(dataset_id, name, training_config, rid);
         if (model_run_id.empty()) {
             log.RecordError(telemetry::obs::kErrDbInsertFailed, "Failed to create model run in DB", 500);
             SendError(res, "Failed to create model run in DB", 500, telemetry::obs::kErrDbInsertFailed, rid);
@@ -796,7 +819,7 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         log.AddFields({{"model_run_id", model_run_id}});
 
         // 2. Spawn training via JobManager
-        job_manager_->StartJob("train-" + model_run_id, rid, [this, model_run_id, dataset_id, rid](const std::atomic<bool>* stop_flag) {
+        job_manager_->StartJob("train-" + model_run_id, rid, [this, model_run_id, dataset_id, n_components, percentile, rid](const std::atomic<bool>* stop_flag) {
             telemetry::obs::Context ctx;
             ctx.request_id = rid;
             ctx.dataset_id = dataset_id;
@@ -813,7 +836,7 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
 
             try {
                 std::filesystem::create_directories(output_dir);
-                auto artifact = telemetry::training::TrainPcaFromDb(db_conn_str_, dataset_id, 3, 99.5);
+                auto artifact = telemetry::training::TrainPcaFromDb(db_conn_str_, dataset_id, n_components, percentile);
                 telemetry::training::WriteArtifactJson(artifact, output_path);
 
                 spdlog::info("Training successful for model {}", model_run_id);

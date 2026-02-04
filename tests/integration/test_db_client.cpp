@@ -118,7 +118,7 @@ TEST_F(DbClientTest, ListFiltersAndPagination) {
     ASSERT_NO_THROW(client.CreateRun(run_id, req, "INTEGRATION_TEST"));
     ASSERT_NO_THROW(client.UpdateRunStatus(run_id, "INTEGRATION_TEST", 1));
 
-    std::string model_run_id = client.CreateModelRun(run_id, "test_model");
+    std::string model_run_id = client.CreateModelRun(run_id, "test_model", {{"n_components", 3}});
     ASSERT_FALSE(model_run_id.empty());
     ASSERT_NO_THROW(client.UpdateModelRunStatus(model_run_id, "COMPLETED", "/tmp/test_artifact.json"));
 
@@ -198,7 +198,7 @@ TEST_F(DbClientTest, ScoreJobProgressFields) {
     req.set_host_count(1);
     client.CreateRun(run_id, req, "SUCCEEDED");
 
-    std::string model_run_id = client.CreateModelRun(run_id, "test_model_progress");
+    std::string model_run_id = client.CreateModelRun(run_id, "test_model_progress", {{"n_components", 3}});
     ASSERT_FALSE(model_run_id.empty());
 
     std::string job_id = client.CreateScoreJob(run_id, model_run_id);
@@ -224,7 +224,7 @@ TEST_F(DbClientTest, CreateScoreJobIsIdempotent) {
     req.set_host_count(1);
     client.CreateRun(run_id, req, "SUCCEEDED");
 
-    std::string model_run_id = client.CreateModelRun(run_id, "test_model_idempotent");
+    std::string model_run_id = client.CreateModelRun(run_id, "test_model_idempotent", {{"n_components", 3}});
     ASSERT_FALSE(model_run_id.empty());
 
     std::string job_a = client.CreateScoreJob(run_id, model_run_id);
@@ -247,7 +247,7 @@ TEST_F(DbClientTest, ReconcileStaleJobs) {
     req.set_host_count(1);
     client.CreateRun(run_id, req, "SUCCEEDED");
 
-    std::string model_run_id = client.CreateModelRun(run_id, "test_model_reconcile");
+    std::string model_run_id = client.CreateModelRun(run_id, "test_model_reconcile", {{"n_components", 3}});
     std::string job_id = client.CreateScoreJob(run_id, model_run_id);
     client.UpdateScoreJob(job_id, "RUNNING", 100, 50, 50);
 
@@ -278,7 +278,7 @@ TEST_F(DbClientTest, PersistsRequestId) {
     EXPECT_EQ(detail["request_id"], req_id);
 
     // 2. Model Run
-    std::string model_run_id = client.CreateModelRun(run_id, "test_persistence", req_id);
+    std::string model_run_id = client.CreateModelRun(run_id, "test_persistence", {{"n_components", 3}}, req_id);
     auto model = client.GetModelRun(model_run_id);
     EXPECT_EQ(model["request_id"], req_id);
 
@@ -317,7 +317,7 @@ TEST_F(DbClientTest, DeleteDatasetWithScores) {
     ASSERT_FALSE(rows.empty());
     long record_id = rows[0].record_id;
     
-    std::string model_run_id = client.CreateModelRun(run_id, "test_delete");
+    std::string model_run_id = client.CreateModelRun(run_id, "test_delete", {{"n_components", 3}});
     std::string job_id = client.CreateScoreJob(run_id, model_run_id);
     
     // Insert a score

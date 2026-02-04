@@ -283,6 +283,7 @@ class ModelRunSummary {
   final String artifactPath;
   final String createdAt;
   final String completedAt;
+  final Map<String, dynamic> trainingConfig;
 
   ModelRunSummary({
     required this.modelRunId,
@@ -292,6 +293,7 @@ class ModelRunSummary {
     required this.artifactPath,
     required this.createdAt,
     required this.completedAt,
+    this.trainingConfig = const {},
   });
 
   factory ModelRunSummary.fromJson(Map<String, dynamic> json) {
@@ -303,6 +305,7 @@ class ModelRunSummary {
       artifactPath: json['artifact_path'] ?? '',
       createdAt: json['created_at'] ?? '',
       completedAt: json['completed_at'] ?? '',
+      trainingConfig: json['training_config'] ?? {},
     );
   }
 }
@@ -616,11 +619,19 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<String> trainModel(String datasetId, {String name = 'pca_default'}) async {
+  Future<String> trainModel(String datasetId,
+      {String name = 'pca_default', int? nComponents, double? percentile}) async {
+    final Map<String, dynamic> body = {
+      'dataset_id': datasetId,
+      'name': name,
+    };
+    if (nComponents != null) body['n_components'] = nComponents;
+    if (percentile != null) body['percentile'] = percentile;
+
     final response = await _client.post(
       Uri.parse('$baseUrl/train'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'dataset_id': datasetId, 'name': name}),
+      body: jsonEncode(body),
     );
     if (response.statusCode == 202 || response.statusCode == 200) {
       return jsonDecode(response.body)['model_run_id'];

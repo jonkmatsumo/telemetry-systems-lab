@@ -17,6 +17,8 @@ class ControlPanel extends StatefulWidget {
 class _ControlPanelState extends State<ControlPanel> {
   final _hostCountController = TextEditingController(text: '5');
   final _modelNameController = TextEditingController(text: 'pca_v1');
+  final _nComponentsController = TextEditingController(text: '3');
+  final _percentileController = TextEditingController(text: '99.5');
 
   bool _loading = false;
   InferenceResponse? _inferenceResults;
@@ -183,6 +185,8 @@ class _ControlPanelState extends State<ControlPanel> {
     _pollingTimer?.cancel();
     _hostCountController.dispose();
     _modelNameController.dispose();
+    _nComponentsController.dispose();
+    _percentileController.dispose();
     super.dispose();
   }
 
@@ -257,12 +261,27 @@ class _ControlPanelState extends State<ControlPanel> {
   void _train() async {
     final appState = context.read<AppState>();
     if (appState.datasetId == null) return;
+    
+    final nComponents = int.tryParse(_nComponentsController.text);
+    final percentile = double.tryParse(_percentileController.text);
+
+    if (nComponents == null || nComponents <= 0 || nComponents > 5) {
+      _showError('N Components must be between 1 and 5');
+      return;
+    }
+    if (percentile == null || percentile < 50.0 || percentile >= 100.0) {
+      _showError('Percentile must be between 50.0 and 99.99');
+      return;
+    }
+
     setState(() => _loading = true);
     final service = context.read<TelemetryService>();
     try {
       final modelId = await service.trainModel(
         appState.datasetId!,
         name: _modelNameController.text,
+        nComponents: nComponents,
+        percentile: percentile,
       );
       appState.setModel(modelId);
       _startPolling(modelId, 'model');
@@ -502,6 +521,14 @@ class _ControlPanelState extends State<ControlPanel> {
                         ),
                       ),
                     _buildTextField('Model Name', _modelNameController),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(child: _buildTextField('N Components (1-5)', _nComponentsController)),
+                        const SizedBox(width: 16),
+                        Expanded(child: _buildTextField('Percentile (50-99.9)', _percentileController)),
+                      ],
+                    ),
                     const SizedBox(height: 16),
                     _buildButton('Start Training', _train, enabled: !_loading && canTrain),
                     const SizedBox(height: 16),
