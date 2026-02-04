@@ -37,6 +37,7 @@ public:
 
     std::string CreateModelRun(const std::string& dataset_id, 
                                const std::string& name,
+                               const nlohmann::json& training_config = {},
                                const std::string& request_id = "") override {
         return "mock-model-run-id";
     }
