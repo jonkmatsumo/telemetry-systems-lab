@@ -1368,6 +1368,10 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
 
         out["limit"] = limit;
         out["offset"] = offset;
+        long total = out["total"].get<long>();
+        int returned = static_cast<int>(out["items"].size());
+        out["returned"] = returned;
+        out["has_more"] = telemetry::api::HasMore(limit, offset, returned, total);
 
     } catch (const std::exception& e) {
         spdlog::error("Failed to get scores: {}", e.what());

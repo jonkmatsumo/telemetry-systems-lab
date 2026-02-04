@@ -329,6 +329,7 @@ TEST_F(DbClientTest, DeleteDatasetWithScores) {
     
     auto scores = client.GetScores(run_id, model_run_id, 10, 0, false, 0, 0);
     EXPECT_EQ(scores["total"], 1);
+    EXPECT_FALSE(scores["has_more"].get<bool>()); // 1 < 10
     
     // 3. Delete
     ASSERT_NO_THROW(client.DeleteDatasetWithScores(run_id));
