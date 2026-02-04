@@ -53,3 +53,67 @@ TEST(PcaTrainerTest, ArtifactLoadsInPcaModel) {
     telemetry::anomaly::PcaModel model;
     ASSERT_NO_THROW(model.Load(path));
 }
+
+TEST(HpoContractTest, ValidatesInvalidAlgorithm) {
+    telemetry::training::HpoConfig config;
+    config.algorithm = "unsupported";
+    auto errors = telemetry::training::ValidateHpoConfig(config);
+    ASSERT_FALSE(errors.empty());
+    EXPECT_EQ(errors[0].field, "algorithm");
+}
+
+TEST(HpoContractTest, ValidatesEmptySearchSpace) {
+    telemetry::training::HpoConfig config;
+    config.search_space.n_components = {};
+    config.search_space.percentile = {};
+    auto errors = telemetry::training::ValidateHpoConfig(config);
+    ASSERT_FALSE(errors.empty());
+    EXPECT_EQ(errors[0].field, "search_space");
+}
+
+TEST(HpoContractTest, ValidatesGridSearchCap) {
+    telemetry::training::HpoConfig config;
+    config.algorithm = "grid";
+    config.search_space.n_components = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
+    config.search_space.percentile = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+    // 11 * 10 = 110 combinations, cap is 100
+    auto errors = telemetry::training::ValidateHpoConfig(config);
+    ASSERT_FALSE(errors.empty());
+    EXPECT_EQ(errors[0].field, "search_space");
+}
+
+TEST(HpoContractTest, GeneratesDeterministicGrid) {
+    telemetry::training::HpoConfig config;
+    config.algorithm = "grid";
+    config.max_trials = 10;
+    config.search_space.n_components = {2, 3};
+    config.search_space.percentile = {99.0, 99.5};
+
+    auto trials1 = telemetry::training::GenerateTrials(config, "ds1");
+    auto trials2 = telemetry::training::GenerateTrials(config, "ds1");
+
+    ASSERT_EQ(trials1.size(), 4u);
+    ASSERT_EQ(trials1.size(), trials2.size());
+    for (size_t i = 0; i < trials1.size(); ++i) {
+        EXPECT_EQ(trials1[i].n_components, trials2[i].n_components);
+        EXPECT_EQ(trials1[i].percentile, trials2[i].percentile);
+    }
+}
+
+TEST(HpoContractTest, GeneratesDeterministicSeededRandom) {
+    telemetry::training::HpoConfig config;
+    config.algorithm = "random";
+    config.max_trials = 5;
+    config.seed = 42;
+    config.search_space.n_components = {2, 3, 4, 5};
+    config.search_space.percentile = {90.0, 95.0, 99.0, 99.9};
+
+    auto trials1 = telemetry::training::GenerateTrials(config, "ds1");
+    auto trials2 = telemetry::training::GenerateTrials(config, "ds1");
+
+    ASSERT_EQ(trials1.size(), 5u);
+    for (size_t i = 0; i < trials1.size(); ++i) {
+        EXPECT_EQ(trials1[i].n_components, trials2[i].n_components);
+        EXPECT_EQ(trials1[i].percentile, trials2[i].percentile);
+    }
+}

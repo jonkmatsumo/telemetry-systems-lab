@@ -291,6 +291,9 @@ Compare results across dataset sizes to validate scale behavior.
 
 ## Features
 - **Deterministic**: Seeded generation for reproducible anomalies.
+- **Hyperparameter Tuning (HPO)**: Automatic search across PCA parameters (`n_components`, `percentile`) using Grid or Random search.
+  - **Constraints**: Max 50 trials per tuning run. Grid search capped at 100 combinations.
+  - **Best Trial**: Automatically selected based on the lowest reconstruction error threshold among successful trials.
 - **Golden Regression**: C++ inference matches committed golden artifacts (verified via `tests/parity`).
 - **Fusion**: Combines robust statistical checks (Z-score) with multivariate PCA reconstruction error.
 - **Alert Management**: Includes anti-flapping (hysteresis) and storm-control (cooldown) logic.
