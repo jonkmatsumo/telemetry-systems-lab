@@ -790,13 +790,13 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         double percentile = j.value("percentile", 99.5);
 
         if (n_components <= 0 || n_components > 5) { // 5 features max in current schema
-             log.RecordError(telemetry::obs::kErrInvalidRequest, "n_components must be between 1 and 5", 400);
-             SendError(res, "n_components must be between 1 and 5", 400, telemetry::obs::kErrInvalidRequest, rid);
+             log.RecordError(telemetry::obs::kErrHttpBadRequest, "n_components must be between 1 and 5", 400);
+             SendError(res, "n_components must be between 1 and 5", 400, telemetry::obs::kErrHttpBadRequest, rid);
              return;
         }
         if (percentile < 50.0 || percentile >= 100.0) {
-             log.RecordError(telemetry::obs::kErrInvalidRequest, "percentile must be between 50.0 and 99.99", 400);
-             SendError(res, "percentile must be between 50.0 and 99.99", 400, telemetry::obs::kErrInvalidRequest, rid);
+             log.RecordError(telemetry::obs::kErrHttpBadRequest, "percentile must be between 50.0 and 99.99", 400);
+             SendError(res, "percentile must be between 50.0 and 99.99", 400, telemetry::obs::kErrHttpBadRequest, rid);
              return;
         }
 

@@ -1474,8 +1474,8 @@ nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
                 double fpr = negatives > 0 ? static_cast<double>(tfp) / static_cast<double>(negatives) : 0.0;
                 double precision = (ttp + tfp) > 0 ? static_cast<double>(ttp) / static_cast<double>(ttp + tfp) : 0.0;
                 double recall = tpr;
-                roc.push_back({{"fpr", fpr}, {"tpr", tpr}});
-                pr.push_back({{"precision", precision}, {"recall", recall}});
+                roc.push_back({{"fpr", fpr}, {"tpr", tpr}, {"threshold", threshold}});
+                pr.push_back({{"precision", precision}, {"recall", recall}, {"threshold", threshold}});
             }
         }
         out["roc"] = roc;
