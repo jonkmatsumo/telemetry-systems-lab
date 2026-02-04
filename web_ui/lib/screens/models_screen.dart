@@ -24,6 +24,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
   ScoreJobStatus? _jobStatus;
   Timer? _jobTimer;
   bool _jobPollingInFlight = false;
+  double? _currentThreshold;
 
   @override
   void initState() {
@@ -94,6 +95,9 @@ class _ModelsScreenState extends State<ModelsScreen> {
     setState(() {
       _evalMetrics = eval;
       _errorDist = dist;
+      // Initialize threshold from artifact if possible
+      final artifact = _selectedDetail?['artifact'] ?? {};
+      _currentThreshold = (artifact['threshold'] ?? artifact['thresholds']?['reconstruction_error'])?.toDouble();
     });
   }
 
@@ -338,6 +342,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
                 ),
               ],
             ),
+          _buildEvalSummary(),
           if (_errorDist.isNotEmpty) const SizedBox(height: 16),
           if (_errorDist.isNotEmpty)
             SizedBox(
@@ -349,6 +354,78 @@ class _ModelsScreenState extends State<ModelsScreen> {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildEvalSummary() {
+    if (_evalMetrics == null || _currentThreshold == null) return const SizedBox.shrink();
+
+    // Find closest point in PR curve
+    Map<String, double>? closest;
+    double minDist = double.infinity;
+    for (final p in _evalMetrics!.pr) {
+      final t = p['threshold'] ?? 0.0;
+      final d = (t - _currentThreshold!).abs();
+      if (d < minDist) {
+        minDist = d;
+        closest = p;
+      }
+    }
+
+    if (closest == null) return const SizedBox.shrink();
+
+    final p = closest['precision'] ?? 0.0;
+    final r = closest['recall'] ?? 0.0;
+    final f1 = (p + r) > 0 ? 2 * (p * r) / (p + r) : 0.0;
+
+    // Threshold range
+    double minT = double.infinity;
+    double maxT = double.negativeInfinity;
+    for (final pt in _evalMetrics!.pr) {
+      final t = pt['threshold'] ?? 0.0;
+      if (t < minT) minT = t;
+      if (t > maxT) maxT = t;
+    }
+    if (minT == double.infinity || minT == maxT) {
+      minT = 0;
+      maxT = 1;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        const Text('Threshold Analysis',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF38BDF8))),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: Slider(
+                value: _currentThreshold!.clamp(minT, maxT),
+                min: minT,
+                max: maxT,
+                onChanged: (val) => setState(() => _currentThreshold = val),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(4)),
+              child: Text('Threshold: ${_currentThreshold!.toStringAsFixed(4)}'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          children: [
+            _metricCard('Precision', p.toStringAsFixed(4)),
+            _metricCard('Recall', r.toStringAsFixed(4)),
+            _metricCard('F1 Score', f1.toStringAsFixed(4)),
+          ],
+        ),
+      ],
     );
   }
 
