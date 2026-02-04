@@ -346,7 +346,7 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
                 ? const Center(child: Text('No recent jobs'))
                 : ListView.separated(
                     itemCount: appState.activeJobs.length,
-                    separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+                    separatorBuilder: (context, _) => const Divider(color: Colors.white12),
                     itemBuilder: (context, index) {
                       final job = appState.activeJobs[index];
                       return ListTile(

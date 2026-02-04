@@ -105,7 +105,7 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
+        color: Colors.white.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -223,6 +223,7 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
 
     try {
       final record = await context.read<TelemetryService>().getDatasetRecord(runId, recordId);
+      if (!mounted) return;
       Navigator.pop(context); // Close loading sheet
 
       showModalBottomSheet(
@@ -295,6 +296,7 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
         },
       );
     } catch (e) {
+      if (!mounted) return;
       Navigator.pop(context); // Close loading sheet
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load record details: $e')));
     }

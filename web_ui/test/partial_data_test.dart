@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_ui/widgets/analytics_state_panel.dart';
-import 'package:web_ui/widgets/charts.dart';
 
 // Mock chart that accepts partial data signal
 class MockLineChart extends StatelessWidget {

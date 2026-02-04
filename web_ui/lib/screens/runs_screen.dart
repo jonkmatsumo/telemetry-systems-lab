@@ -72,10 +72,13 @@ class _RunsScreenState extends State<RunsScreen> {
     });
     try {
       final detail = await context.read<TelemetryService>().getDatasetDetail(run.runId);
+      if (!mounted) return;
       setState(() => _selectedDetail = detail);
       context.read<AppState>().setDataset(run.runId);
     } finally {
-      setState(() => _loadingDetail = false);
+      if (mounted) {
+        setState(() => _loadingDetail = false);
+      }
     }
   }
 
@@ -114,7 +117,7 @@ class _RunsScreenState extends State<RunsScreen> {
                       }
                       return ListView.separated(
                         itemCount: runs.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
+                        separatorBuilder: (context, _) => const Divider(height: 1, color: Colors.white12),
                         itemBuilder: (context, index) {
                           final run = runs[index];
                           return ListTile(
@@ -133,7 +136,7 @@ class _RunsScreenState extends State<RunsScreen> {
                   flex: 3,
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.2),
+                      color: Colors.black.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.white12),
                     ),
@@ -243,7 +246,7 @@ class _RunsScreenState extends State<RunsScreen> {
             padding: const EdgeInsets.all(16),
             child: ListView.separated(
               itemCount: _schema.length,
-              separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+              separatorBuilder: (context, _) => const Divider(color: Colors.white12),
               itemBuilder: (context, index) {
                 final f = _schema[index];
                 final key = f['key'] ?? '';
@@ -256,7 +259,7 @@ class _RunsScreenState extends State<RunsScreen> {
                   isThreeLine: true,
                   onTap: () => _fetchStats(detail['run_id'], key),
                   selected: isSelected,
-                  selectedTileColor: Colors.white.withOpacity(0.05),
+                  selectedTileColor: Colors.white.withValues(alpha: 0.05),
                 );
               },
             ),
@@ -284,7 +287,7 @@ class _RunsScreenState extends State<RunsScreen> {
         return ListView.separated(
           itemCount: models.length,
           padding: const EdgeInsets.all(16),
-          separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+          separatorBuilder: (context, _) => const Divider(color: Colors.white12),
           itemBuilder: (context, index) {
             final m = models[index];
             return ListTile(
@@ -312,9 +315,9 @@ class _RunsScreenState extends State<RunsScreen> {
       padding: const EdgeInsets.all(16),
       margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF38BDF8).withOpacity(0.1),
+        color: const Color(0xFF38BDF8).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF38BDF8).withOpacity(0.3)),
+        border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

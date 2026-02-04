@@ -47,6 +47,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
     setState(() => _loadingDetail = true);
     try {
       final detail = await context.read<TelemetryService>().getModelDetail(model.modelRunId);
+      if (!mounted) return;
       setState(() {
         _selectedDetail = detail;
         _evalMetrics = null;
@@ -55,7 +56,9 @@ class _ModelsScreenState extends State<ModelsScreen> {
       });
       context.read<AppState>().setModel(model.modelRunId);
     } finally {
-      setState(() => _loadingDetail = false);
+      if (mounted) {
+        setState(() => _loadingDetail = false);
+      }
     }
   }
 
@@ -84,10 +87,10 @@ class _ModelsScreenState extends State<ModelsScreen> {
   }
 
   Future<void> _loadEval(String datasetId, String modelRunId) async {
-    final eval = await context.read<TelemetryService>().getModelEval(modelRunId, datasetId);
-    final dist = await context
-        .read<TelemetryService>()
-        .getErrorDistribution(modelRunId, datasetId, groupBy: 'anomaly_type');
+    final service = context.read<TelemetryService>();
+    final eval = await service.getModelEval(modelRunId, datasetId);
+    final dist = await service.getErrorDistribution(modelRunId, datasetId, groupBy: 'anomaly_type');
+    if (!mounted) return;
     setState(() {
       _evalMetrics = eval;
       _errorDist = dist;
@@ -127,7 +130,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
                       final models = snapshot.data ?? [];
                       return ListView.separated(
                         itemCount: models.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
+                        separatorBuilder: (context, _) => const Divider(height: 1, color: Colors.white12),
                         itemBuilder: (context, index) {
                           final model = models[index];
                           return ListTile(
@@ -149,7 +152,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
             flex: 4,
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.2),
+                color: Colors.black.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.white12),
               ),
@@ -352,7 +355,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
         return ListView.separated(
           itemCount: datasets.length,
           padding: const EdgeInsets.all(16),
-          separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+          separatorBuilder: (context, _) => const Divider(color: Colors.white12),
           itemBuilder: (context, index) {
             final ds = datasets[index];
             return ListTile(
@@ -443,7 +446,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
       width: 220,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.2),
+        color: Colors.black.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white12),
       ),

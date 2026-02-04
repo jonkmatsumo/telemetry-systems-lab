@@ -187,7 +187,7 @@ class _LineChartPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
 
     final dashedPaint = Paint()
-      ..color = lineColor.withOpacity(0.5)
+      ..color = lineColor.withValues(alpha: 0.5)
       ..strokeWidth = strokeWidth
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -424,7 +424,7 @@ class ChartCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.2),
+        color: Colors.black.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white12),
       ),
@@ -440,7 +440,7 @@ class ChartCard extends StatelessWidget {
                   children: [
                     Text(title, style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
                     if (subtitle != null)
-                      Text(subtitle!, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11)),
+                      Text(subtitle!, style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 11)),
                   ],
                 ),
               ),
@@ -484,7 +484,7 @@ class ChartCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               footerText!,
-              style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11),
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 11),
             ),
           ],
         ],
@@ -508,9 +508,9 @@ class TruncationBadge extends StatelessWidget {
     final badge = Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.2),
+        color: Colors.orange.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.orange.withOpacity(0.5)),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.5)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -543,9 +543,9 @@ class ChartPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.blueGrey.withOpacity(0.2),
+        color: Colors.blueGrey.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.blueGrey.withOpacity(0.5)),
+        border: Border.all(color: Colors.blueGrey.withValues(alpha: 0.5)),
       ),
       child: Text(
         text,

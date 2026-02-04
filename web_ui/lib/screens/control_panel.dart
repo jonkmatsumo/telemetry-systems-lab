@@ -129,14 +129,12 @@ class _ControlPanelState extends State<ControlPanel> {
         }
       }
 
-      if (payload != null) {
-        setState(() {
-          _pendingInferenceMessage = 'Loaded record ${pending.recordId} from results.';
-        });
+      setState(() {
+        _pendingInferenceMessage = 'Loaded record ${pending.recordId} from results.';
+      });
 
-        // Run inference
-        _inferWithSample(payload);
-      }
+      // Run inference
+      _inferWithSample(payload);
     });
   }
 
@@ -245,10 +243,12 @@ class _ControlPanelState extends State<ControlPanel> {
     try {
       final count = int.parse(_hostCountController.text);
       final runId = await service.generateDataset(count);
+      if (!mounted) return;
       context.read<AppState>().setDataset(runId);
       _startPolling(runId, 'dataset');
       _fetchResources(); // Refresh list after starting generation
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
       _showError(e.toString());
     }
@@ -631,9 +631,9 @@ class _ControlPanelState extends State<ControlPanel> {
         width: 380,
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: const Color(0x1E293B).withOpacity(0.7),
+          color: const Color(0xFF1E293B).withValues(alpha: 0.7),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.1)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
