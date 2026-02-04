@@ -19,7 +19,7 @@ The system is decomposed into five core components:
 2.  **Generator (C++)**: High-throughput producer for synthetic data. Exposes a gRPC interface.
 3.  **Database (PostgreSQL)**: Central store for telemetry, runs, models, and alerts.
 4.  **Training (C++)**: PCA training logic invoked by the API server.
-5.  **Management Plane (Dart)**: Unified logic across the **Flutter Web Dashboard** and the **Dart CLI Tool** for system orchestration and verification.
+5.  **Management Plane**: The **Flutter Web Dashboard** for system orchestration and verification.
 
 ## Ports
 
@@ -46,7 +46,6 @@ This project is configured to avoid port conflicts with Text2SQL and Label Lag.
 - `db/`: Database schemas and migrations
 - `tests/`: Unit and integration tests
 - `web_ui/`: Flutter web dashboard
-- `dart_cli/`: CLI client
 
 ## Build Instructions (Local)
 
