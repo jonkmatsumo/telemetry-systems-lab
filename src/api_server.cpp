@@ -807,10 +807,42 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
             {"feature_set", "cpu,mem,disk,rx,tx"}
         };
 
+        nlohmann::json hpo_config = nlohmann::json::object();
+        if (j.contains("hpo_config")) {
+            hpo_config = j["hpo_config"];
+            telemetry::training::HpoConfig hpo;
+            hpo.algorithm = hpo_config.value("algorithm", "grid");
+            hpo.max_trials = hpo_config.value("max_trials", 10);
+            if (hpo_config.contains("seed")) hpo.seed = hpo_config["seed"].get<int>();
+            
+            if (hpo_config.contains("search_space")) {
+                auto ss = hpo_config["search_space"];
+                if (ss.contains("n_components")) hpo.search_space.n_components = ss["n_components"].get<std::vector<int>>();
+                if (ss.contains("percentile")) hpo.search_space.percentile = ss["percentile"].get<std::vector<double>>();
+            }
+
+            auto errors = telemetry::training::ValidateHpoConfig(hpo);
+            if (!errors.empty()) {
+                nlohmann::json err_resp;
+                err_resp["error"]["message"] = "Invalid HPO configuration";
+                err_resp["error"]["code"] = telemetry::obs::kErrHttpInvalidArgument;
+                for (const auto& e : errors) {
+                    err_resp["error"]["field_errors"].push_back({{"field", e.field}, {"message", e.message}});
+                }
+                SendJson(res, err_resp, 400, rid);
+                return;
+            }
+            // If HPO is enabled, we'll handle it in Phase 2. 
+            // For now, we just persist it if CreateModelRun is called with it.
+        }
+
         log.AddFields({{"dataset_id", dataset_id}, {"training_config", training_config.dump()}});
+        if (!hpo_config.empty()) {
+            log.AddFields({{"hpo_config", hpo_config.dump()}});
+        }
 
         // 1. Create DB entry
-        std::string model_run_id = db_client_->CreateModelRun(dataset_id, name, training_config, rid);
+        std::string model_run_id = db_client_->CreateModelRun(dataset_id, name, training_config, rid, hpo_config);
         if (model_run_id.empty()) {
             log.RecordError(telemetry::obs::kErrDbInsertFailed, "Failed to create model run in DB", 500);
             SendError(res, "Failed to create model run in DB", 500, telemetry::obs::kErrDbInsertFailed, rid);
@@ -907,6 +939,13 @@ void ApiServer::HandleListModels(const httplib::Request& req, httplib::Response&
     std::string created_to = GetStrParam(req, "created_to");
     try {
         auto models = db_client_->ListModelRuns(limit, offset, status, dataset_id, created_from, created_to);
+        
+        // Ensure UI gets explicit nulls for consistency
+        for (auto& m : models) {
+            if (!m.contains("parent_run_id")) m["parent_run_id"] = nullptr;
+            if (!m.contains("trial_index")) m["trial_index"] = nullptr;
+        }
+
         nlohmann::json resp;
         resp["items"] = models;
         resp["limit"] = limit;
@@ -930,6 +969,13 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
             SendError(res, "Model run not found", 404, telemetry::obs::kErrHttpNotFound, rid);
             return;
         }
+
+        // Add HPO helper fields for UI if they are null
+        if (!j.contains("hpo_config") || j["hpo_config"].is_null()) j["hpo_config"] = nullptr;
+        if (!j.contains("parent_run_id") || j["parent_run_id"].is_null()) j["parent_run_id"] = nullptr;
+        if (!j.contains("trial_index") || j["trial_index"].is_null()) j["trial_index"] = nullptr;
+        if (!j.contains("trial_params") || j["trial_params"].is_null()) j["trial_params"] = nullptr;
+
         std::string artifact_path = j.value("artifact_path", "");
         if (!artifact_path.empty()) {
             try {

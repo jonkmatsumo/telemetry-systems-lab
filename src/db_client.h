@@ -47,7 +47,17 @@ public:
     std::string CreateModelRun(const std::string& dataset_id, 
                                const std::string& name,
                                const nlohmann::json& training_config = {},
-                               const std::string& request_id = "") override;
+                               const std::string& request_id = "",
+                               const nlohmann::json& hpo_config = nlohmann::json::object()) override;
+                               
+    std::string CreateHpoTrialRun(const std::string& dataset_id,
+                                  const std::string& name,
+                                  const nlohmann::json& training_config,
+                                  const std::string& request_id,
+                                  const std::string& parent_run_id,
+                                  int trial_index,
+                                  const nlohmann::json& trial_params) override;
+
     void UpdateModelRunStatus(const std::string& model_run_id, 
                                       const std::string& status, 
                                       const std::string& artifact_path = "", 

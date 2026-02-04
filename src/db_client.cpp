@@ -275,17 +275,42 @@ telemetry::RunStatus DbClient::GetRunStatus(const std::string& run_id) {
 std::string DbClient::CreateModelRun(const std::string& dataset_id, 
                                      const std::string& name,
                                      const nlohmann::json& training_config,
-                                     const std::string& request_id) {
+                                     const std::string& request_id,
+                                     const nlohmann::json& hpo_config) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config) "
-                                 "VALUES ($1, $2, 'PENDING', $3, $4) RETURNING model_run_id",
-                                 dataset_id, name, request_id, training_config.dump());
+        std::string hpo_val = hpo_config.is_null() || hpo_config.empty() ? "" : hpo_config.dump();
+        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, hpo_config) "
+                                 "VALUES ($1, $2, 'PENDING', $3, $4, $5) RETURNING model_run_id",
+                                 dataset_id, name, request_id, training_config.dump(), 
+                                 (hpo_val.empty() ? pqxx::params{nullptr} : pqxx::params{hpo_val}));
         W.commit();
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
         spdlog::error("Failed to create model run: {}", e.what());
+        throw;
+    }
+    return "";
+}
+
+std::string DbClient::CreateHpoTrialRun(const std::string& dataset_id,
+                                        const std::string& name,
+                                        const nlohmann::json& training_config,
+                                        const std::string& request_id,
+                                        const std::string& parent_run_id,
+                                        int trial_index,
+                                        const nlohmann::json& trial_params) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, parent_run_id, trial_index, trial_params) "
+                                 "VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7) RETURNING model_run_id",
+                                 dataset_id, name, request_id, training_config.dump(), parent_run_id, trial_index, trial_params.dump());
+        W.commit();
+        if (!res.empty()) return res[0][0].as<std::string>();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to create HPO trial run: {}", e.what());
         throw;
     }
     return "";
@@ -321,7 +346,8 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
 
         pqxx::nontransaction N(C);
 
-        auto res = N.exec_params("SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id, training_config "
+        auto res = N.exec_params("SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id, training_config, "
+                                 "hpo_config, parent_run_id, trial_index, trial_params "
                                  "FROM model_runs WHERE model_run_id = $1", model_run_id);
 
         if (!res.empty()) {
@@ -354,6 +380,28 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
                 j["training_config"] = nlohmann::json::object();
             }
 
+            if (!res[0][10].is_null()) {
+                try {
+                    j["hpo_config"] = nlohmann::json::parse(res[0][10].as<std::string>());
+                } catch (...) {
+                    j["hpo_config"] = nlohmann::json::object();
+                }
+            } else {
+                j["hpo_config"] = nlohmann::json::null();
+            }
+
+            j["parent_run_id"] = res[0][11].is_null() ? nlohmann::json::null() : nlohmann::json(res[0][11].as<std::string>());
+            j["trial_index"] = res[0][12].is_null() ? nlohmann::json::null() : nlohmann::json(res[0][12].as<int>());
+            
+            if (!res[0][13].is_null()) {
+                try {
+                    j["trial_params"] = nlohmann::json::parse(res[0][13].as<std::string>());
+                } catch (...) {
+                    j["trial_params"] = nlohmann::json::object();
+                }
+            } else {
+                j["trial_params"] = nlohmann::json::null();
+            }
         }
 
     } catch (const std::exception& e) {
@@ -532,7 +580,8 @@ nlohmann::json DbClient::ListModelRuns(int limit,
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
         std::string query =
-            "SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, training_config "
+            "SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, training_config, "
+            "parent_run_id, trial_index "
             "FROM model_runs ";
         std::vector<std::string> where;
         if (!status.empty()) where.push_back("status = " + N.quote(status));
@@ -568,6 +617,8 @@ nlohmann::json DbClient::ListModelRuns(int limit,
             } else {
                 j["training_config"] = nlohmann::json::object();
             }
+            j["parent_run_id"] = row[9].is_null() ? nlohmann::json::null() : nlohmann::json(row[9].as<std::string>());
+            j["trial_index"] = row[10].is_null() ? nlohmann::json::null() : nlohmann::json(row[10].as<int>());
             out.push_back(j);
         }
     } catch (const std::exception& e) {
@@ -1358,16 +1409,14 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
             out["items"].push_back(j);
         }
 
-        // Include training_config in results response
-        auto config_res = N.exec_params("SELECT training_config FROM model_runs WHERE model_run_id = $1", model_run_id);
-        if (!config_res.empty() && !config_res[0][0].is_null()) {
-            try {
-                out["training_config"] = nlohmann::json::parse(config_res[0][0].as<std::string>());
-            } catch (...) {
-                out["training_config"] = nlohmann::json::object();
-            }
-        } else {
-            out["training_config"] = nlohmann::json::object();
+        // Include metadata in results response
+        auto model_run = GetModelRun(model_run_id);
+        if (!model_run.empty()) {
+            out["training_config"] = model_run.value("training_config", nlohmann::json::object());
+            out["hpo_config"] = model_run.value("hpo_config", nlohmann::json::null());
+            out["parent_run_id"] = model_run.value("parent_run_id", nlohmann::json::null());
+            out["trial_index"] = model_run.value("trial_index", nlohmann::json::null());
+            out["trial_params"] = model_run.value("trial_params", nlohmann::json::null());
         }
 
         auto count_res = N.exec("SELECT COUNT(*) FROM dataset_scores s " + where);
@@ -1493,16 +1542,14 @@ nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
         out["roc"] = roc;
         out["pr"] = pr;
 
-        // Include training_config in results response
-        auto config_res = N.exec_params("SELECT training_config FROM model_runs WHERE model_run_id = $1", model_run_id);
-        if (!config_res.empty() && !config_res[0][0].is_null()) {
-            try {
-                out["training_config"] = nlohmann::json::parse(config_res[0][0].as<std::string>());
-            } catch (...) {
-                out["training_config"] = nlohmann::json::object();
-            }
-        } else {
-            out["training_config"] = nlohmann::json::object();
+        // Include metadata in results response
+        auto model_run = GetModelRun(model_run_id);
+        if (!model_run.empty()) {
+            out["training_config"] = model_run.value("training_config", nlohmann::json::object());
+            out["hpo_config"] = model_run.value("hpo_config", nlohmann::json::null());
+            out["parent_run_id"] = model_run.value("parent_run_id", nlohmann::json::null());
+            out["trial_index"] = model_run.value("trial_index", nlohmann::json::null());
+            out["trial_params"] = model_run.value("trial_params", nlohmann::json::null());
         }
     } catch (const std::exception& e) {
         spdlog::error("Failed to get eval metrics: {}", e.what());
