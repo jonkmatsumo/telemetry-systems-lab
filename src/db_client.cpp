@@ -347,7 +347,8 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
         pqxx::nontransaction N(C);
 
         auto res = N.exec_params("SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id, training_config, "
-                                 "hpo_config, parent_run_id, trial_index, trial_params "
+                                 "hpo_config, parent_run_id, trial_index, trial_params, "
+                                 "best_trial_run_id, best_metric_value, best_metric_name "
                                  "FROM model_runs WHERE model_run_id = $1", model_run_id);
 
         if (!res.empty()) {
@@ -402,12 +403,31 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
             } else {
                 j["trial_params"] = nlohmann::json::null();
             }
+
+            j["best_trial_run_id"] = res[0][14].is_null() ? nlohmann::json::null() : nlohmann::json(res[0][14].as<std::string>());
+            j["best_metric_value"] = res[0][15].is_null() ? nlohmann::json::null() : nlohmann::json(res[0][15].as<double>());
+            j["best_metric_name"] = res[0][16].is_null() ? nlohmann::json::null() : nlohmann::json(res[0][16].as<std::string>());
         }
 
     } catch (const std::exception& e) {
         spdlog::error("DB Error in GetModelRun for {}: {}", model_run_id, e.what());
     }
     return j;
+}
+
+void DbClient::UpdateBestTrial(const std::string& parent_run_id,
+                               const std::string& best_trial_run_id,
+                               double best_metric_value,
+                               const std::string& best_metric_name) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        W.exec_params("UPDATE model_runs SET best_trial_run_id=$1, best_metric_value=$2, best_metric_name=$3 WHERE model_run_id=$4",
+                     best_trial_run_id, best_metric_value, best_metric_name, parent_run_id);
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to update best trial for {}: {}", parent_run_id, e.what());
+    }
 }
 
 nlohmann::json DbClient::GetHpoTrials(const std::string& parent_run_id) {
@@ -607,7 +627,7 @@ nlohmann::json DbClient::ListModelRuns(int limit,
         pqxx::nontransaction N(C);
         std::string query =
             "SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, training_config, "
-            "parent_run_id, trial_index "
+            "parent_run_id, trial_index, best_trial_run_id, best_metric_value, best_metric_name "
             "FROM model_runs ";
         std::vector<std::string> where;
         if (!status.empty()) where.push_back("status = " + N.quote(status));
@@ -645,6 +665,9 @@ nlohmann::json DbClient::ListModelRuns(int limit,
             }
             j["parent_run_id"] = row[9].is_null() ? nlohmann::json::null() : nlohmann::json(row[9].as<std::string>());
             j["trial_index"] = row[10].is_null() ? nlohmann::json::null() : nlohmann::json(row[10].as<int>());
+            j["best_trial_run_id"] = row[11].is_null() ? nlohmann::json::null() : nlohmann::json(row[11].as<std::string>());
+            j["best_metric_value"] = row[12].is_null() ? nlohmann::json::null() : nlohmann::json(row[12].as<double>());
+            j["best_metric_name"] = row[13].is_null() ? nlohmann::json::null() : nlohmann::json(row[13].as<std::string>());
             out.push_back(j);
         }
     } catch (const std::exception& e) {

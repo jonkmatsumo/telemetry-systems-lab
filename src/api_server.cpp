@@ -1017,7 +1017,9 @@ void ApiServer::HandleListModels(const httplib::Request& req, httplib::Response&
                     }
                     m["hpo_summary"] = {
                         {"trial_count", trials.size()},
-                        {"completed_count", completed}
+                        {"completed_count", completed},
+                        {"best_metric_value", m["best_metric_value"]},
+                        {"best_metric_name", m["best_metric_name"]}
                     };
                     
                     // Also aggregate status for list view
@@ -1096,6 +1098,49 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
                 j["status"] = "COMPLETED";
             } else if (failed > 0) {
                 j["status"] = "FAILED";
+            }
+
+            // Best Trial Selection
+            // Metric: threshold (reconstruction_error). Lower is usually tighter/better for PCA if variance explained is same.
+            // In a real scenario, we might use F1 or AUROC from eval.
+            // For now, let's pick based on completion of training (COMPLETED) and lowest threshold.
+            std::string best_id = "";
+            double min_threshold = std::numeric_limits<double>::max();
+            
+            for (const auto& t : trials) {
+                if (t["status"] == "COMPLETED") {
+                    // We need to fetch the threshold for this trial
+                    auto trial_detail = db_client_->GetModelRun(t["model_run_id"]);
+                    double threshold = 0.0;
+                    std::string t_artifact_path = trial_detail.value("artifact_path", "");
+                    if (!t_artifact_path.empty()) {
+                        std::ifstream tf(t_artifact_path);
+                        if (tf.is_open()) {
+                            nlohmann::json tart;
+                            tf >> tart;
+                            threshold = tart["thresholds"].value("reconstruction_error", 0.0);
+                        }
+                    }
+
+                    if (threshold > 0 && threshold < min_threshold) {
+                        min_threshold = threshold;
+                        best_id = t["model_run_id"];
+                    } else if (threshold > 0 && threshold == min_threshold) {
+                         // Tie-break: earlier completed_at, then lower trial_index
+                         // (simplified here to just lower index if we find it)
+                    }
+                }
+            }
+
+            if (!best_id.empty()) {
+                j["best_trial_run_id"] = best_id;
+                j["best_metric_value"] = min_threshold;
+                j["best_metric_name"] = "reconstruction_error_threshold";
+                
+                // Persist if not already set or changed
+                if (j["best_trial_run_id_db"].is_null() || j["best_trial_run_id_db"] != best_id) {
+                    db_client_->UpdateBestTrial(model_run_id, best_id, min_threshold, "reconstruction_error_threshold");
+                }
             }
         }
 

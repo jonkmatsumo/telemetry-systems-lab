@@ -43,6 +43,10 @@ public:
                                       const std::string& error = "") = 0;
     virtual nlohmann::json GetModelRun(const std::string& model_run_id) = 0;
     virtual nlohmann::json GetHpoTrials(const std::string& parent_run_id) = 0;
+    virtual void UpdateBestTrial(const std::string& parent_run_id,
+                                 const std::string& best_trial_run_id,
+                                 double best_metric_value,
+                                 const std::string& best_metric_name) = 0;
 
     virtual std::string CreateInferenceRun(const std::string& model_run_id) = 0;
     virtual void UpdateInferenceRunStatus(const std::string& inference_id, 
