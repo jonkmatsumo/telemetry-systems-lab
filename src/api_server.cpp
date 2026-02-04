@@ -797,14 +797,31 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
         std::string output_dir = "artifacts/pca/" + model_run_id;
         std::string output_path = output_dir + "/model.json";
 
-        try {
-            std::filesystem::create_directories(output_dir);
-            auto artifact = telemetry::training::TrainPcaFromDb(db_conn_str_, dataset_id, n_components, percentile);
-            telemetry::training::WriteArtifactJson(artifact, output_path);
+                    try {
 
-            spdlog::info("Training successful for model {}", model_run_id);
-            db_client_->UpdateModelRunStatus(model_run_id, "COMPLETED", output_path);
-            auto train_end = std::chrono::steady_clock::now();
+                        std::filesystem::create_directories(output_dir);
+
+                        auto artifact = telemetry::training::TrainPcaFromDb(db_conn_str_, dataset_id, n_components, percentile);
+
+                        telemetry::training::WriteArtifactJson(artifact, output_path);
+
+        
+
+                        spdlog::info("Training successful for model {}", model_run_id);
+
+                        db_client_->UpdateModelRunStatus(model_run_id, "COMPLETED", output_path);
+
+                        
+
+                        // Update eligibility metadata
+
+                        db_client_->UpdateTrialEligibility(model_run_id, true, "", artifact.threshold);
+
+        
+
+                        auto train_end = std::chrono::steady_clock::now();
+
+        
             double duration_ms = std::chrono::duration<double, std::milli>(train_end - train_start).count();
             telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "train_end", "trainer",
                                         {{"request_id", rid},
@@ -823,10 +840,12 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
                                         {"error_code", error_code},
                                         {"error", e.what()},
                                         {"duration_ms", duration_ms}});
-            spdlog::error("Training failed for model {}: {}", model_run_id, e.what());
-            db_client_->UpdateModelRunStatus(model_run_id, "FAILED", "", e.what());
-            throw; // JobManager will catch and log it too
-        }
+                            spdlog::error("Training failed for model {}: {}", model_run_id, e.what());
+                            db_client_->UpdateModelRunStatus(model_run_id, "FAILED", "", e.what());
+                            db_client_->UpdateTrialEligibility(model_run_id, false, "FAILED", 0.0);
+                            throw; // JobManager will catch and log it too
+                        }
+            
     });
 }
 
@@ -1101,33 +1120,41 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
             }
 
             // Best Trial Selection
-            // Metric: threshold (reconstruction_error). Lower is usually tighter/better for PCA if variance explained is same.
-            // In a real scenario, we might use F1 or AUROC from eval.
-            // For now, let's pick based on completion of training (COMPLETED) and lowest threshold.
+            // Metric: threshold (reconstruction_error). LOWER_IS_BETTER.
+            // Tie-break: earlier completed_at, then lower trial_index.
             std::string best_id = "";
             double min_threshold = std::numeric_limits<double>::max();
+            std::string best_completed_at = "";
+            int best_trial_index = std::numeric_limits<int>::max();
             
             for (const auto& t : trials) {
-                if (t["status"] == "COMPLETED") {
-                    // We need to fetch the threshold for this trial
-                    auto trial_detail = db_client_->GetModelRun(t["model_run_id"]);
-                    double threshold = 0.0;
-                    std::string t_artifact_path = trial_detail.value("artifact_path", "");
-                    if (!t_artifact_path.empty()) {
-                        std::ifstream tf(t_artifact_path);
-                        if (tf.is_open()) {
-                            nlohmann::json tart;
-                            tf >> tart;
-                            threshold = tart["thresholds"].value("reconstruction_error", 0.0);
+                if (t["status"] == "COMPLETED" && t["is_eligible"].get<bool>()) {
+                    double threshold = t["selection_metric_value"].get<double>();
+                    std::string completed_at = t["completed_at"];
+                    int trial_index = t["trial_index"];
+
+                    bool is_better = false;
+                    if (best_id.empty()) {
+                        is_better = true;
+                    } else if (threshold < min_threshold) {
+                        is_better = true;
+                    } else if (threshold == min_threshold) {
+                        // Tie-break 1: earlier completion
+                        if (completed_at < best_completed_at) {
+                            is_better = true;
+                        } else if (completed_at == best_completed_at) {
+                            // Tie-break 2: lower trial index
+                            if (trial_index < best_trial_index) {
+                                is_better = true;
+                            }
                         }
                     }
 
-                    if (threshold > 0 && threshold < min_threshold) {
+                    if (is_better) {
                         min_threshold = threshold;
                         best_id = t["model_run_id"];
-                    } else if (threshold > 0 && threshold == min_threshold) {
-                         // Tie-break: earlier completed_at, then lower trial_index
-                         // (simplified here to just lower index if we find it)
+                        best_completed_at = completed_at;
+                        best_trial_index = trial_index;
                     }
                 }
             }
@@ -1136,10 +1163,18 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
                 j["best_trial_run_id"] = best_id;
                 j["best_metric_value"] = min_threshold;
                 j["best_metric_name"] = "reconstruction_error_threshold";
+                j["selection_metric_direction"] = "LOWER_IS_BETTER";
+                j["tie_break_basis"] = "completion_time, trial_index";
                 
                 // Persist if not already set or changed
                 if (j["best_trial_run_id_db"].is_null() || j["best_trial_run_id_db"] != best_id) {
-                    db_client_->UpdateBestTrial(model_run_id, best_id, min_threshold, "reconstruction_error_threshold");
+                    db_client_->UpdateBestTrial(
+                        model_run_id, 
+                        best_id, 
+                        min_threshold, 
+                        "reconstruction_error_threshold",
+                        "LOWER_IS_BETTER",
+                        "completion_time, trial_index");
                 }
             }
         }

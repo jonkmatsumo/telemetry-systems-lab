@@ -46,7 +46,9 @@ public:
     virtual void UpdateBestTrial(const std::string& parent_run_id,
                                  const std::string& best_trial_run_id,
                                  double best_metric_value,
-                                 const std::string& best_metric_name) = 0;
+                                 const std::string& best_metric_name,
+                                 const std::string& best_metric_direction,
+                                 const std::string& tie_break_basis) = 0;
 
     virtual std::string CreateInferenceRun(const std::string& model_run_id) = 0;
     virtual void UpdateInferenceRunStatus(const std::string& inference_id, 
@@ -54,4 +56,9 @@ public:
                                           int anomaly_count, 
                                           const nlohmann::json& details = {},
                                           double latency_ms = 0.0) = 0;
+    
+    virtual void UpdateTrialEligibility(const std::string& model_run_id,
+                                        bool is_eligible,
+                                        const std::string& reason,
+                                        double metric_value) = 0;
 };

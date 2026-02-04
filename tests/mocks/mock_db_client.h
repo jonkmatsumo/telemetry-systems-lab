@@ -75,7 +75,9 @@ public:
     void UpdateBestTrial(const std::string& parent_run_id,
                          const std::string& best_trial_run_id,
                          double best_metric_value,
-                         const std::string& best_metric_name) override {
+                         const std::string& best_metric_name,
+                         const std::string& best_metric_direction,
+                         const std::string& tie_break_basis) override {
         // No-op
     }
 
@@ -88,6 +90,13 @@ public:
                                   int anomaly_count, 
                                   const nlohmann::json& details = {},
                                   double latency_ms = 0.0) override {
+        // No-op
+    }
+
+    void UpdateTrialEligibility(const std::string& model_run_id,
+                                bool is_eligible,
+                                const std::string& reason,
+                                double metric_value) override {
         // No-op
     }
 
