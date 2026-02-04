@@ -360,8 +360,7 @@ class _ControlPanelState extends State<ControlPanel> {
               items: _availableDatasets.map((d) {
                 return DropdownMenuItem(
                   value: d.runId,
-                  child: Text('${d.runId.substring(0, 8)}... (${d.status})',
-                      style: const TextStyle(fontSize: 14)),
+                  child: Text(_formatDatasetLabel(d), style: const TextStyle(fontSize: 14)),
                 );
               }).toList(),
               onChanged: (val) {
@@ -673,6 +672,38 @@ class _ControlPanelState extends State<ControlPanel> {
         ),
       ],
     );
+  }
+
+  String _formatDatasetLabel(DatasetRun dataset) {
+    final shortId = dataset.runId.length > 8 ? dataset.runId.substring(0, 8) : dataset.runId;
+    final rowCount = _formatCount(dataset.insertedRows);
+    final created = _formatCreatedAt(dataset.createdAt);
+    final suffix = created.isNotEmpty ? ' • $created' : '';
+    return '$shortId • $rowCount rows • ${dataset.status}$suffix';
+  }
+
+  String _formatCount(int value) {
+    final s = value.toString();
+    final buffer = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      final indexFromEnd = s.length - i;
+      buffer.write(s[i]);
+      if (indexFromEnd > 1 && indexFromEnd % 3 == 1) {
+        buffer.write(',');
+      }
+    }
+    return buffer.toString();
+  }
+
+  String _formatCreatedAt(String raw) {
+    if (raw.isEmpty) return '';
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    final month = parsed.month.toString().padLeft(2, '0');
+    final day = parsed.day.toString().padLeft(2, '0');
+    final hour = parsed.hour.toString().padLeft(2, '0');
+    final minute = parsed.minute.toString().padLeft(2, '0');
+    return '${parsed.year}-$month-$day $hour:$minute';
   }
 
   Widget _buildButton(String text, VoidCallback onPressed, {bool enabled = true}) {
