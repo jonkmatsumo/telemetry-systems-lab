@@ -18,3 +18,12 @@ TEST(ApiResponseMetaTest, BuildResponseMetaUsesNullTotalDistinct) {
     EXPECT_TRUE(meta["total_distinct"].is_null());
     EXPECT_EQ(meta["reason"].get<std::string>(), "top_k_limit");
 }
+
+TEST(ApiResponseMetaTest, BuildResponseMetaIncludesBinsInfo) {
+    auto meta = BuildResponseMeta(500, 50, true, std::nullopt, "max_bins_cap", 500, 50);
+    EXPECT_EQ(meta["limit"].get<int>(), 500);
+    EXPECT_EQ(meta["returned"].get<int>(), 50);
+    EXPECT_TRUE(meta["truncated"].get<bool>());
+    EXPECT_EQ(meta["bins_requested"].get<int>(), 500);
+    EXPECT_EQ(meta["bins_returned"].get<int>(), 50);
+}

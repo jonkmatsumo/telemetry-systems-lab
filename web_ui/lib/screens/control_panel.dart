@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
+import '../widgets/copy_share_link_button.dart';
 import '../widgets/inline_alert.dart';
 
 class ControlPanel extends StatefulWidget {
@@ -128,14 +129,12 @@ class _ControlPanelState extends State<ControlPanel> {
         }
       }
 
-      if (payload != null) {
-        setState(() {
-          _pendingInferenceMessage = 'Loaded record ${pending.recordId} from results.';
-        });
+      setState(() {
+        _pendingInferenceMessage = 'Loaded record ${pending.recordId} from results.';
+      });
 
-        // Run inference
-        _inferWithSample(payload);
-      }
+      // Run inference
+      _inferWithSample(payload);
     });
   }
 
@@ -244,10 +243,12 @@ class _ControlPanelState extends State<ControlPanel> {
     try {
       final count = int.parse(_hostCountController.text);
       final runId = await service.generateDataset(count);
+      if (!mounted) return;
       context.read<AppState>().setDataset(runId);
       _startPolling(runId, 'dataset');
       _fetchResources(); // Refresh list after starting generation
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
       _showError(e.toString());
     }
@@ -359,8 +360,7 @@ class _ControlPanelState extends State<ControlPanel> {
               items: _availableDatasets.map((d) {
                 return DropdownMenuItem(
                   value: d.runId,
-                  child: Text('${d.runId.substring(0, 8)}... (${d.status})',
-                      style: const TextStyle(fontSize: 14)),
+                  child: Text(_formatDatasetLabel(d), style: const TextStyle(fontSize: 14)),
                 );
               }).toList(),
               onChanged: (val) {
@@ -593,21 +593,32 @@ class _ControlPanelState extends State<ControlPanel> {
   }
 
   Widget _buildHeader() {
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ShaderMask(
-          shaderCallback: (bounds) => const LinearGradient(
-            colors: [Color(0xFF38BDF8), Color(0xFF818CF8)],
-          ).createShader(bounds),
-          child: const Text(
-            'TADS Dashboard',
-            style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ShaderMask(
+                shaderCallback: (bounds) => const LinearGradient(
+                  colors: [Color(0xFF38BDF8), Color(0xFF818CF8)],
+                ).createShader(bounds),
+                child: const Text(
+                  'TADS Dashboard',
+                  style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+              const Text(
+                'Telemetry Anomaly Detection System',
+                style: TextStyle(fontSize: 16, color: Color(0xFF94A3B8)),
+              ),
+            ],
           ),
         ),
-        const Text(
-          'Telemetry Anomaly Detection System',
-          style: TextStyle(fontSize: 16, color: Color(0xFF94A3B8)),
+        const CopyShareLinkButton(
+          label: 'Copy Link',
+          tooltip: 'Copy share link',
         ),
       ],
     );
@@ -620,9 +631,9 @@ class _ControlPanelState extends State<ControlPanel> {
         width: 380,
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: const Color(0x1E293B).withOpacity(0.7),
+          color: const Color(0xFF1E293B).withValues(alpha: 0.7),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.1)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
@@ -661,6 +672,38 @@ class _ControlPanelState extends State<ControlPanel> {
         ),
       ],
     );
+  }
+
+  String _formatDatasetLabel(DatasetRun dataset) {
+    final shortId = dataset.runId.length > 8 ? dataset.runId.substring(0, 8) : dataset.runId;
+    final rowCount = _formatCount(dataset.insertedRows);
+    final created = _formatCreatedAt(dataset.createdAt);
+    final suffix = created.isNotEmpty ? ' • $created' : '';
+    return '$shortId • $rowCount rows • ${dataset.status}$suffix';
+  }
+
+  String _formatCount(int value) {
+    final s = value.toString();
+    final buffer = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      final indexFromEnd = s.length - i;
+      buffer.write(s[i]);
+      if (indexFromEnd > 1 && indexFromEnd % 3 == 1) {
+        buffer.write(',');
+      }
+    }
+    return buffer.toString();
+  }
+
+  String _formatCreatedAt(String raw) {
+    if (raw.isEmpty) return '';
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    final month = parsed.month.toString().padLeft(2, '0');
+    final day = parsed.day.toString().padLeft(2, '0');
+    final hour = parsed.hour.toString().padLeft(2, '0');
+    final minute = parsed.minute.toString().padLeft(2, '0');
+    return '${parsed.year}-$month-$day $hour:$minute';
   }
 
   Widget _buildButton(String text, VoidCallback onPressed, {bool enabled = true}) {

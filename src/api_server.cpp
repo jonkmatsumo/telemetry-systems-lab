@@ -447,7 +447,11 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
             total_distinct = data_obj["total_distinct"].get<long>();
         }
 
-        bool truncated = telemetry::api::IsTruncated(static_cast<int>(items.size()), k, total_distinct);
+        bool truncated = data_obj.value("truncated", false);
+        if (!data_obj.contains("truncated")) {
+             truncated = telemetry::api::IsTruncated(static_cast<int>(items.size()), k, total_distinct);
+        }
+
         resp["meta"] = telemetry::api::BuildResponseMeta(
             k,
             static_cast<int>(items.size()),
@@ -634,9 +638,9 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
             returned_bins,
             truncated,
             std::nullopt,
-            truncated ? "max_bins_cap" : "histogram_bins");
-        data["meta"]["bins_requested"] = requested_bins;
-        data["meta"]["bins_returned"] = returned_bins;
+            truncated ? "max_bins_cap" : "histogram_bins",
+            requested_bins,
+            returned_bins);
         data["meta"]["start_time"] = start_time;
         data["meta"]["end_time"] = end_time;
         data["meta"]["server_time"] = FormatServerTime();
@@ -913,6 +917,13 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
                     j["artifact"]["thresholds"] = artifact.value("thresholds", nlohmann::json::object());
                     j["artifact"]["model"]["n_components"] = artifact["model"].value("n_components", 0);
                     j["artifact"]["model"]["features"] = artifact["meta"].value("features", nlohmann::json::array());
+                    if (artifact.contains("thresholds") &&
+                        artifact["thresholds"].contains("reconstruction_error")) {
+                        j["threshold"] = artifact["thresholds"]["reconstruction_error"];
+                    }
+                    if (artifact.contains("model") && artifact["model"].contains("n_components")) {
+                        j["n_components"] = artifact["model"]["n_components"];
+                    }
                 }
             } catch (const std::exception& e) {
                 j["artifact_error"] = e.what();

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
@@ -7,6 +6,7 @@ import '../state/investigation_context.dart';
 import '../widgets/analytics_state_panel.dart';
 import '../widgets/analytics_debug_panel.dart';
 import '../widgets/charts.dart';
+import '../widgets/copy_share_link_button.dart';
 import '../widgets/inline_alert.dart';
 import '../utils/freshness.dart';
 import '../utils/time_buckets.dart';
@@ -42,7 +42,6 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
   bool _showAnomalyOverlay = false;
   bool _comparePreviousPeriod = false;
   String _bucketLabel = '1h';
-  int _bucketSeconds = 3600;
 
   final Map<String, WidgetFreshness> _freshness = {};
   static const String _keySummary = 'summary';
@@ -243,9 +242,9 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.12),
+        color: Colors.orange.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -286,10 +285,8 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     if (start != null && end != null) {
       final range = DateTime.parse(end).difference(DateTime.parse(start));
       _bucketLabel = selectBucketLabel(range);
-      _bucketSeconds = bucketSecondsForLabel(_bucketLabel);
     } else {
       _bucketLabel = '1h';
-      _bucketSeconds = 3600;
     }
     final regionFilter = appState.filterRegion;
     final anomalyFilter = appState.filterAnomalyType;
@@ -543,22 +540,13 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                           ),
                       ],
                     ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        final uri = Uri.base;
-                        final ctxParams = appState.investigationContext?.toQueryParams() ?? {};
-                        final link = uri.replace(queryParameters: {
-                          ...uri.queryParameters,
-                          'datasetId': datasetId,
-                          'metric': selectedMetric,
-                          ...ctxParams,
-                        }).toString();
-                        Clipboard.setData(ClipboardData(text: link));
-                        ScaffoldMessenger.of(context)
-                            .showSnackBar(const SnackBar(content: Text('Link copied to clipboard')));
+                    CopyShareLinkButton(
+                      label: 'Copy Link',
+                      overrideParams: {
+                        'datasetId': datasetId,
+                        'metric': selectedMetric,
+                        ...?appState.investigationContext?.toQueryParams(),
                       },
-                      icon: const Icon(Icons.link),
-                      label: const Text('Copy Link'),
                     ),
                   ],
                 ),
@@ -705,11 +693,11 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     final truncated = meta?.truncated ?? false;
                     final total = meta?.totalDistinct;
                     final returned = meta?.returned ?? 0;
-                    final limit = meta?.limit ?? 0;
+                    final limit = meta?.limit ?? 10;
                     
                     return ChartCard(
                       title: 'Top Regions',
-                      pillLabel: limit > 0 ? 'Top $limit' : null,
+                      pillLabel: 'Top $limit',
                       truncated: truncated,
                       subtitle: total != null ? 'Showing $returned of $total' : null,
                       truncationLabel: 'Truncated',
@@ -777,11 +765,11 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     final truncated = meta?.truncated ?? false;
                     final total = meta?.totalDistinct;
                     final returned = meta?.returned ?? 0;
-                    final limit = meta?.limit ?? 0;
+                    final limit = meta?.limit ?? 10;
 
                     return ChartCard(
                       title: 'Anomaly Types',
-                      pillLabel: limit > 0 ? 'Top $limit' : null,
+                      pillLabel: 'Top $limit',
                       truncated: truncated,
                       subtitle: total != null ? 'Showing $returned of $total' : null,
                       truncationLabel: 'Truncated',
@@ -848,11 +836,14 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     final appState = context.read<AppState>();
                     final meta = snapshot.data?.meta;
                     final truncated = meta?.truncated ?? false;
-                    final bins = meta?.limit ?? 0;
+                    final binsRequested = meta?.binsRequested ?? 30;
+                    final binsReturned = meta?.binsReturned ?? 0;
+
                     return ChartCard(
                       title: '$selectedMetric Histogram',
+                      pillLabel: '$binsRequested Bins',
                       truncated: truncated,
-                      subtitle: truncated && bins > 0 ? 'Bins capped at $bins' : null,
+                      subtitle: truncated ? 'Requested $binsRequested, returned $binsReturned' : null,
                       truncationLabel: 'Bins capped',
                       truncationTooltip: 'Requested bins exceeded the cap; histogram was downsampled.',
                       footerText: _asOfLabel(_keyMetricHist, useUtc: useUtc),
@@ -860,7 +851,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                       debugPanel: _buildDebugPanel(meta, _debugParams(meta, {
                         'endpoint': 'histogram',
                         'metric': selectedMetric,
-                        if (bins > 0) 'bins': '$bins',
+                        if (binsRequested > 0) 'bins': '$binsRequested',
                         if (appState.filterRegion != null) 'region': appState.filterRegion!,
                         if (appState.filterAnomalyType != null) 'anomaly_type': appState.filterAnomalyType!,
                       })),
@@ -942,7 +933,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     return ChartCard(
                       title: 'Anomaly Rate Trend ($_bucketLabel)',
                       pillLabels: [
-                        '${_bucketLabel} buckets',
+                        '$_bucketLabel buckets',
                         useUtc ? 'UTC' : 'Local',
                       ],
                       footerText: _asOfLabel(_keySummary, useUtc: useUtc),
@@ -1013,7 +1004,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                   title: '$selectedMetric Mean ($_bucketLabel)',
                   height: 240,
                   pillLabels: [
-                    '${_bucketLabel} buckets',
+                    '$_bucketLabel buckets',
                     useUtc ? 'UTC' : 'Local',
                   ],
                   footerText: _asOfLabel(_keyMetricTs, useUtc: useUtc),
@@ -1197,7 +1188,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
     final window = (meta?.baselineStartTime != null && meta?.baselineEndTime != null)
         ? '${meta!.baselineStartTime} → ${meta.baselineEndTime}'
         : 'previous period';
-    return 'Baseline: $window • Δ ${deltaSign}${delta.toStringAsFixed(2)} ($pct)';
+    return 'Baseline: $window • Δ $deltaSign${delta.toStringAsFixed(2)} ($pct)';
   }
 
   Widget _filterChip(String label, VoidCallback onClear) {
@@ -1311,11 +1302,11 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
                     onRetry: () => _load(datasetId, selectedMetric),
                     useUtc: appState.useUtc,
                     pillLabels1: [
-                      '${_bucketLabel} buckets',
+                      '$_bucketLabel buckets',
                       appState.useUtc ? 'UTC' : 'Local',
                     ],
                     pillLabels2: [
-                      '${_bucketLabel} buckets',
+                      '$_bucketLabel buckets',
                       appState.useUtc ? 'UTC' : 'Local',
                     ]),
               ],
@@ -1527,9 +1518,9 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
         return Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.05),
+            color: color.withValues(alpha: 0.05),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: color.withOpacity(0.2)),
+            border: Border.all(color: color.withValues(alpha: 0.2)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1571,7 +1562,7 @@ class _DatasetAnalyticsScreenState extends State<DatasetAnalyticsScreen> {
       width: 220,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.2),
+        color: Colors.black.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white12),
       ),
@@ -1829,7 +1820,9 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
                               final item = _items[index];
                               final isAnomaly = item['is_anomaly'] == true;
                               return Card(
-                                color: isAnomaly ? Colors.red.withOpacity(0.1) : Colors.white.withOpacity(0.05),
+                                color: isAnomaly
+                                    ? Colors.red.withValues(alpha: 0.1)
+                                    : Colors.white.withValues(alpha: 0.05),
                                 margin: const EdgeInsets.only(bottom: 8),
                                 child: ListTile(
                                   title: Text('${item['host_id']}'),
@@ -1998,7 +1991,7 @@ class _RecordsBrowserState extends State<RecordsBrowser> {
         ),
         Text(total != null
             ? '${_offset + 1}-${end.clamp(0, total)} of $total'
-            : '${_offset + 1}-${end}'),
+            : '${_offset + 1}-$end'),
         IconButton(
           icon: const Icon(Icons.chevron_right),
           onPressed: hasMore ? () {

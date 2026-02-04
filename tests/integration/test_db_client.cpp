@@ -329,6 +329,7 @@ TEST_F(DbClientTest, DeleteDatasetWithScores) {
     
     auto scores = client.GetScores(run_id, model_run_id, 10, 0, false, 0, 0);
     EXPECT_EQ(scores["total"], 1);
+    EXPECT_FALSE(scores["has_more"].get<bool>()); // 1 < 10
     
     // 3. Delete
     ASSERT_NO_THROW(client.DeleteDatasetWithScores(run_id));
@@ -340,4 +341,43 @@ TEST_F(DbClientTest, DeleteDatasetWithScores) {
     // Check scores too
     auto scores_after = client.GetScores(run_id, model_run_id, 10, 0, false, 0, 0);
     EXPECT_EQ(scores_after["total"], 0);
+}
+
+TEST_F(DbClientTest, GetTopKTruncation) {
+    DbClient client(conn_str);
+    std::string run_id = GenerateUUID();
+    
+    telemetry::GenerateRequest req;
+    req.set_tier("TOPK_TEST");
+    req.set_start_time_iso("2026-02-01T00:00:00Z");
+    req.set_end_time_iso("2026-02-01T01:00:00Z");
+    req.set_interval_seconds(60);
+    req.set_host_count(1);
+    client.CreateRun(run_id, req, "SUCCEEDED");
+    
+    // Insert 3 different regions
+    TelemetryRecord rec;
+    rec.run_id = run_id;
+    rec.metric_timestamp = std::chrono::system_clock::now();
+    rec.ingestion_time = rec.metric_timestamp;
+    rec.host_id = "host-1";
+    rec.project_id = "proj-1";
+    rec.labels_json = "{}";
+    
+    rec.region = "region-1";
+    client.BatchInsertTelemetry({rec});
+    rec.region = "region-2";
+    client.BatchInsertTelemetry({rec});
+    rec.region = "region-3";
+    client.BatchInsertTelemetry({rec});
+    
+    // Request Top 2
+    auto top2 = client.GetTopK(run_id, "region", 2, "", "", "", "", "", false);
+    EXPECT_EQ(top2["items"].size(), 2);
+    EXPECT_TRUE(top2["truncated"].get<bool>()); // 3 > 2
+    
+    // Request Top 5
+    auto top5 = client.GetTopK(run_id, "region", 5, "", "", "", "", "", false);
+    EXPECT_EQ(top5["items"].size(), 3);
+    EXPECT_FALSE(top5["truncated"].get<bool>()); // 3 < 5
 }

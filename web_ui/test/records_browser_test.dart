@@ -133,7 +133,6 @@ void main() {
     );
 
     await tester.pump();
-    final nextButton = find.byIcon(Icons.chevron_right);
     final iconButton = tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.chevron_right));
     expect(iconButton.onPressed, isNull);
   });

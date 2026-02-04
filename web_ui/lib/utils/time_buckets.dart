@@ -16,6 +16,22 @@ String formatBucketLabel(DateTime dt, {required bool useUtc}) {
   final display = useUtc ? dt.toUtc() : dt.toLocal();
   final hh = display.hour.toString().padLeft(2, '0');
   final mm = display.minute.toString().padLeft(2, '0');
+  // Only show Date if it's 00:00? No, space is tight on charts.
+  // But Issue 4 says "Time Range / Timezone Explicitness".
+  // The ChartCard header usually has "UTC" or "Local" pill.
+  // The axis labels should be concise.
+  // But let's check if we can add a subtle indicator or just rely on the card header.
+  // "The dashboard shows an explicit timezone indicator (UTC or Local) on time-based charts."
+  // "Charts display timezone... a global UTC/Local toggle controls formatting."
+  
+  // If I add " UTC" to every label, it might clutter the X-axis.
+  // However, the card *pill* says "UTC" or "Local".
+  // Let's stick to HH:MM but maybe add date if it crosses midnight?
+  // Actually, the previous turn's prompt said "Charts display timezone...". 
+  // In `dataset_analytics_screen.dart`, `pillLabels` includes `useUtc ? 'UTC' : 'Local'`.
+  // So the *card* is explicit.
+  // The axis label just needs to respect the shift.
+  
   return '$hh:$mm';
 }
 

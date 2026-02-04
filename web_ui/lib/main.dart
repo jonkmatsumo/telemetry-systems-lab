@@ -9,6 +9,8 @@ import 'screens/dataset_analytics_screen.dart';
 import 'screens/models_screen.dart';
 import 'screens/inference_history_screen.dart';
 import 'screens/scoring_results_screen.dart';
+import 'widgets/context_bar.dart';
+import 'utils/verbose_mode_storage.dart';
 
 void main() {
   runApp(
@@ -76,55 +78,73 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
     final appState = context.read<AppState>();
     final service = context.read<TelemetryService>();
 
-    final dsId = uri.queryParameters['datasetId'];
-    final mId = uri.queryParameters['modelId'];
-    final metric = uri.queryParameters['metric'];
+    final verboseParam = _cleanParam(uri.queryParameters['verbose']);
+    final verboseFromUrl = _parseVerbose(verboseParam);
+    if (verboseFromUrl != null) {
+      appState.setVerboseMode(verboseFromUrl);
+      VerboseModeStorage.write(verboseFromUrl);
+    } else {
+      appState.setVerboseMode(VerboseModeStorage.read());
+    }
 
-    bool datasetValid = false;
-    bool modelValid = false;
+    final dsId = _cleanParam(uri.queryParameters['datasetId']);
+    final mId = _cleanParam(uri.queryParameters['modelId']);
+    final metric = _cleanParam(uri.queryParameters['metric']);
+    final warnings = <String>[];
+
+    DatasetStatus? datasetStatus;
+    ModelStatus? modelStatus;
+    String? datasetToSet;
+    String? modelToSet;
 
     if (dsId != null) {
       try {
-        await service.getDatasetStatus(dsId);
-        datasetValid = true;
-        appState.setDataset(dsId);
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Dataset from link not found: $dsId'),
-            backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-        appState.setDataset(null);
+        datasetStatus = await service.getDatasetStatus(dsId);
+        datasetToSet = dsId;
+      } catch (_) {
+        warnings.add('Dataset from link not found: $dsId');
       }
     }
 
     if (mId != null) {
       try {
-        await service.getModelStatus(mId);
-        modelValid = true;
-        appState.setModel(mId);
-      } catch (e) {
-        if (!mounted) return;
+        modelStatus = await service.getModelStatus(mId);
+        modelToSet = mId;
+      } catch (_) {
+        warnings.add('Model from link not found: $mId');
+      }
+    }
+
+    if (!mounted) return;
+    if (datasetToSet != null) {
+      appState.setDataset(datasetToSet, status: datasetStatus);
+    }
+    if (modelToSet != null) {
+      appState.setModel(modelToSet, status: modelStatus);
+    }
+
+    if (datasetToSet != null && metric != null) {
+      final resolvedMetric = await _resolveMetric(metric);
+      appState.setSelectedMetric(datasetToSet, resolvedMetric);
+      if (resolvedMetric != metric) {
+        warnings.add('Metric "$metric" not found. Defaulting to $resolvedMetric.');
+      }
+    }
+
+    if (warnings.isNotEmpty && mounted) {
+      for (final message in warnings) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Model from link not found: $mId'),
+            content: Text(message),
             backgroundColor: Colors.orange,
             duration: const Duration(seconds: 4),
           ),
         );
-        appState.setModel(null);
       }
     }
 
-    if (dsId != null && metric != null && datasetValid) {
-      await _validateAndSetMetric(dsId, metric, appState);
-    }
-
-    final resDsId = uri.queryParameters['resultsDatasetId'];
-    final resMId = uri.queryParameters['resultsModelId'];
+    final resDsId = _cleanParam(uri.queryParameters['resultsDatasetId']);
+    final resMId = _cleanParam(uri.queryParameters['resultsModelId']);
     if (resDsId != null && resMId != null) {
       bool resultsValid = true;
       try {
@@ -144,8 +164,8 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
         );
         return;
       }
-      final minScoreStr = uri.queryParameters['minScore'];
-      final onlyAnomStr = uri.queryParameters['onlyAnomalies'];
+      final minScoreStr = _cleanParam(uri.queryParameters['minScore']);
+      final onlyAnomStr = _cleanParam(uri.queryParameters['onlyAnomalies']);
 
       Navigator.push(
         context,
@@ -161,37 +181,28 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
     }
   }
 
-  Future<void> _validateAndSetMetric(String datasetId, String metric, AppState appState) async {
-    // Optimistically set it so UI renders immediately
-    appState.setSelectedMetric(datasetId, metric);
-    
+  String? _cleanParam(String? value) {
+    if (value == null) return null;
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  bool? _parseVerbose(String? value) {
+    if (value == null) return null;
+    final normalized = value.toLowerCase();
+    if (normalized == '1' || normalized == 'true' || normalized == 'yes') return true;
+    if (normalized == '0' || normalized == 'false' || normalized == 'no') return false;
+    return null;
+  }
+
+  Future<String> _resolveMetric(String metric) async {
     try {
       final service = context.read<TelemetryService>();
       final schema = await service.getMetricsSchema();
       final isValid = schema.any((m) => m['key'] == metric);
-      
-      if (!isValid && mounted) {
-        // Revert to default
-        appState.setSelectedMetric(datasetId, 'cpu_usage');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Metric "$metric" not found. Defaulting to cpu_usage.'),
-            backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
+      return isValid ? metric : 'cpu_usage';
     } catch (_) {
-      debugPrint('Metric validation failed for "$metric"');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to validate metric. Using selected value.'),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 4),
-          ),
-        );
-      }
+      return metric;
     }
   }
 
@@ -248,6 +259,19 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
         backgroundColor: const Color(0xFF0F172A),
         title: const Text('TADS Dashboard', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Verbose Mode', style: TextStyle(fontSize: 12, color: Colors.white70)),
+              Switch(
+                value: appState.verboseMode,
+                onChanged: (value) {
+                  appState.setVerboseMode(value);
+                  VerboseModeStorage.write(value);
+                },
+              ),
+            ],
+          ),
           Stack(
             alignment: Alignment.center,
             children: [
@@ -304,6 +328,8 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
                 ],
               ),
               const SizedBox(height: 8),
+              const ContextBar(),
+              const SizedBox(height: 8),
               Expanded(
                 child: TabBarView(
                   controller: _tabController,
@@ -351,7 +377,7 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
                 ? const Center(child: Text('No recent jobs'))
                 : ListView.separated(
                     itemCount: appState.activeJobs.length,
-                    separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+                    separatorBuilder: (context, _) => const Divider(color: Colors.white12),
                     itemBuilder: (context, index) {
                       final job = appState.activeJobs[index];
                       return ListTile(

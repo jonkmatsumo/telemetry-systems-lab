@@ -2,25 +2,45 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:web_ui/utils/freshness.dart';
 
 void main() {
-  test('maxFreshnessDelta returns null when insufficient samples', () {
-    final delta = maxFreshnessDelta(const [WidgetFreshness(requestEnd: null)]);
-    expect(delta, isNull);
-  });
+  group('Freshness Logic', () {
+    test('maxFreshnessDelta returns correct diff', () {
+      final now = DateTime.now();
+      final items = [
+        WidgetFreshness(serverTime: now),
+        WidgetFreshness(serverTime: now.subtract(const Duration(seconds: 30))),
+        WidgetFreshness(serverTime: now.subtract(const Duration(seconds: 10))),
+      ];
+      final delta = maxFreshnessDelta(items);
+      expect(delta!.inSeconds, 30);
+    });
 
-  test('shouldShowFreshnessBanner when delta exceeds threshold', () {
-    final now = DateTime.utc(2026, 2, 3, 12, 0, 0);
-    final samples = [
-      WidgetFreshness(requestEnd: now),
-      WidgetFreshness(requestEnd: now.add(const Duration(seconds: 90))),
-    ];
-    expect(shouldShowFreshnessBanner(samples), isTrue);
-  });
+    test('shouldShowFreshnessBanner respects threshold', () {
+      final now = DateTime.now();
+      final items = [
+        WidgetFreshness(serverTime: now),
+        WidgetFreshness(serverTime: now.subtract(const Duration(seconds: 70))),
+      ];
+      expect(shouldShowFreshnessBanner(items, threshold: const Duration(seconds: 60)), true);
+      expect(shouldShowFreshnessBanner(items, threshold: const Duration(seconds: 80)), false);
+    });
 
-  test('hasMixedRefreshMode detects cached and forced mix', () {
-    final samples = [
-      const WidgetFreshness(forceRefresh: true, requestEnd: null),
-      const WidgetFreshness(forceRefresh: false, requestEnd: null),
-    ];
-    expect(hasMixedRefreshMode(samples), isTrue);
+    test('shouldShowFreshnessBanner ignores single item', () {
+      final items = [WidgetFreshness(serverTime: DateTime.now())];
+      expect(shouldShowFreshnessBanner(items), false);
+    });
+
+    test('hasMixedRefreshMode detects mixed states', () {
+      final mixed = [
+        const WidgetFreshness(forceRefresh: true),
+        const WidgetFreshness(forceRefresh: false),
+      ];
+      expect(hasMixedRefreshMode(mixed), true);
+
+      final allForced = [
+        const WidgetFreshness(forceRefresh: true),
+        const WidgetFreshness(forceRefresh: true),
+      ];
+      expect(hasMixedRefreshMode(allForced), false);
+    });
   });
 }

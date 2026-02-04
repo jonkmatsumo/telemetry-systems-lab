@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
+import '../widgets/copy_share_link_button.dart';
 import '../widgets/inline_alert.dart';
 
 class ScoringResultsScreen extends StatefulWidget {
@@ -75,22 +75,14 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
         backgroundColor: const Color(0xFF1E293B),
         title: Text('Scoring Results — ${widget.modelRunId.substring(0, 8)} on ${widget.datasetId.substring(0, 8)}'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.link),
-            tooltip: 'Copy Link',
-            onPressed: () {
-              final uri = Uri.base;
-              final link = uri.replace(queryParameters: {
-                ...uri.queryParameters,
-                'resultsDatasetId': widget.datasetId,
-                'resultsModelId': widget.modelRunId,
-                'minScore': _minScore.toString(),
-                'onlyAnomalies': _onlyAnomalies.toString(),
-              }).toString();
-              Clipboard.setData(ClipboardData(text: link));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Results link copied to clipboard')),
-              );
+          CopyShareLinkButton(
+            showLabel: false,
+            tooltip: 'Copy results link',
+            overrideParams: {
+              'resultsDatasetId': widget.datasetId,
+              'resultsModelId': widget.modelRunId,
+              'minScore': _minScore.toString(),
+              'onlyAnomalies': _onlyAnomalies.toString(),
             },
           ),
           const SizedBox(width: 16),
@@ -113,7 +105,7 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
+        color: Colors.white.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -231,6 +223,7 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
 
     try {
       final record = await context.read<TelemetryService>().getDatasetRecord(runId, recordId);
+      if (!mounted) return;
       Navigator.pop(context); // Close loading sheet
 
       showModalBottomSheet(
@@ -303,6 +296,7 @@ class _ScoringResultsScreenState extends State<ScoringResultsScreen> {
         },
       );
     } catch (e) {
+      if (!mounted) return;
       Navigator.pop(context); // Close loading sheet
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load record details: $e')));
     }

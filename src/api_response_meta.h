@@ -21,7 +21,9 @@ inline nlohmann::json BuildResponseMeta(int limit,
                                         int returned,
                                         bool truncated,
                                         const std::optional<long>& total_distinct,
-                                        const std::string& reason) {
+                                        const std::string& reason,
+                                        std::optional<int> bins_requested = std::nullopt,
+                                        std::optional<int> bins_returned = std::nullopt) {
     nlohmann::json meta;
     meta["limit"] = limit;
     meta["returned"] = returned;
@@ -32,6 +34,12 @@ inline nlohmann::json BuildResponseMeta(int limit,
         meta["total_distinct"] = nullptr;
     }
     meta["reason"] = reason;
+    if (bins_requested.has_value()) {
+        meta["bins_requested"] = *bins_requested;
+    }
+    if (bins_returned.has_value()) {
+        meta["bins_returned"] = *bins_returned;
+    }
     return meta;
 }
 

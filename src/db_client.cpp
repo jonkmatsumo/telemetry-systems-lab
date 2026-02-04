@@ -813,14 +813,23 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
         }
 
         std::string query = "SELECT " + column + ", COUNT(*) FROM host_telemetry_archival " + filter +
-                            " GROUP BY " + column + " ORDER BY COUNT(*) DESC LIMIT " + std::to_string(k);
+                            " GROUP BY " + column + " ORDER BY COUNT(*) DESC LIMIT " + std::to_string(k + 1);
         auto res = W.exec(query);
+        
+        bool truncated = false;
+        size_t count = 0;
         for (const auto& row : res) {
+            if (count >= k) {
+                truncated = true;
+                break;
+            }
             nlohmann::json j;
             j["label"] = row[0].is_null() ? "" : row[0].as<std::string>();
             j["count"] = row[1].as<long>();
             out["items"].push_back(j);
+            count++;
         }
+        out["truncated"] = truncated;
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get topk for {}: {}", run_id, e.what());
@@ -1359,6 +1368,10 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
 
         out["limit"] = limit;
         out["offset"] = offset;
+        long total = out["total"].get<long>();
+        int returned = static_cast<int>(out["items"].size());
+        out["returned"] = returned;
+        out["has_more"] = telemetry::api::HasMore(limit, offset, returned, total);
 
     } catch (const std::exception& e) {
         spdlog::error("Failed to get scores: {}", e.what());

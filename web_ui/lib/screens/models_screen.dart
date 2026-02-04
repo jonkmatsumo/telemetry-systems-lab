@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/telemetry_service.dart';
 import '../state/app_state.dart';
 import '../widgets/charts.dart';
+import '../widgets/copy_share_link_button.dart';
 import '../widgets/inline_alert.dart';
 import 'scoring_results_screen.dart';
 
@@ -47,6 +47,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
     setState(() => _loadingDetail = true);
     try {
       final detail = await context.read<TelemetryService>().getModelDetail(model.modelRunId);
+      if (!mounted) return;
       setState(() {
         _selectedDetail = detail;
         _evalMetrics = null;
@@ -55,7 +56,9 @@ class _ModelsScreenState extends State<ModelsScreen> {
       });
       context.read<AppState>().setModel(model.modelRunId);
     } finally {
-      setState(() => _loadingDetail = false);
+      if (mounted) {
+        setState(() => _loadingDetail = false);
+      }
     }
   }
 
@@ -84,10 +87,10 @@ class _ModelsScreenState extends State<ModelsScreen> {
   }
 
   Future<void> _loadEval(String datasetId, String modelRunId) async {
-    final eval = await context.read<TelemetryService>().getModelEval(modelRunId, datasetId);
-    final dist = await context
-        .read<TelemetryService>()
-        .getErrorDistribution(modelRunId, datasetId, groupBy: 'anomaly_type');
+    final service = context.read<TelemetryService>();
+    final eval = await service.getModelEval(modelRunId, datasetId);
+    final dist = await service.getErrorDistribution(modelRunId, datasetId, groupBy: 'anomaly_type');
+    if (!mounted) return;
     setState(() {
       _evalMetrics = eval;
       _errorDist = dist;
@@ -127,7 +130,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
                       final models = snapshot.data ?? [];
                       return ListView.separated(
                         itemCount: models.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
+                        separatorBuilder: (context, _) => const Divider(height: 1, color: Colors.white12),
                         itemBuilder: (context, index) {
                           final model = models[index];
                           return ListTile(
@@ -149,7 +152,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
             flex: 4,
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.2),
+                color: Colors.black.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.white12),
               ),
@@ -191,6 +194,9 @@ class _ModelsScreenState extends State<ModelsScreen> {
     final artifact = detail['artifact'] ?? {};
     final thresholds = artifact['thresholds'] ?? {};
     final nComponents = artifact['model']?['n_components'] ?? 0;
+    final thresholdValue = detail['threshold'] ?? thresholds['reconstruction_error'];
+    final nComponentsValue = detail['n_components'] ?? nComponents;
+    final artifactPath = (detail['artifact_path'] ?? '').toString();
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -199,9 +205,22 @@ class _ModelsScreenState extends State<ModelsScreen> {
           _kv('Model Run ID', modelRunId),
           _kv('Dataset ID', detail['dataset_id'] ?? ''),
           _kv('Status', detail['status'] ?? ''),
-          _kv('Artifact Path', detail['artifact_path'] ?? ''),
-          _kv('Threshold', '${thresholds['reconstruction_error'] ?? ''}'),
-          _kv('Components', '$nComponents'),
+          const SizedBox(height: 12),
+          const Text('Configuration', style: TextStyle(fontWeight: FontWeight.bold)),
+          _kvWidget(
+            'Artifact Path',
+            SelectableText(
+              artifactPath.isNotEmpty ? artifactPath : 'N/A',
+              style: const TextStyle(fontFamily: 'monospace'),
+            ),
+          ),
+          _kv('n_components', _displayValue(nComponentsValue, zeroIsNa: true)),
+          _kv('Anomaly Threshold', _displayValue(thresholdValue)),
+          if (detail['artifact_error'] != null && detail['artifact_error'].toString().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: InlineAlert(title: 'Artifact Error', message: detail['artifact_error'].toString()),
+            ),
           if (detail['error'] != null && detail['error'].toString().isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 16),
@@ -235,20 +254,13 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   label: const Text('Inference Preview'),
                 ),
                 const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    final uri = Uri.base;
-                    final link = uri.replace(queryParameters: {
-                      ...uri.queryParameters,
-                      'datasetId': detail['dataset_id'],
-                      'modelId': modelRunId,
-                    }).toString();
-                    Clipboard.setData(ClipboardData(text: link));
-                    ScaffoldMessenger.of(context)
-                        .showSnackBar(const SnackBar(content: Text('Link copied to clipboard')));
+                CopyShareLinkButton(
+                  label: 'Copy Shareable Link',
+                  overrideParams: {
+                    if ((detail['dataset_id'] ?? '').toString().isNotEmpty)
+                      'datasetId': detail['dataset_id'].toString(),
+                    if (modelRunId.isNotEmpty) 'modelId': modelRunId,
                   },
-                  icon: const Icon(Icons.link),
-                  label: const Text('Copy Shareable Link'),
                 ),
               ],
             ),
@@ -279,6 +291,15 @@ class _ModelsScreenState extends State<ModelsScreen> {
               ),
             ),
           const SizedBox(height: 16),
+          const Text('Evaluation Metrics', style: TextStyle(fontWeight: FontWeight.bold)),
+          if (_evalMetrics == null)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                'Load evaluation metrics to view ROC/PR curves and confusion stats.',
+                style: TextStyle(color: Colors.white60),
+              ),
+            ),
           if (_evalMetrics != null)
             Wrap(
               spacing: 16,
@@ -334,7 +355,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
         return ListView.separated(
           itemCount: datasets.length,
           padding: const EdgeInsets.all(16),
-          separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+          separatorBuilder: (context, _) => const Divider(color: Colors.white12),
           itemBuilder: (context, index) {
             final ds = datasets[index];
             return ListTile(
@@ -398,12 +419,34 @@ class _ModelsScreenState extends State<ModelsScreen> {
     );
   }
 
+  Widget _kvWidget(String label, Widget value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          SizedBox(width: 140, child: Text(label, style: const TextStyle(color: Colors.white54))),
+          Expanded(child: value),
+        ],
+      ),
+    );
+  }
+
+  String _displayValue(dynamic value, {bool zeroIsNa = false}) {
+    if (value == null) return 'N/A';
+    if (value is num) {
+      if (zeroIsNa && value == 0) return 'N/A';
+      return value.toString();
+    }
+    final text = value.toString();
+    return text.isEmpty ? 'N/A' : text;
+  }
+
   Widget _metricCard(String title, String value) {
     return Container(
       width: 220,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.2),
+        color: Colors.black.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white12),
       ),

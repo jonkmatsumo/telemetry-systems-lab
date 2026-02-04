@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-class LineChart extends StatelessWidget {
+class LineChart extends StatefulWidget {
   final List<double> x;
   final List<double> y;
   final List<double>? overlayY;
@@ -29,55 +29,108 @@ class LineChart extends StatelessWidget {
   });
 
   @override
+  State<LineChart> createState() => _LineChartState();
+}
+
+class _LineChartState extends State<LineChart> {
+  int? _hoverIndex;
+  Offset? _hoverPosition;
+
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        return GestureDetector(
-          onTapUp: (details) {
-            if (onTap == null || x.isEmpty) return;
-            final double leftMargin = (yLabelBuilder != null) ? 48.0 : 0.0;
-            final double w = constraints.maxWidth - leftMargin;
-            if (w <= 0) return;
-            
-            final double dxLocal = details.localPosition.dx - leftMargin;
-            if (dxLocal < 0 || dxLocal > w) return;
+        final leftMargin = (widget.yLabelBuilder != null) ? 48.0 : 0.0;
+        final bottomMargin = (widget.xLabelBuilder != null) ? 24.0 : 0.0;
+        final width = constraints.maxWidth;
+        final height = constraints.maxHeight;
+        final chartWidth = width - leftMargin;
+        final chartHeight = height - bottomMargin;
 
-            final minX = x.reduce((a, b) => a < b ? a : b);
-            final maxX = x.reduce((a, b) => a > b ? a : b);
-            final range = maxX - minX;
-            if (range == 0) return;
-
-            final double val = minX + (dxLocal / w) * range;
-            // Find closest index in x
-            int bestIdx = 0;
-            double bestDist = (x[0] - val).abs();
-            for (int i = 1; i < x.length; i++) {
-              double d = (x[i] - val).abs();
-              if (d < bestDist) {
-                bestDist = d;
-                bestIdx = i;
-              }
-            }
-            onTap!(bestIdx);
+        return MouseRegion(
+          onHover: (event) {
+            final idx = _nearestIndexForX(event.localPosition, chartWidth, leftMargin);
+            if (idx == null) return;
+            setState(() {
+              _hoverIndex = idx;
+              _hoverPosition = event.localPosition;
+            });
           },
-          child: CustomPaint(
-            size: Size(constraints.maxWidth, constraints.maxHeight),
-            painter: _LineChartPainter(
-              x: x,
-              y: y,
-              overlayY: overlayY,
-              lineColor: lineColor,
-              overlayColor: overlayColor,
-              strokeWidth: strokeWidth,
-              overlayStrokeWidth: overlayStrokeWidth,
-              xLabelBuilder: xLabelBuilder,
-              yLabelBuilder: yLabelBuilder,
-              partial: partial,
+          onExit: (_) {
+            setState(() {
+              _hoverIndex = null;
+              _hoverPosition = null;
+            });
+          },
+          child: GestureDetector(
+            onTapUp: (details) {
+              if (widget.onTap == null || widget.x.isEmpty) return;
+              final idx = _nearestIndexForX(details.localPosition, chartWidth, leftMargin);
+              if (idx != null) {
+                widget.onTap!(idx);
+              }
+            },
+            child: Stack(
+              children: [
+                CustomPaint(
+                  size: Size(width, height),
+                  painter: _LineChartPainter(
+                    x: widget.x,
+                    y: widget.y,
+                    overlayY: widget.overlayY,
+                    lineColor: widget.lineColor,
+                    overlayColor: widget.overlayColor,
+                    strokeWidth: widget.strokeWidth,
+                    overlayStrokeWidth: widget.overlayStrokeWidth,
+                    xLabelBuilder: widget.xLabelBuilder,
+                    yLabelBuilder: widget.yLabelBuilder,
+                    partial: widget.partial,
+                    hoverIndex: _hoverIndex,
+                  ),
+                ),
+                if (_hoverIndex != null &&
+                    _hoverPosition != null &&
+                    _hoverIndex! < widget.x.length &&
+                    _hoverIndex! < widget.y.length &&
+                    chartWidth > 0 &&
+                    chartHeight > 0)
+                  _ChartHoverTooltip(
+                    position: _hoverPosition!,
+                    bounds: Size(width, height),
+                    leftMargin: leftMargin,
+                    bottomMargin: bottomMargin,
+                  xLabel: _formatValue(widget.x[_hoverIndex!], widget.xLabelBuilder),
+                  yLabel: _formatValue(widget.y[_hoverIndex!], widget.yLabelBuilder),
+                ),
+              ],
             ),
           ),
         );
       },
     );
+  }
+
+  int? _nearestIndexForX(Offset localPosition, double chartWidth, double leftMargin) {
+    if (widget.x.isEmpty || chartWidth <= 0) return null;
+    final dxLocal = localPosition.dx - leftMargin;
+    if (dxLocal < 0 || dxLocal > chartWidth) return null;
+
+    final minX = widget.x.reduce((a, b) => a < b ? a : b);
+    final maxX = widget.x.reduce((a, b) => a > b ? a : b);
+    final range = maxX - minX;
+    if (range == 0) return null;
+
+    final val = minX + (dxLocal / chartWidth) * range;
+    int bestIdx = 0;
+    double bestDist = (widget.x[0] - val).abs();
+    for (int i = 1; i < widget.x.length; i++) {
+      final d = (widget.x[i] - val).abs();
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
   }
 }
 
@@ -92,6 +145,7 @@ class _LineChartPainter extends CustomPainter {
   final String Function(double)? xLabelBuilder;
   final String Function(double)? yLabelBuilder;
   final List<bool>? partial;
+  final int? hoverIndex;
 
   _LineChartPainter({
     required this.x,
@@ -104,6 +158,7 @@ class _LineChartPainter extends CustomPainter {
     this.xLabelBuilder,
     this.yLabelBuilder,
     this.partial,
+    this.hoverIndex,
   });
 
   @override
@@ -187,7 +242,7 @@ class _LineChartPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
 
     final dashedPaint = Paint()
-      ..color = lineColor.withOpacity(0.5)
+      ..color = lineColor.withValues(alpha: 0.5)
       ..strokeWidth = strokeWidth
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -243,6 +298,22 @@ class _LineChartPainter extends CustomPainter {
       }
       canvas.drawPath(overlayPath, overlayPaint);
     }
+
+    if (hoverIndex != null && hoverIndex! >= 0 && hoverIndex! < x.length) {
+      final idx = hoverIndex!;
+      final hx = leftMargin + (x[idx] - minX) / dx * w;
+      final hy = h - (y[idx] - minY) / dy * h;
+      canvas.drawCircle(
+        Offset(hx, hy),
+        4,
+        Paint()..color = Colors.white.withValues(alpha: 0.9),
+      );
+      canvas.drawCircle(
+        Offset(hx, hy),
+        2,
+        Paint()..color = lineColor,
+      );
+    }
     canvas.restore();
   }
 
@@ -271,11 +342,12 @@ class _LineChartPainter extends CustomPainter {
         oldDelegate.overlayY != overlayY ||
         oldDelegate.lineColor != lineColor ||
         oldDelegate.overlayColor != overlayColor ||
-        oldDelegate.partial != partial;
+        oldDelegate.partial != partial ||
+        oldDelegate.hoverIndex != hoverIndex;
   }
 }
 
-class BarChart extends StatelessWidget {
+class BarChart extends StatefulWidget {
   final List<double> values;
   final List<double>? overlayValues;
   final List<String>? labels;
@@ -294,23 +366,78 @@ class BarChart extends StatelessWidget {
   });
 
   @override
+  State<BarChart> createState() => _BarChartState();
+}
+
+class _BarChartState extends State<BarChart> {
+  int? _hoverIndex;
+  Offset? _hoverPosition;
+
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
-      return GestureDetector(
-        onTapUp: (details) {
-          if (onTap == null || values.isEmpty) return;
-          final double barWidth = constraints.maxWidth / values.length;
-          final int index = (details.localPosition.dx / barWidth).floor();
-          if (index >= 0 && index < values.length) {
-            onTap!(index);
-          }
+      final width = constraints.maxWidth;
+      final height = constraints.maxHeight;
+      return MouseRegion(
+        onHover: (event) {
+          final idx = _barIndexForX(event.localPosition.dx, width);
+          if (idx == null) return;
+          setState(() {
+            _hoverIndex = idx;
+            _hoverPosition = event.localPosition;
+          });
         },
-        child: CustomPaint(
-          size: Size(constraints.maxWidth, constraints.maxHeight),
-          painter: _BarChartPainter(values, overlayValues, labels, barColor, overlayColor),
+        onExit: (_) {
+          setState(() {
+            _hoverIndex = null;
+            _hoverPosition = null;
+          });
+        },
+        child: GestureDetector(
+          onTapUp: (details) {
+            if (widget.onTap == null || widget.values.isEmpty) return;
+            final idx = _barIndexForX(details.localPosition.dx, width);
+            if (idx != null) {
+              widget.onTap!(idx);
+            }
+          },
+          child: Stack(
+            children: [
+              CustomPaint(
+                size: Size(width, height),
+                painter: _BarChartPainter(
+                  widget.values,
+                  widget.overlayValues,
+                  widget.labels,
+                  widget.barColor,
+                  widget.overlayColor,
+                  hoverIndex: _hoverIndex,
+                ),
+              ),
+              if (_hoverIndex != null && _hoverPosition != null)
+                _ChartHoverTooltip(
+                  position: _hoverPosition!,
+                  bounds: Size(width, height),
+                  leftMargin: 0.0,
+                  bottomMargin: widget.labels != null ? 24.0 : 0.0,
+                  xLabel: widget.labels != null && _hoverIndex! < widget.labels!.length
+                      ? widget.labels![_hoverIndex!]
+                      : _hoverIndex!.toString(),
+                  yLabel: _formatValue(widget.values[_hoverIndex!], null),
+                ),
+            ],
+          ),
         ),
       );
     });
+  }
+
+  int? _barIndexForX(double dx, double width) {
+    if (widget.values.isEmpty || width <= 0) return null;
+    final barWidth = width / widget.values.length;
+    final index = (dx / barWidth).floor();
+    if (index < 0 || index >= widget.values.length) return null;
+    return index;
   }
 }
 
@@ -320,8 +447,16 @@ class _BarChartPainter extends CustomPainter {
   final List<String>? labels;
   final Color barColor;
   final Color overlayColor;
+  final int? hoverIndex;
 
-  _BarChartPainter(this.values, this.overlayValues, this.labels, this.barColor, this.overlayColor);
+  _BarChartPainter(
+    this.values,
+    this.overlayValues,
+    this.labels,
+    this.barColor,
+    this.overlayColor, {
+    this.hoverIndex,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -345,6 +480,14 @@ class _BarChartPainter extends CustomPainter {
       final barH = maxV == 0 ? 0 : (values[i] / maxV) * h;
       final rect = Rect.fromLTWH(i * barWidth + 2, h - barH, barWidth - 4, barH.toDouble());
       canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(4)), paint);
+
+      if (hoverIndex == i) {
+        final highlightPaint = Paint()
+          ..color = Colors.white.withValues(alpha: 0.6)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5;
+        canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(4)), highlightPaint);
+      }
       
       if (overlayValues != null && i < overlayValues!.length) {
          final ov = overlayValues![i];
@@ -385,7 +528,76 @@ class _BarChartPainter extends CustomPainter {
     return oldDelegate.values != values || 
            oldDelegate.barColor != barColor || 
            oldDelegate.labels != labels ||
-           oldDelegate.overlayValues != overlayValues;
+           oldDelegate.overlayValues != overlayValues ||
+           oldDelegate.hoverIndex != hoverIndex;
+  }
+}
+
+String _formatValue(double value, String Function(double)? formatter) {
+  if (!value.isFinite) return 'N/A';
+  if (formatter != null) {
+    return formatter(value);
+  }
+  return value.toStringAsFixed(2);
+}
+
+class _ChartHoverTooltip extends StatelessWidget {
+  final Offset position;
+  final Size bounds;
+  final double leftMargin;
+  final double bottomMargin;
+  final String xLabel;
+  final String yLabel;
+
+  const _ChartHoverTooltip({
+    required this.position,
+    required this.bounds,
+    required this.leftMargin,
+    required this.bottomMargin,
+    required this.xLabel,
+    required this.yLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const double tooltipWidth = 160;
+    const double tooltipHeight = 44;
+    final maxX = bounds.width - tooltipWidth - 8;
+    final maxY = bounds.height - bottomMargin - tooltipHeight - 8;
+    final clampedX = position.dx.clamp(leftMargin + 4, maxX).toDouble();
+    final clampedY = position.dy.clamp(4, maxY).toDouble();
+
+    return Positioned(
+      left: clampedX,
+      top: clampedY,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: tooltipWidth,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0B1220),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.white12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('x: $xLabel', style: const TextStyle(color: Colors.white70, fontSize: 11)),
+              Text('y: $yLabel', style: const TextStyle(color: Colors.white70, fontSize: 11)),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -424,7 +636,7 @@ class ChartCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.2),
+        color: Colors.black.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white12),
       ),
@@ -440,7 +652,7 @@ class ChartCard extends StatelessWidget {
                   children: [
                     Text(title, style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
                     if (subtitle != null)
-                      Text(subtitle!, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11)),
+                      Text(subtitle!, style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 11)),
                   ],
                 ),
               ),
@@ -484,7 +696,7 @@ class ChartCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               footerText!,
-              style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11),
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 11),
             ),
           ],
         ],
@@ -508,9 +720,9 @@ class TruncationBadge extends StatelessWidget {
     final badge = Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.2),
+        color: Colors.orange.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.orange.withOpacity(0.5)),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.5)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -543,9 +755,9 @@ class ChartPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.blueGrey.withOpacity(0.2),
+        color: Colors.blueGrey.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.blueGrey.withOpacity(0.5)),
+        border: Border.all(color: Colors.blueGrey.withValues(alpha: 0.5)),
       ),
       child: Text(
         text,

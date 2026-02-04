@@ -67,7 +67,7 @@ class _InferenceHistoryScreenState extends State<InferenceHistoryScreen> {
                       }
                       return ListView.separated(
                         itemCount: runs.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
+                        separatorBuilder: (context, _) => const Divider(height: 1, color: Colors.white12),
                         itemBuilder: (context, index) {
                           final run = runs[index];
                           return ListTile(
@@ -92,7 +92,7 @@ class _InferenceHistoryScreenState extends State<InferenceHistoryScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.2),
+                      color: Colors.black.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.white12),
                     ),
