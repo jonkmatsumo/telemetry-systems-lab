@@ -287,6 +287,11 @@ class ModelRunSummary {
   final String? parentRunId;
   final int? trialIndex;
   final Map<String, dynamic>? hpoSummary;
+  final String? selectionMetricDirection;
+  final String? tieBreakBasis;
+  final bool isEligible;
+  final String? eligibilityReason;
+  final double? selectionMetricValue;
 
   ModelRunSummary({
     required this.modelRunId,
@@ -300,6 +305,11 @@ class ModelRunSummary {
     this.parentRunId,
     this.trialIndex,
     this.hpoSummary,
+    this.selectionMetricDirection,
+    this.tieBreakBasis,
+    this.isEligible = true,
+    this.eligibilityReason,
+    this.selectionMetricValue,
   });
 
   factory ModelRunSummary.fromJson(Map<String, dynamic> json) {
@@ -315,6 +325,11 @@ class ModelRunSummary {
       parentRunId: json['parent_run_id'],
       trialIndex: json['trial_index'],
       hpoSummary: json['hpo_summary'],
+      selectionMetricDirection: json['selection_metric_direction'],
+      tieBreakBasis: json['tie_break_basis'],
+      isEligible: json['is_eligible'] ?? true,
+      eligibilityReason: json['eligibility_reason'],
+      selectionMetricValue: (json['selection_metric_value'] as num?)?.toDouble(),
     );
   }
 }
