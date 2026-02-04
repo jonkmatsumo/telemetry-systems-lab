@@ -76,7 +76,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
     );
   }
 
-  Widget _buildTrialsTable(List<dynamic> trials, String? bestTrialId) {
+  Widget _buildTrialsTable(List<dynamic> trials, String? bestTrialId, String? metricName) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.black26,
@@ -85,24 +85,27 @@ class _ModelsScreenState extends State<ModelsScreen> {
       ),
       child: Table(
         columnWidths: const {
-          0: FixedColumnWidth(50),
+          0: FixedColumnWidth(40),
           1: FlexColumnWidth(2),
-          2: FlexColumnWidth(1),
-          3: FixedColumnWidth(100),
+          2: FlexColumnWidth(1.2),
+          3: FlexColumnWidth(1),
+          4: FixedColumnWidth(100),
         },
         children: [
-          const TableRow(
-            decoration: BoxDecoration(color: Colors.white10),
+          TableRow(
+            decoration: const BoxDecoration(color: Colors.white10),
             children: [
-              Padding(padding: EdgeInsets.all(8), child: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-              Padding(padding: EdgeInsets.all(8), child: Text('Params', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-              Padding(padding: EdgeInsets.all(8), child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-              Padding(padding: EdgeInsets.all(8), child: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              const Padding(padding: EdgeInsets.all(8), child: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              const Padding(padding: EdgeInsets.all(8), child: Text('Params', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              Padding(padding: const EdgeInsets.all(8), child: Text(metricName ?? 'Metric', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              const Padding(padding: EdgeInsets.all(8), child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              const Padding(padding: EdgeInsets.all(8), child: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
             ],
           ),
           ...trials.map((t) {
             final isBest = t['model_run_id'] == bestTrialId;
             final trialId = t['model_run_id'];
+            final isEligible = t['is_eligible'] ?? true;
             return TableRow(
               children: [
                 Padding(padding: const EdgeInsets.all(8), child: Text(t['trial_index']?.toString() ?? 'N/A', style: const TextStyle(fontSize: 12))),
@@ -115,6 +118,20 @@ class _ModelsScreenState extends State<ModelsScreen> {
                     ],
                   )
                 ),
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_displayValue(t['selection_metric_value']), style: const TextStyle(fontSize: 11)),
+                      if (!isEligible) 
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: _badge(t['eligibility_reason'] ?? 'INELIGIBLE', Colors.redAccent),
+                        ),
+                    ],
+                  ),
+                ),
                 Padding(padding: const EdgeInsets.all(8), child: Text(t['status'] ?? 'N/A', style: TextStyle(fontSize: 11, color: _getStatusColor(t['status'] ?? '')))),
                 Padding(
                   padding: const EdgeInsets.all(4), 
@@ -122,6 +139,10 @@ class _ModelsScreenState extends State<ModelsScreen> {
                     children: [
                       TextButton(
                         onPressed: () => _selectById(trialId), 
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(40, 30),
+                        ),
                         child: const Text('View', style: TextStyle(fontSize: 11))
                       ),
                       TextButton(
@@ -136,7 +157,11 @@ class _ModelsScreenState extends State<ModelsScreen> {
                             ),
                           );
                         }, 
-                        child: const Text('Compare', style: TextStyle(fontSize: 11))
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(45, 30),
+                        ),
+                        child: const Text('Comp', style: TextStyle(fontSize: 11))
                       ),
                     ],
                   )
@@ -377,6 +402,13 @@ class _ModelsScreenState extends State<ModelsScreen> {
             _kv('Algorithm', hpoConfig['algorithm'] ?? 'N/A'),
             _kv('Max Trials', _displayValue(hpoConfig['max_trials'])),
             _kv('Search Space', hpoConfig['search_space']?.toString() ?? 'N/A'),
+            
+            const SizedBox(height: 12),
+            const Text('Selection Basis', style: TextStyle(fontWeight: FontWeight.bold)),
+            _kv('Metric', _displayValue(detail['best_metric_name'])),
+            _kv('Direction', _displayValue(detail['selection_metric_direction'])),
+            _kv('Tie-break', _displayValue(detail['tie_break_basis'])),
+
             if (bestTrialId != null) 
               _kvWidget('Best Trial', 
                 Row(
@@ -389,11 +421,19 @@ class _ModelsScreenState extends State<ModelsScreen> {
               ),
           ],
           
+          if (!isParent && parentRunId != null) ...[
+            const SizedBox(height: 12),
+            const Text('Selection Metadata', style: TextStyle(fontWeight: FontWeight.bold)),
+            _kv('Eligible', detail['is_eligible']?.toString() ?? 'N/A'),
+            if (detail['is_eligible'] == false) _kv('Ineligibility Reason', _displayValue(detail['eligibility_reason'])),
+            _kv('Metric Value', _displayValue(detail['selection_metric_value'])),
+          ],
+
           if (isParent && detail['trials'] != null) ...[
             const SizedBox(height: 24),
             const Text('Trials', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF38BDF8))),
             const SizedBox(height: 8),
-            _buildTrialsTable(detail['trials'], bestTrialId),
+            _buildTrialsTable(detail['trials'], bestTrialId, detail['best_metric_name']),
           ],
 
           if (detail['artifact_error'] != null && detail['artifact_error'].toString().isNotEmpty)
