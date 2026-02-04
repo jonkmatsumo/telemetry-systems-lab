@@ -9,6 +9,7 @@ import 'screens/dataset_analytics_screen.dart';
 import 'screens/models_screen.dart';
 import 'screens/inference_history_screen.dart';
 import 'screens/scoring_results_screen.dart';
+import 'widgets/context_bar.dart';
 
 void main() {
   runApp(
@@ -303,6 +304,8 @@ class _DashboardShellState extends State<DashboardShell> with SingleTickerProvid
                   Tab(text: 'Inference History'),
                 ],
               ),
+              const SizedBox(height: 8),
+              const ContextBar(),
               const SizedBox(height: 8),
               Expanded(
                 child: TabBarView(
