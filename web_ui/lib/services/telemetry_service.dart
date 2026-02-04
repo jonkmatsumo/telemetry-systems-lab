@@ -284,6 +284,9 @@ class ModelRunSummary {
   final String createdAt;
   final String completedAt;
   final Map<String, dynamic> trainingConfig;
+  final String? parentRunId;
+  final int? trialIndex;
+  final Map<String, dynamic>? hpoSummary;
 
   ModelRunSummary({
     required this.modelRunId,
@@ -294,6 +297,9 @@ class ModelRunSummary {
     required this.createdAt,
     required this.completedAt,
     this.trainingConfig = const {},
+    this.parentRunId,
+    this.trialIndex,
+    this.hpoSummary,
   });
 
   factory ModelRunSummary.fromJson(Map<String, dynamic> json) {
@@ -306,6 +312,9 @@ class ModelRunSummary {
       createdAt: json['created_at'] ?? '',
       completedAt: json['completed_at'] ?? '',
       trainingConfig: json['training_config'] ?? {},
+      parentRunId: json['parent_run_id'],
+      trialIndex: json['trial_index'],
+      hpoSummary: json['hpo_summary'],
     );
   }
 }

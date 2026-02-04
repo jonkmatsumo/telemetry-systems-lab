@@ -68,6 +68,14 @@ class _ModelsScreenState extends State<ModelsScreen> {
     _selectById(model.modelRunId);
   }
 
+  Widget _badge(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(4), border: Border.all(color: color.withValues(alpha: 0.5))),
+      child: Text(label, style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold)),
+    );
+  }
+
   Widget _buildTrialsTable(List<dynamic> trials, String? bestTrialId) {
     return Container(
       decoration: BoxDecoration(
@@ -206,13 +214,35 @@ class _ModelsScreenState extends State<ModelsScreen> {
                         itemCount: models.length,
                         separatorBuilder: (context, _) => const Divider(height: 1, color: Colors.white12),
                         itemBuilder: (context, index) {
-                          final model = models[index];
                           final config = model.trainingConfig;
                           final components = config['n_components'] ?? 'N/A';
                           final percentile = config['percentile'] ?? 'N/A';
+                          final isTuning = model.hpoSummary != null;
+                          final isTrial = model.parentRunId != null;
+
                           return ListTile(
-                            title: Text(model.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Text('${model.status} • Dataset: ${model.datasetId.substring(0, 8)}...\nPCA: $components comps • $percentile%'),
+                            title: Row(
+                              children: [
+                                Expanded(child: Text(model.name, style: const TextStyle(fontWeight: FontWeight.bold))),
+                                if (isTuning) _badge('TUNING', Colors.purple),
+                                if (isTrial) _badge('TRIAL #${model.trialIndex}', Colors.blueGrey),
+                                if (!isTuning && !isTrial) _badge('SINGLE', Colors.blue),
+                              ],
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('${model.status} • Dataset: ${model.datasetId.substring(0, 8)}...'),
+                                if (isTuning)
+                                  Text(
+                                    'Trials: ${model.hpoSummary!['completed_count']} / ${model.hpoSummary!['trial_count']} complete' +
+                                    (model.hpoSummary!['best_metric_value'] != null ? ' • Best: ${model.hpoSummary!['best_metric_value'].toStringAsFixed(4)}' : ''),
+                                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 12),
+                                  )
+                                else
+                                  Text('PCA: $components comps • $percentile%'),
+                              ],
+                            ),
                             isThreeLine: true,
                             trailing: Text(_formatCreatedAt(model.createdAt), style: const TextStyle(fontSize: 11, color: Colors.white54)),
                             onTap: () => _selectModel(model),
