@@ -917,6 +917,13 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
                     j["artifact"]["thresholds"] = artifact.value("thresholds", nlohmann::json::object());
                     j["artifact"]["model"]["n_components"] = artifact["model"].value("n_components", 0);
                     j["artifact"]["model"]["features"] = artifact["meta"].value("features", nlohmann::json::array());
+                    if (artifact.contains("thresholds") &&
+                        artifact["thresholds"].contains("reconstruction_error")) {
+                        j["threshold"] = artifact["thresholds"]["reconstruction_error"];
+                    }
+                    if (artifact.contains("model") && artifact["model"].contains("n_components")) {
+                        j["n_components"] = artifact["model"]["n_components"];
+                    }
                 }
             } catch (const std::exception& e) {
                 j["artifact_error"] = e.what();
