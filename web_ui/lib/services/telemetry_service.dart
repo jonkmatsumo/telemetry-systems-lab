@@ -620,13 +620,14 @@ class TelemetryService {
   }
 
   Future<String> trainModel(String datasetId,
-      {String name = 'pca_default', int? nComponents, double? percentile}) async {
+      {String name = 'pca_default', int? nComponents, double? percentile, Map<String, dynamic>? hpoConfig}) async {
     final Map<String, dynamic> body = {
       'dataset_id': datasetId,
       'name': name,
     };
     if (nComponents != null) body['n_components'] = nComponents;
     if (percentile != null) body['percentile'] = percentile;
+    if (hpoConfig != null) body['hpo_config'] = hpoConfig;
 
     final response = await _client.post(
       Uri.parse('$baseUrl/train'),
