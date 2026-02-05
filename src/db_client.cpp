@@ -280,11 +280,17 @@ std::string DbClient::CreateModelRun(const std::string& dataset_id,
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        std::string hpo_val = hpo_config.is_null() || hpo_config.empty() ? "" : hpo_config.dump();
+        
+        std::string hpo_val_str;
+        const char* hpo_ptr = nullptr;
+        if (!hpo_config.is_null() && !hpo_config.empty()) {
+            hpo_val_str = hpo_config.dump();
+            hpo_ptr = hpo_val_str.c_str();
+        }
+
         auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, hpo_config) "
                                  "VALUES ($1, $2, 'PENDING', $3, $4, $5) RETURNING model_run_id",
-                                 dataset_id, name, request_id, training_config.dump(), 
-                                 (hpo_val.empty() ? pqxx::params{nullptr} : pqxx::params{hpo_val}));
+                                 dataset_id, name, request_id, training_config.dump(), hpo_ptr);
         W.commit();
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
