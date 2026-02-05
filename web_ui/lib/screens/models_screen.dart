@@ -639,6 +639,9 @@ class _ModelsScreenState extends State<ModelsScreen> {
                     if ((detail['dataset_id'] ?? '').toString().isNotEmpty)
                       'datasetId': detail['dataset_id'].toString(),
                     if (modelRunId.isNotEmpty) 'modelId': modelRunId,
+                    'runType': _runTypeFilter,
+                    'runStatus': _statusFilter,
+                    'sortBy': _sortBy,
                   },
                 ),
               ],

@@ -126,6 +126,9 @@ class _CompareModelsScreenState extends State<CompareModelsScreen> {
                 overrideParams: {
                   'compareLeft': _leftDetail!['model_run_id'],
                   'compareRight': _rightDetail!['model_run_id'],
+                  if (Uri.base.queryParameters.containsKey('runType')) 'runType': Uri.base.queryParameters['runType']!,
+                  if (Uri.base.queryParameters.containsKey('runStatus')) 'runStatus': Uri.base.queryParameters['runStatus']!,
+                  if (Uri.base.queryParameters.containsKey('sortBy')) 'sortBy': Uri.base.queryParameters['sortBy']!,
                 },
               ),
             ),
