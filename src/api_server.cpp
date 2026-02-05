@@ -1022,6 +1022,7 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         std::string fingerprint = "";
         std::string generator_version = "";
         std::optional<long long> seed_used = std::nullopt;
+        nlohmann::json preflight_resp = nlohmann::json::object();
 
         if (j.contains("hpo_config")) {
             hpo_config = j["hpo_config"];
@@ -1052,6 +1053,14 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
                 return;
             }
             
+            auto preflight = telemetry::training::PreflightHpoConfig(hpo);
+            preflight_resp["estimated_candidates"] = preflight.estimated_candidates;
+            preflight_resp["effective_trials"] = preflight.effective_trials;
+            std::string cap_reason = "NONE";
+            if (preflight.capped_by == telemetry::training::HpoCapReason::MAX_TRIALS) cap_reason = "MAX_TRIALS";
+            else if (preflight.capped_by == telemetry::training::HpoCapReason::GRID_CAP) cap_reason = "GRID_CAP";
+            preflight_resp["capped_by"] = cap_reason;
+
             fingerprint = telemetry::training::ComputeCandidateFingerprint(hpo);
             generator_version = telemetry::training::kHpoGeneratorVersion;
         }
@@ -1102,6 +1111,9 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         nlohmann::json resp;
         resp["model_run_id"] = model_run_id;
         resp["status"] = "PENDING";
+        if (!preflight_resp.empty()) {
+            resp["hpo_preflight"] = preflight_resp;
+        }
         SendJson(res, resp, 202, rid);
     } catch (const std::exception& e) {
         std::string err = e.what();

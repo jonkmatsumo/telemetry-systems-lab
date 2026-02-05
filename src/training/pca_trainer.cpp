@@ -333,6 +333,39 @@ void WriteArtifactJson(const PcaArtifact& artifact, const std::string& output_pa
     }
 }
 
+HpoPreflight PreflightHpoConfig(const HpoConfig& hpo) {
+    HpoPreflight preflight;
+    
+    std::vector<int> n_components_space = hpo.search_space.n_components;
+    if (n_components_space.empty()) n_components_space = {3};
+
+    std::vector<double> percentile_space = hpo.search_space.percentile;
+    if (percentile_space.empty()) percentile_space = {99.5};
+
+    if (hpo.algorithm == "grid") {
+        size_t total_combinations = n_components_space.size() * percentile_space.size();
+        preflight.estimated_candidates = static_cast<int>(total_combinations);
+        
+        if (total_combinations > 100) {
+            preflight.effective_trials = 100;
+            preflight.capped_by = HpoCapReason::GRID_CAP;
+        } else if (static_cast<int>(total_combinations) > hpo.max_trials) {
+            preflight.effective_trials = hpo.max_trials;
+            preflight.capped_by = HpoCapReason::MAX_TRIALS;
+        } else {
+            preflight.effective_trials = static_cast<int>(total_combinations);
+            preflight.capped_by = HpoCapReason::NONE;
+        }
+    } else if (hpo.algorithm == "random") {
+        // Random is always bounded by max_trials
+        preflight.estimated_candidates = hpo.max_trials; // In random, we just sample max_trials
+        preflight.effective_trials = hpo.max_trials;
+        preflight.capped_by = HpoCapReason::NONE;
+    }
+
+    return preflight;
+}
+
 std::vector<HpoValidationError> ValidateHpoConfig(const HpoConfig& config) {
     std::vector<HpoValidationError> errors;
 
