@@ -58,6 +58,9 @@ std::string GetRequestId(const httplib::Request& req) {
 }
 
 static const char* ClassifyTrainError(const std::string& msg) {
+    if (msg.find("Cancelled") != std::string::npos) {
+        return "E_CANCELLED";
+    }
     if (msg.find("Not enough samples") != std::string::npos ||
         msg.find("No samples") != std::string::npos) {
         return telemetry::obs::kErrTrainNoData;
@@ -243,6 +246,49 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
 
     svr_.Get("/train/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetTrainStatus(req, res);
+    });
+
+    svr_.Delete("/train/([a-zA-Z0-9-]+)", [this](const httplib::Request& req, httplib::Response& res) {
+        std::string rid = GetRequestId(req);
+        telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
+        std::string model_run_id = req.matches[1];
+        log.AddFields({{"model_run_id", model_run_id}});
+        
+        auto j = db_client_->GetModelRun(model_run_id);
+        if (j.empty()) {
+            log.RecordError(telemetry::obs::kErrHttpNotFound, "Model run not found", 404);
+            SendError(res, "Model run not found", 404, telemetry::obs::kErrHttpNotFound, rid);
+            return;
+        }
+
+        std::string status = j["status"];
+        if (status == "COMPLETED" || status == "FAILED" || status == "CANCELLED") {
+            SendError(res, "Cannot cancel terminal run", 400, "E_TERMINAL", rid);
+            return;
+        }
+
+        // 1. If it's a parent, cancel all trials
+        if (!j["hpo_config"].is_null()) {
+            auto trials = db_client_->GetHpoTrials(model_run_id);
+            for (const auto& t : trials) {
+                std::string tid = t["model_run_id"];
+                std::string tst = t["status"];
+                if (tst == "PENDING" || tst == "RUNNING") {
+                    job_manager_->CancelJob("train-" + tid);
+                    db_client_->UpdateModelRunStatus(tid, "CANCELLED", "", "Cancelled by parent tuning run request");
+                    db_client_->UpdateTrialEligibility(tid, false, "CANCELED", 0.0);
+                }
+            }
+        }
+
+        // 2. Cancel the run itself (or parent)
+        job_manager_->CancelJob("train-" + model_run_id);
+        db_client_->UpdateModelRunStatus(model_run_id, "CANCELLED", "", "Cancelled by user request");
+        
+        nlohmann::json resp;
+        resp["status"] = "CANCEL_REQUESTED";
+        resp["model_run_id"] = model_run_id;
+        SendJson(res, resp, 200, rid);
     });
 
     // Model listing route
@@ -777,6 +823,171 @@ void ApiServer::HandleGetDatasetModels(const httplib::Request& req, httplib::Res
     }
 }
 
+void ApiServer::OrchestrateTuning(TuningTask task) {
+    job_manager_->StartJob("tuning-" + task.parent_run_id, task.rid, [this, task](const std::atomic<bool>* stop_flag) {
+        spdlog::info("Tuning orchestration started for model_run_id: {} with {} trials (max_concurrency: {})", 
+                     task.parent_run_id, task.trials.size(), task.max_concurrency);
+        
+        db_client_->UpdateModelRunStatus(task.parent_run_id, "RUNNING");
+
+        std::vector<std::string> trial_ids;
+        int idx = 0;
+        for (const auto& trial_cfg : task.trials) {
+            nlohmann::json trial_params = {
+                {"n_components", trial_cfg.n_components},
+                {"percentile", trial_cfg.percentile}
+            };
+            
+            std::string trial_name = task.name + "_trial_" + std::to_string(idx);
+            nlohmann::json t_training_config = {
+                {"dataset_id", task.dataset_id},
+                {"n_components", trial_cfg.n_components},
+                {"percentile", trial_cfg.percentile},
+                {"feature_set", "cpu,mem,disk,rx,tx"}
+            };
+
+            std::string trial_run_id = db_client_->CreateHpoTrialRun(
+                task.dataset_id, 
+                trial_name, 
+                t_training_config, 
+                task.rid, 
+                task.parent_run_id, 
+                idx, 
+                trial_params);
+            
+            if (!trial_run_id.empty()) {
+                trial_ids.push_back(trial_run_id);
+            }
+            idx++;
+        }
+
+        // Execution loop with concurrency control
+        size_t next_trial = 0;
+        std::map<std::string, bool> active_trials;
+
+        while (next_trial < trial_ids.size() || !active_trials.empty()) {
+            if (stop_flag->load()) {
+                spdlog::warn("Tuning orchestration for {} cancelled.", task.parent_run_id);
+                // Propagate cancel to all remaining trials (already handles by HandleDelete endpoint but here for robustness)
+                return;
+            }
+
+            // Start new trials up to concurrency limit
+            while (next_trial < trial_ids.size() && active_trials.size() < static_cast<size_t>(task.max_concurrency)) {
+                std::string tid = trial_ids[next_trial];
+                auto& t_cfg = task.trials[next_trial];
+                
+                RunPcaTraining(tid, task.dataset_id, t_cfg.n_components, t_cfg.percentile, task.rid);
+                active_trials[tid] = true;
+                next_trial++;
+            }
+
+            // Wait and check for trial completions
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            
+            auto it = active_trials.begin();
+            while (it != active_trials.end()) {
+                auto run_info = db_client_->GetModelRun(it->first);
+                std::string status = run_info["status"];
+                if (status == "COMPLETED" || status == "FAILED" || status == "CANCELLED") {
+                    it = active_trials.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
+        spdlog::info("Tuning orchestration finished for model_run_id: {}", task.parent_run_id);
+        // Status aggregation is handled by HandleGetDetail dynamically but we can trigger a final update here too
+    });
+}
+
+void ApiServer::RunPcaTraining(const std::string& model_run_id, 
+                               const std::string& dataset_id, 
+                               int n_components, 
+                               double percentile, 
+                               const std::string& rid) {
+    job_manager_->StartJob("train-" + model_run_id, rid, [this, model_run_id, dataset_id, n_components, percentile, rid](const std::atomic<bool>* stop_flag) {
+        telemetry::obs::Context ctx;
+        ctx.request_id = rid;
+        ctx.dataset_id = dataset_id;
+        ctx.model_run_id = model_run_id;
+        telemetry::obs::ScopedContext scope(ctx);
+        telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "train_start", "trainer",
+                                    {{"request_id", rid}, {"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
+        auto train_start = std::chrono::steady_clock::now();
+        spdlog::info("Training started for model {} (req_id: {})", model_run_id, rid);
+        db_client_->UpdateModelRunStatus(model_run_id, "RUNNING");
+
+        std::string output_dir = "artifacts/pca/" + model_run_id;
+        std::string output_path = output_dir + "/model.json";
+
+                                try {
+
+                                    std::filesystem::create_directories(output_dir);
+
+                                    auto artifact = telemetry::training::TrainPcaFromDb(db_conn_str_, dataset_id, n_components, percentile);
+
+                                    
+
+                                    if (stop_flag->load()) {
+
+                                        spdlog::info("Training for model {} aborted by cancellation.", model_run_id);
+
+                                        return;
+
+                                    }
+
+                    
+
+                                    telemetry::training::WriteArtifactJson(artifact, output_path);
+
+                    
+
+        
+
+                        spdlog::info("Training successful for model {}", model_run_id);
+
+                        db_client_->UpdateModelRunStatus(model_run_id, "COMPLETED", output_path);
+
+                        
+
+                        // Update eligibility metadata
+
+                        db_client_->UpdateTrialEligibility(model_run_id, true, "", artifact.threshold);
+
+        
+
+                        auto train_end = std::chrono::steady_clock::now();
+
+        
+            double duration_ms = std::chrono::duration<double, std::milli>(train_end - train_start).count();
+            telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "train_end", "trainer",
+                                        {{"request_id", rid},
+                                        {"dataset_id", dataset_id},
+                                        {"model_run_id", model_run_id},
+                                        {"artifact_path", output_path},
+                                        {"duration_ms", duration_ms}});
+        } catch (const std::exception& e) {
+            auto train_end = std::chrono::steady_clock::now();
+            double duration_ms = std::chrono::duration<double, std::milli>(train_end - train_start).count();
+            const char* error_code = ClassifyTrainError(e.what());
+            telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "train_error", "trainer",
+                                        {{"request_id", rid},
+                                        {"dataset_id", dataset_id},
+                                        {"model_run_id", model_run_id},
+                                        {"error_code", error_code},
+                                        {"error", e.what()},
+                                        {"duration_ms", duration_ms}});
+                            spdlog::error("Training failed for model {}: {}", model_run_id, e.what());
+                            db_client_->UpdateModelRunStatus(model_run_id, "FAILED", "", e.what());
+                            db_client_->UpdateTrialEligibility(model_run_id, false, "FAILED", 0.0);
+                            throw; // JobManager will catch and log it too
+                        }
+            
+    });
+}
+
 void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response& res) {
     std::string rid = GetRequestId(req);
     telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
@@ -807,10 +1018,42 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
             {"feature_set", "cpu,mem,disk,rx,tx"}
         };
 
+        nlohmann::json hpo_config = nlohmann::json::object();
+        if (j.contains("hpo_config")) {
+            hpo_config = j["hpo_config"];
+            telemetry::training::HpoConfig hpo;
+            hpo.algorithm = hpo_config.value("algorithm", "grid");
+            hpo.max_trials = hpo_config.value("max_trials", 10);
+            if (hpo_config.contains("seed")) hpo.seed = hpo_config["seed"].get<int>();
+            
+            if (hpo_config.contains("search_space")) {
+                auto ss = hpo_config["search_space"];
+                if (ss.contains("n_components")) hpo.search_space.n_components = ss["n_components"].get<std::vector<int>>();
+                if (ss.contains("percentile")) hpo.search_space.percentile = ss["percentile"].get<std::vector<double>>();
+            }
+
+            auto errors = telemetry::training::ValidateHpoConfig(hpo);
+            if (!errors.empty()) {
+                nlohmann::json err_resp;
+                err_resp["error"]["message"] = "Invalid HPO configuration";
+                err_resp["error"]["code"] = telemetry::obs::kErrHttpInvalidArgument;
+                for (const auto& e : errors) {
+                    err_resp["error"]["field_errors"].push_back({{"field", e.field}, {"message", e.message}});
+                }
+                SendJson(res, err_resp, 400, rid);
+                return;
+            }
+            // If HPO is enabled, we'll handle it in Phase 2. 
+            // For now, we just persist it if CreateModelRun is called with it.
+        }
+
         log.AddFields({{"dataset_id", dataset_id}, {"training_config", training_config.dump()}});
+        if (!hpo_config.empty()) {
+            log.AddFields({{"hpo_config", hpo_config.dump()}});
+        }
 
         // 1. Create DB entry
-        std::string model_run_id = db_client_->CreateModelRun(dataset_id, name, training_config, rid);
+        std::string model_run_id = db_client_->CreateModelRun(dataset_id, name, training_config, rid, hpo_config);
         if (model_run_id.empty()) {
             log.RecordError(telemetry::obs::kErrDbInsertFailed, "Failed to create model run in DB", 500);
             SendError(res, "Failed to create model run in DB", 500, telemetry::obs::kErrDbInsertFailed, rid);
@@ -818,53 +1061,34 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         }
         log.AddFields({{"model_run_id", model_run_id}});
 
-        // 2. Spawn training via JobManager
-        job_manager_->StartJob("train-" + model_run_id, rid, [this, model_run_id, dataset_id, n_components, percentile, rid](const std::atomic<bool>* stop_flag) {
-            telemetry::obs::Context ctx;
-            ctx.request_id = rid;
-            ctx.dataset_id = dataset_id;
-            ctx.model_run_id = model_run_id;
-            telemetry::obs::ScopedContext scope(ctx);
-            telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "train_start", "trainer",
-                                     {{"request_id", rid}, {"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
-            auto train_start = std::chrono::steady_clock::now();
-            spdlog::info("Training started for model {} (req_id: {})", model_run_id, rid);
-            db_client_->UpdateModelRunStatus(model_run_id, "RUNNING");
-
-            std::string output_dir = "artifacts/pca/" + model_run_id;
-            std::string output_path = output_dir + "/model.json";
-
-            try {
-                std::filesystem::create_directories(output_dir);
-                auto artifact = telemetry::training::TrainPcaFromDb(db_conn_str_, dataset_id, n_components, percentile);
-                telemetry::training::WriteArtifactJson(artifact, output_path);
-
-                spdlog::info("Training successful for model {}", model_run_id);
-                db_client_->UpdateModelRunStatus(model_run_id, "COMPLETED", output_path);
-                auto train_end = std::chrono::steady_clock::now();
-                double duration_ms = std::chrono::duration<double, std::milli>(train_end - train_start).count();
-                telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "train_end", "trainer",
-                                         {{"request_id", rid},
-                                          {"dataset_id", dataset_id},
-                                          {"model_run_id", model_run_id},
-                                          {"artifact_path", output_path},
-                                          {"duration_ms", duration_ms}});
-            } catch (const std::exception& e) {
-                auto train_end = std::chrono::steady_clock::now();
-                double duration_ms = std::chrono::duration<double, std::milli>(train_end - train_start).count();
-                const char* error_code = ClassifyTrainError(e.what());
-                telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "train_error", "trainer",
-                                         {{"request_id", rid},
-                                          {"dataset_id", dataset_id},
-                                          {"model_run_id", model_run_id},
-                                          {"error_code", error_code},
-                                          {"error", e.what()},
-                                          {"duration_ms", duration_ms}});
-                spdlog::error("Training failed for model {}: {}", model_run_id, e.what());
-                db_client_->UpdateModelRunStatus(model_run_id, "FAILED", "", e.what());
-                throw; // JobManager will catch and log it too
+        if (hpo_config.empty()) {
+            // Standard Single Run
+            RunPcaTraining(model_run_id, dataset_id, n_components, percentile, rid);
+        } else {
+            // HPO Orchestration
+            telemetry::training::HpoConfig hpo;
+            hpo.algorithm = hpo_config.value("algorithm", "grid");
+            hpo.max_trials = hpo_config.value("max_trials", 10);
+            hpo.max_concurrency = hpo_config.value("max_concurrency", 2);
+            if (hpo_config.contains("seed")) hpo.seed = hpo_config["seed"].get<int>();
+            if (hpo_config.contains("search_space")) {
+                auto ss = hpo_config["search_space"];
+                if (ss.contains("n_components")) hpo.search_space.n_components = ss["n_components"].get<std::vector<int>>();
+                if (ss.contains("percentile")) hpo.search_space.percentile = ss["percentile"].get<std::vector<double>>();
             }
-        });
+
+            auto trials = telemetry::training::GenerateTrials(hpo, dataset_id);
+            
+            TuningTask task;
+            task.parent_run_id = model_run_id;
+            task.name = name;
+            task.dataset_id = dataset_id;
+            task.rid = rid;
+            task.trials = trials;
+            task.max_concurrency = std::clamp(hpo.max_concurrency, 1, 10);
+
+            OrchestrateTuning(std::move(task));
+        }
 
         nlohmann::json resp;
         resp["model_run_id"] = model_run_id;
@@ -907,6 +1131,47 @@ void ApiServer::HandleListModels(const httplib::Request& req, httplib::Response&
     std::string created_to = GetStrParam(req, "created_to");
     try {
         auto models = db_client_->ListModelRuns(limit, offset, status, dataset_id, created_from, created_to);
+        
+        // Ensure UI gets explicit nulls for consistency
+        for (auto& m : models) {
+            if (!m.contains("parent_run_id")) m["parent_run_id"] = nullptr;
+            if (!m.contains("trial_index")) m["trial_index"] = nullptr;
+            
+            // If it's a tuning run (has hpo_config), we want a summary
+            // For now, training_config might be empty for parent, let's check model_run_id
+            // Actually, we need to know if it's a parent. Parent has parent_run_id=null.
+            // Trial has parent_run_id!=null.
+            // But Single Run also has parent_run_id=null.
+            // We can check if it has trials.
+            if (m["parent_run_id"].is_null()) {
+                auto trials = db_client_->GetHpoTrials(m["model_run_id"]);
+                if (!trials.empty()) {
+                    int completed = 0;
+                    for (const auto& t : trials) {
+                        if (t["status"] == "COMPLETED") completed++;
+                    }
+                    m["hpo_summary"] = {
+                        {"trial_count", trials.size()},
+                        {"completed_count", completed},
+                        {"best_metric_value", m["best_metric_value"]},
+                        {"best_metric_name", m["best_metric_name"]}
+                    };
+                    
+                    // Also aggregate status for list view
+                    int pending = 0, running = 0, failed = 0;
+                    for (const auto& t : trials) {
+                        std::string st = t["status"];
+                        if (st == "PENDING") pending++;
+                        else if (st == "RUNNING") running++;
+                        else if (st == "FAILED") failed++;
+                    }
+                    if (running > 0 || pending > 0) m["status"] = "RUNNING";
+                    else if (completed > 0) m["status"] = "COMPLETED";
+                    else if (failed > 0) m["status"] = "FAILED";
+                }
+            }
+        }
+
         nlohmann::json resp;
         resp["items"] = models;
         resp["limit"] = limit;
@@ -930,6 +1195,106 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
             SendError(res, "Model run not found", 404, telemetry::obs::kErrHttpNotFound, rid);
             return;
         }
+
+        // Add HPO helper fields for UI if they are null
+        if (!j.contains("hpo_config") || j["hpo_config"].is_null()) j["hpo_config"] = nullptr;
+        if (!j.contains("parent_run_id") || j["parent_run_id"].is_null()) j["parent_run_id"] = nullptr;
+        if (!j.contains("trial_index") || j["trial_index"].is_null()) j["trial_index"] = nullptr;
+        if (!j.contains("trial_params") || j["trial_params"].is_null()) j["trial_params"] = nullptr;
+
+        // If it's a parent, fetch trials and aggregate status
+        if (!j["hpo_config"].is_null()) {
+            auto trials = db_client_->GetHpoTrials(model_run_id);
+            j["trials"] = trials;
+            
+            int pending = 0, running = 0, completed = 0, failed = 0;
+            for (const auto& t : trials) {
+                std::string st = t["status"];
+                if (st == "PENDING") pending++;
+                else if (st == "RUNNING") running++;
+                else if (st == "COMPLETED") completed++;
+                else if (st == "FAILED") failed++;
+            }
+            j["trial_counts"] = {
+                {"total", trials.size()},
+                {"pending", pending},
+                {"running", running},
+                {"completed", completed},
+                {"failed", failed}
+            };
+
+            // Aggregate Status:
+            // RUNNING if any trial is RUNNING or PENDING
+            // SUCCEEDED if all terminal and at least one COMPLETED
+            // FAILED if all terminal and none COMPLETED
+            if (running > 0 || pending > 0) {
+                j["status"] = "RUNNING";
+            } else if (completed > 0) {
+                j["status"] = "COMPLETED";
+            } else if (failed > 0) {
+                j["status"] = "FAILED";
+            }
+
+            // Best Trial Selection
+            // Metric: threshold (reconstruction_error). LOWER_IS_BETTER.
+            // Tie-break: earlier completed_at, then lower trial_index.
+            std::string best_id = "";
+            double min_threshold = std::numeric_limits<double>::max();
+            std::string best_completed_at = "";
+            int best_trial_index = std::numeric_limits<int>::max();
+            
+            for (const auto& t : trials) {
+                if (t["status"] == "COMPLETED" && t["is_eligible"].get<bool>()) {
+                    double threshold = t["selection_metric_value"].get<double>();
+                    std::string completed_at = t["completed_at"];
+                    int trial_index = t["trial_index"];
+
+                    bool is_better = false;
+                    if (best_id.empty()) {
+                        is_better = true;
+                    } else if (threshold < min_threshold) {
+                        is_better = true;
+                    } else if (threshold == min_threshold) {
+                        // Tie-break 1: earlier completion
+                        if (completed_at < best_completed_at) {
+                            is_better = true;
+                        } else if (completed_at == best_completed_at) {
+                            // Tie-break 2: lower trial index
+                            if (trial_index < best_trial_index) {
+                                is_better = true;
+                            }
+                        }
+                    }
+
+                    if (is_better) {
+                        min_threshold = threshold;
+                        best_id = t["model_run_id"];
+                        best_completed_at = completed_at;
+                        best_trial_index = trial_index;
+                    }
+                }
+            }
+
+            if (!best_id.empty()) {
+                j["best_trial_run_id"] = best_id;
+                j["best_metric_value"] = min_threshold;
+                j["best_metric_name"] = "reconstruction_error_threshold";
+                j["selection_metric_direction"] = "LOWER_IS_BETTER";
+                j["tie_break_basis"] = "completion_time, trial_index";
+                
+                // Persist if not already set or changed
+                if (j["best_trial_run_id_db"].is_null() || j["best_trial_run_id_db"] != best_id) {
+                    db_client_->UpdateBestTrial(
+                        model_run_id, 
+                        best_id, 
+                        min_threshold, 
+                        "reconstruction_error_threshold",
+                        "LOWER_IS_BETTER",
+                        "completion_time, trial_index");
+                }
+            }
+        }
+
         std::string artifact_path = j.value("artifact_path", "");
         if (!artifact_path.empty()) {
             try {

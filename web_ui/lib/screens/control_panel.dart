@@ -20,6 +20,13 @@ class _ControlPanelState extends State<ControlPanel> {
   final _nComponentsController = TextEditingController(text: '3');
   final _percentileController = TextEditingController(text: '99.5');
 
+  // HPO State
+  bool _hpoEnabled = false;
+  String _hpoAlgorithm = 'grid';
+  final _hpoMaxTrialsController = TextEditingController(text: '10');
+  final _hpoNComponentsSpaceController = TextEditingController(text: '2,3,4');
+  final _hpoPercentileSpaceController = TextEditingController(text: '99.0,99.5,99.9');
+
   bool _loading = false;
   InferenceResponse? _inferenceResults;
   Timer? _pollingTimer;
@@ -187,6 +194,9 @@ class _ControlPanelState extends State<ControlPanel> {
     _modelNameController.dispose();
     _nComponentsController.dispose();
     _percentileController.dispose();
+    _hpoMaxTrialsController.dispose();
+    _hpoNComponentsSpaceController.dispose();
+    _hpoPercentileSpaceController.dispose();
     super.dispose();
   }
 
@@ -277,11 +287,34 @@ class _ControlPanelState extends State<ControlPanel> {
     setState(() => _loading = true);
     final service = context.read<TelemetryService>();
     try {
+      Map<String, dynamic>? hpoConfig;
+      if (_hpoEnabled) {
+        final nSpace = _hpoNComponentsSpaceController.text.split(',').map((e) => int.tryParse(e.trim())).whereType<int>().toList();
+        final pSpace = _hpoPercentileSpaceController.text.split(',').map((e) => double.tryParse(e.trim())).whereType<double>().toList();
+        final maxTrials = int.tryParse(_hpoMaxTrialsController.text) ?? 10;
+
+        if (nSpace.isEmpty && pSpace.isEmpty) {
+          _showError('HPO Search Space cannot be empty');
+          setState(() => _loading = false);
+          return;
+        }
+
+        hpoConfig = {
+          'algorithm': _hpoAlgorithm,
+          'max_trials': maxTrials,
+          'search_space': {
+            'n_components': nSpace,
+            'percentile': pSpace,
+          }
+        };
+      }
+
       final modelId = await service.trainModel(
         appState.datasetId!,
         name: _modelNameController.text,
         nComponents: nComponents,
         percentile: percentile,
+        hpoConfig: hpoConfig,
       );
       appState.setModel(modelId);
       _startPolling(modelId, 'model');
@@ -506,9 +539,10 @@ class _ControlPanelState extends State<ControlPanel> {
                 ),
               ),
               _buildCard(
-                title: '2. Model Training',
+                title: '2. Training Parameters',
                 enabled: canTrain,
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (!canTrain)
                       Padding(
@@ -520,20 +554,41 @@ class _ControlPanelState extends State<ControlPanel> {
                           style: const TextStyle(color: Colors.amberAccent, fontSize: 13),
                         ),
                       ),
-                    _buildTextField('Model Name', _modelNameController),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(child: _buildTextField('N Components (1-5)', _nComponentsController)),
-                        const SizedBox(width: 16),
-                        Expanded(child: _buildTextField('Percentile (50-99.9)', _percentileController)),
-                      ],
+                    
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Column(
+                        children: [
+                          _buildTextField('Model Name (optional)', _modelNameController),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildTextField('N Components (1-5)', _nComponentsController),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: _buildTextField('Percentile (50-99.9)', _percentileController),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(height: 16),
+                    _buildHpoPanel(),
                     const SizedBox(height: 16),
                     _buildButton('Start Training', _train, enabled: !_loading && canTrain),
                     const SizedBox(height: 16),
                     const Divider(color: Colors.white24),
                     const SizedBox(height: 16),
+                    const Text('Saved Models', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
+                    const SizedBox(height: 8),
                     _buildModelSelector(appState),
                     if (currentModel != null) _buildModelStatus(currentModel),
                   ],
@@ -834,5 +889,71 @@ class _ControlPanelState extends State<ControlPanel> {
       default:
         return Colors.white54;
     }
+  }
+
+  Widget _buildHpoPanel() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF334155).withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _hpoEnabled ? const Color(0xFF38BDF8).withValues(alpha: 0.5) : Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text('Hyperparameter Tuning', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
+                    const SizedBox(width: 4),
+                    Tooltip(
+                      message: 'Automatically explore parameter combinations. Grid search is deterministic; Random search can be seeded.',
+                      child: Icon(Icons.help_outline, size: 14, color: Colors.white38),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: _hpoEnabled,
+                onChanged: (val) => setState(() => _hpoEnabled = val),
+                activeThumbColor: const Color(0xFF38BDF8),
+              ),
+            ],
+          ),
+          if (_hpoEnabled) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Text('Algorithm: ', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
+                const SizedBox(width: 8),
+                DropdownButton<String>(
+                  value: _hpoAlgorithm,
+                  dropdownColor: const Color(0xFF020617),
+                  style: const TextStyle(fontSize: 13, color: Colors.white),
+                  items: ['grid', 'random'].map((a) => DropdownMenuItem(value: a, child: Text(a.toUpperCase()))).toList(),
+                  onChanged: (val) => setState(() => _hpoAlgorithm = val!),
+                ),
+                const Spacer(),
+                SizedBox(
+                  width: 80,
+                  child: _buildTextField('Max Trials', _hpoMaxTrialsController),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _buildTextField('N Components Search Space (csv)', _hpoNComponentsSpaceController),
+            const SizedBox(height: 12),
+            _buildTextField('Percentile Search Space (csv)', _hpoPercentileSpaceController),
+            const SizedBox(height: 8),
+            const Text('Example: 2, 3, 4', style: TextStyle(color: Colors.white24, fontSize: 11)),
+          ],
+        ],
+      ),
+    );
   }
 }

@@ -1,3 +1,4 @@
+// ignore_for_file: use_build_context_synchronously
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -27,10 +28,52 @@ class _ModelsScreenState extends State<ModelsScreen> {
   bool _jobPollingInFlight = false;
   double? _currentThreshold;
 
+  // Filter State
+  String _runTypeFilter = 'all'; // all, tuning, trial, single
+  String _statusFilter = 'all'; // all, running, terminal
+  String _sortBy = 'newest'; // newest, best_metric
+
   @override
   void initState() {
     super.initState();
-    _modelsFuture = context.read<TelemetryService>().listModels();
+    _loadStateFromUrl();
+    _modelsFuture = _fetchModels();
+  }
+
+  void _loadStateFromUrl() {
+    final uri = Uri.base;
+    if (uri.queryParameters.containsKey('runType')) _runTypeFilter = uri.queryParameters['runType']!;
+    if (uri.queryParameters.containsKey('runStatus')) _statusFilter = uri.queryParameters['runStatus']!;
+    if (uri.queryParameters.containsKey('sortBy')) _sortBy = uri.queryParameters['sortBy']!;
+  }
+
+  Future<List<ModelRunSummary>> _fetchModels() async {
+    final all = await context.read<TelemetryService>().listModels(limit: 200);
+    
+    // Apply local filtering (simplest for now)
+    var filtered = all.where((m) {
+      if (_runTypeFilter == 'tuning') return m.hpoSummary != null;
+      if (_runTypeFilter == 'trial') return m.parentRunId != null;
+      if (_runTypeFilter == 'single') return m.hpoSummary == null && m.parentRunId == null;
+      return true;
+    }).where((m) {
+      if (_statusFilter == 'running') return m.status == 'RUNNING' || m.status == 'PENDING';
+      if (_statusFilter == 'terminal') return m.status == 'COMPLETED' || m.status == 'FAILED' || m.status == 'CANCELLED';
+      return true;
+    }).toList();
+
+    // Sorting
+    if (_sortBy == 'newest') {
+      filtered.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    } else if (_sortBy == 'best_metric') {
+      filtered.sort((a, b) {
+        final va = a.hpoSummary?['best_metric_value'] ?? a.selectionMetricValue ?? 99999.0;
+        final vb = b.hpoSummary?['best_metric_value'] ?? b.selectionMetricValue ?? 99999.0;
+        return va.compareTo(vb);
+      });
+    }
+
+    return filtered;
   }
 
   @override
@@ -41,14 +84,69 @@ class _ModelsScreenState extends State<ModelsScreen> {
 
   Future<void> _refresh() async {
     setState(() {
-      _modelsFuture = context.read<TelemetryService>().listModels();
+      _modelsFuture = _fetchModels();
     });
   }
 
-  Future<void> _selectModel(ModelRunSummary model) async {
+  Widget _buildFilters() {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _dropdown('Type', _runTypeFilter, ['all', 'tuning', 'trial', 'single'], (v) {
+                setState(() => _runTypeFilter = v!);
+                _refresh();
+              }),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _dropdown('Status', _statusFilter, ['all', 'running', 'terminal'], (v) {
+                setState(() => _statusFilter = v!);
+                _refresh();
+              }),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _dropdown('Sort By', _sortBy, ['newest', 'best_metric'], (v) {
+          setState(() => _sortBy = v!);
+          _refresh();
+        }),
+      ],
+    );
+  }
+
+  Widget _dropdown(String label, String value, List<String> items, ValueChanged<String?> onChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10)),
+        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(4)),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: value,
+              isExpanded: true,
+              style: const TextStyle(fontSize: 12, color: Colors.white),
+              dropdownColor: const Color(0xFF1E293B),
+              items: items.map((i) => DropdownMenuItem(value: i, child: Text(i.replaceAll('_', ' ').toUpperCase()))).toList(),
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _selectById(String id, {TelemetryService? service}) async {
+    final s = service ?? context.read<TelemetryService>();
+    final appState = context.read<AppState>();
     setState(() => _loadingDetail = true);
     try {
-      final detail = await context.read<TelemetryService>().getModelDetail(model.modelRunId);
+      final detail = await s.getModelDetail(id);
       if (!mounted) return;
       setState(() {
         _selectedDetail = detail;
@@ -56,12 +154,122 @@ class _ModelsScreenState extends State<ModelsScreen> {
         _errorDist = [];
         _jobStatus = null;
       });
-      context.read<AppState>().setModel(model.modelRunId);
+      appState.setModel(id);
     } finally {
       if (mounted) {
         setState(() => _loadingDetail = false);
       }
     }
+  }
+
+  Future<void> _selectModel(ModelRunSummary model) async {
+    _selectById(model.modelRunId);
+  }
+
+  Widget _badge(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(4), border: Border.all(color: color.withValues(alpha: 0.5))),
+      child: Text(label, style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold)),
+    );
+  }
+
+  Widget _buildTrialsTable(List<dynamic> trials, String? bestTrialId, String? metricName) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black26,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Table(
+        columnWidths: const {
+          0: FixedColumnWidth(40),
+          1: FlexColumnWidth(2),
+          2: FlexColumnWidth(1.2),
+          3: FlexColumnWidth(1),
+          4: FixedColumnWidth(100),
+        },
+        children: [
+          TableRow(
+            decoration: const BoxDecoration(color: Colors.white10),
+            children: [
+              const Padding(padding: EdgeInsets.all(8), child: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              const Padding(padding: EdgeInsets.all(8), child: Text('Params', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              Padding(padding: const EdgeInsets.all(8), child: Text(metricName ?? 'Metric', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              const Padding(padding: EdgeInsets.all(8), child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+              const Padding(padding: EdgeInsets.all(8), child: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+            ],
+          ),
+          ...trials.map((t) {
+            final isBest = t['model_run_id'] == bestTrialId;
+            final trialId = t['model_run_id'];
+            final isEligible = t['is_eligible'] ?? true;
+            return TableRow(
+              children: [
+                Padding(padding: const EdgeInsets.all(8), child: Text(t['trial_index']?.toString() ?? 'N/A', style: const TextStyle(fontSize: 12))),
+                Padding(
+                  padding: const EdgeInsets.all(8), 
+                  child: Row(
+                    children: [
+                      if (isBest) const Padding(padding: EdgeInsets.only(right: 4), child: Icon(Icons.star, color: Colors.amber, size: 12)),
+                      Expanded(child: Text(t['trial_params']?.toString() ?? 'N/A', style: const TextStyle(fontSize: 11, fontFamily: 'monospace'), overflow: TextOverflow.ellipsis)),
+                    ],
+                  )
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_displayValue(t['selection_metric_value']), style: const TextStyle(fontSize: 11)),
+                      if (!isEligible) 
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: _badge(t['eligibility_reason'] ?? 'INELIGIBLE', Colors.redAccent),
+                        ),
+                    ],
+                  ),
+                ),
+                Padding(padding: const EdgeInsets.all(8), child: Text(t['status'] ?? 'N/A', style: TextStyle(fontSize: 11, color: _getStatusColor(t['status'] ?? '')))),
+                Padding(
+                  padding: const EdgeInsets.all(4), 
+                  child: Row(
+                    children: [
+                      TextButton(
+                        onPressed: () => _selectById(trialId), 
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(40, 30),
+                        ),
+                        child: const Text('View', style: TextStyle(fontSize: 11))
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => CompareModelsScreen(
+                                leftRunId: _selectedDetail!['model_run_id'],
+                                rightRunId: trialId,
+                              ),
+                            ),
+                          );
+                        }, 
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(45, 30),
+                        ),
+                        child: const Text('Comp', style: TextStyle(fontSize: 11))
+                      ),
+                    ],
+                  )
+                ),
+              ],
+            );
+          }),
+        ],
+      ),
+    );
   }
 
   Future<void> _startScoring(String datasetId, String modelRunId) async {
@@ -102,6 +310,38 @@ class _ModelsScreenState extends State<ModelsScreen> {
     });
   }
 
+  Future<void> _cancelRun(String modelRunId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel Training?'),
+        content: const Text('This will stop the current training job and all associated trials if this is a tuning run.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+            child: const Text('Yes, Cancel'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final service = context.read<TelemetryService>();
+    final sm = ScaffoldMessenger.of(context);
+    try {
+      await service.cancelModelRun(modelRunId);
+      if (!mounted) return;
+      sm.showSnackBar(const SnackBar(content: Text('Cancellation requested.')));
+        _selectById(modelRunId, service: service); // Refresh detail
+    } catch (e) {
+      if (!mounted) return;
+        sm.showSnackBar(SnackBar(content: Text('Failed to cancel: $e'), backgroundColor: Colors.red));
+    }
+  }
+
   String _formatCreatedAt(String raw) {
     if (raw.isEmpty) return '';
     final parsed = DateTime.tryParse(raw);
@@ -133,6 +373,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   ],
                 ),
                 const SizedBox(height: 12),
+                _buildFilters(),
+                const SizedBox(height: 12),
                 Expanded(
                   child: FutureBuilder<List<ModelRunSummary>>(
                     future: _modelsFuture,
@@ -152,9 +394,32 @@ class _ModelsScreenState extends State<ModelsScreen> {
                           final config = model.trainingConfig;
                           final components = config['n_components'] ?? 'N/A';
                           final percentile = config['percentile'] ?? 'N/A';
+                          final isTuning = model.hpoSummary != null;
+                          final isTrial = model.parentRunId != null;
+
                           return ListTile(
-                            title: Text(model.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Text('${model.status} • Dataset: ${model.datasetId.substring(0, 8)}...\nPCA: $components comps • $percentile%'),
+                            title: Row(
+                              children: [
+                                Expanded(child: Text(model.name, style: const TextStyle(fontWeight: FontWeight.bold))),
+                                if (isTuning) _badge('TUNING', Colors.purple),
+                                if (isTrial) _badge('TRIAL #${model.trialIndex}', Colors.blueGrey),
+                                if (!isTuning && !isTrial) _badge('SINGLE', Colors.blue),
+                              ],
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('${model.status} • Dataset: ${model.datasetId.substring(0, 8)}...'),
+                                if (isTuning)
+                                  Text(
+                                    'Trials: ${model.hpoSummary!['completed_count']} / ${model.hpoSummary!['trial_count']} complete'
+                                    '${model.hpoSummary!['best_metric_value'] != null ? ' • Best: ${model.hpoSummary!['best_metric_value'].toStringAsFixed(4)}' : ''}',
+                                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 12),
+                                  )
+                                else
+                                  Text('PCA: $components comps • $percentile%'),
+                              ],
+                            ),
                             isThreeLine: true,
                             trailing: Text(_formatCreatedAt(model.createdAt), style: const TextStyle(fontSize: 11, color: Colors.white54)),
                             onTap: () => _selectModel(model),
@@ -208,6 +473,23 @@ class _ModelsScreenState extends State<ModelsScreen> {
     );
   }
 
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'SUCCEEDED':
+      case 'COMPLETED':
+        return const Color(0xFF4ADE80);
+      case 'FAILED':
+        return const Color(0xFFF87171);
+      case 'CANCELLED':
+      case 'CANCELED':
+        return Colors.orangeAccent;
+      case 'RUNNING':
+        return const Color(0xFFFBBF24);
+      default:
+        return Colors.white54;
+    }
+  }
+
   Widget _buildDetail(String? datasetId) {
     final detail = _selectedDetail!;
     final modelRunId = detail['model_run_id'] ?? '';
@@ -218,6 +500,15 @@ class _ModelsScreenState extends State<ModelsScreen> {
     final nComponentsValue = detail['n_components'] ?? nComponents;
     final artifactPath = (detail['artifact_path'] ?? '').toString();
 
+    final hpoConfig = detail['hpo_config'];
+    final isParent = hpoConfig != null;
+    final parentRunId = detail['parent_run_id'];
+    final trialIndex = detail['trial_index'];
+    final trialParams = detail['trial_params'];
+    final bestTrialId = detail['best_trial_run_id'];
+
+    final isTerminal = detail['status'] == 'COMPLETED' || detail['status'] == 'FAILED' || detail['status'] == 'CANCELLED';
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: ListView(
@@ -225,17 +516,73 @@ class _ModelsScreenState extends State<ModelsScreen> {
           _kv('Model Run ID', modelRunId),
           _kv('Dataset ID', detail['dataset_id'] ?? ''),
           _kv('Status', detail['status'] ?? ''),
+          if (parentRunId != null) _kvWidget('Parent Run', TextButton(onPressed: () => _selectById(parentRunId), child: Text(parentRunId))),
+          if (trialIndex != null) _kv('Trial Index', trialIndex.toString()),
+          if (trialParams != null) _kv('Trial Params', trialParams.toString()),
+          
           const SizedBox(height: 12),
-          const Text('Configuration', style: TextStyle(fontWeight: FontWeight.bold)),
-          _kvWidget(
-            'Artifact Path',
-            SelectableText(
-              artifactPath.isNotEmpty ? artifactPath : 'N/A',
-              style: const TextStyle(fontFamily: 'monospace'),
+          if (!isTerminal)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ElevatedButton.icon(
+                onPressed: () => _cancelRun(modelRunId),
+                icon: const Icon(Icons.stop_circle_outlined),
+                label: const Text('Cancel Training Run'),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent.withValues(alpha: 0.2), foregroundColor: Colors.redAccent),
+              ),
             ),
-          ),
-          _kv('n_components', _displayValue(nComponentsValue, zeroIsNa: true)),
-          _kv('Anomaly Threshold', _displayValue(thresholdValue)),
+          const Text('Configuration', style: TextStyle(fontWeight: FontWeight.bold)),
+          if (!isParent) ...[
+            _kvWidget(
+              'Artifact Path',
+              SelectableText(
+                artifactPath.isNotEmpty ? artifactPath : 'N/A',
+                style: const TextStyle(fontFamily: 'monospace'),
+              ),
+            ),
+            _kv('n_components', _displayValue(nComponentsValue, zeroIsNa: true)),
+            _kv('Percentile (%)', _displayValue(detail['training_config']?['percentile'])),
+            _kv('Feature Set', _displayValue(detail['training_config']?['feature_set'])),
+            _kv('Anomaly Threshold', _displayValue(thresholdValue)),
+          ],
+          if (isParent) ...[
+            _kv('Algorithm', hpoConfig['algorithm'] ?? 'N/A'),
+            _kv('Max Trials', _displayValue(hpoConfig['max_trials'])),
+            _kv('Search Space', hpoConfig['search_space']?.toString() ?? 'N/A'),
+            
+            const SizedBox(height: 12),
+            const Text('Selection Basis', style: TextStyle(fontWeight: FontWeight.bold)),
+            _kv('Metric', _displayValue(detail['best_metric_name'])),
+            _kv('Direction', _displayValue(detail['selection_metric_direction'])),
+            _kv('Tie-break', _displayValue(detail['tie_break_basis'])),
+
+            if (bestTrialId != null) 
+              _kvWidget('Best Trial', 
+                Row(
+                  children: [
+                    const Icon(Icons.star, color: Colors.amber, size: 16),
+                    const SizedBox(width: 4),
+                    TextButton(onPressed: () => _selectById(bestTrialId), child: Text('View Best Trial ($bestTrialId)')),
+                  ],
+                )
+              ),
+          ],
+          
+          if (!isParent && parentRunId != null) ...[
+            const SizedBox(height: 12),
+            const Text('Selection Metadata', style: TextStyle(fontWeight: FontWeight.bold)),
+            _kv('Eligible', detail['is_eligible']?.toString() ?? 'N/A'),
+            if (detail['is_eligible'] == false) _kv('Ineligibility Reason', _displayValue(detail['eligibility_reason'])),
+            _kv('Metric Value', _displayValue(detail['selection_metric_value'])),
+          ],
+
+          if (isParent && detail['trials'] != null) ...[
+            const SizedBox(height: 24),
+            const Text('Trials', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF38BDF8))),
+            const SizedBox(height: 8),
+            _buildTrialsTable(detail['trials'], bestTrialId, detail['best_metric_name']),
+          ],
+
           if (detail['artifact_error'] != null && detail['artifact_error'].toString().isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 8),
@@ -292,6 +639,9 @@ class _ModelsScreenState extends State<ModelsScreen> {
                     if ((detail['dataset_id'] ?? '').toString().isNotEmpty)
                       'datasetId': detail['dataset_id'].toString(),
                     if (modelRunId.isNotEmpty) 'modelId': modelRunId,
+                    'runType': _runTypeFilter,
+                    'runStatus': _statusFilter,
+                    'sortBy': _sortBy,
                   },
                 ),
               ],
@@ -373,6 +723,11 @@ class _ModelsScreenState extends State<ModelsScreen> {
   Widget _buildEvalSummary() {
     if (_evalMetrics == null || _currentThreshold == null) return const SizedBox.shrink();
 
+    final detail = _selectedDetail!;
+    final isTrial = detail['parent_run_id'] != null;
+    final bestMetricValue = detail['best_metric_value'];
+    final bestMetricName = detail['best_metric_name'];
+
     // Find closest point in PR curve
     Map<String, double>? closest;
     double minDist = double.infinity;
@@ -436,6 +791,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
             _metricCard('Precision', p.toStringAsFixed(4)),
             _metricCard('Recall', r.toStringAsFixed(4)),
             _metricCard('F1 Score', f1.toStringAsFixed(4)),
+            if (isTrial && bestMetricValue != null)
+              _metricCard('Tuning Metric ($bestMetricName)', bestMetricValue.toStringAsFixed(6), color: Colors.purpleAccent),
           ],
         ),
       ],
@@ -546,21 +903,21 @@ class _ModelsScreenState extends State<ModelsScreen> {
     return text.isEmpty ? 'N/A' : text;
   }
 
-  Widget _metricCard(String title, String value) {
+  Widget _metricCard(String title, String value, {Color? color}) {
     return Container(
       width: 220,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white12),
+        border: Border.all(color: color?.withValues(alpha: 0.5) ?? Colors.white12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(color: Colors.white60, fontSize: 12)),
+          Text(title, style: TextStyle(color: color ?? Colors.white60, fontSize: 12)),
           const SizedBox(height: 6),
-          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+          Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
         ],
       ),
     );

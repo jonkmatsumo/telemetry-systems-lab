@@ -19,7 +19,7 @@ The system is decomposed into five core components:
 2.  **Generator (C++)**: High-throughput producer for synthetic data. Exposes a gRPC interface.
 3.  **Database (PostgreSQL)**: Central store for telemetry, runs, models, and alerts.
 4.  **Training (C++)**: PCA training logic invoked by the API server.
-5.  **Management Plane (Dart)**: Unified logic across the **Flutter Web Dashboard** and the **Dart CLI Tool** for system orchestration and verification.
+5.  **Management Plane**: The **Flutter Web Dashboard** for system orchestration and verification.
 
 ## Ports
 
@@ -46,7 +46,6 @@ This project is configured to avoid port conflicts with Text2SQL and Label Lag.
 - `db/`: Database schemas and migrations
 - `tests/`: Unit and integration tests
 - `web_ui/`: Flutter web dashboard
-- `dart_cli/`: CLI client
 
 ## Build Instructions (Local)
 
@@ -133,10 +132,37 @@ Train the PCA model on generated data:
 ```
 Outputs `artifacts/pca/default/model.json`.
 
-API:
+API (Single Run):
 ```bash
-curl -X POST http://localhost:8280/train -H 'Content-Type: application/json' -d '{"dataset_id":"<RUN_ID>","name":"pca_v1"}'
+curl -X POST http://localhost:8280/train -H 'Content-Type: application/json' \
+  -d '{"dataset_id":"<RUN_ID>","name":"pca_v1", "n_components": 3, "percentile": 99.5}'
 ```
+
+API (Hyperparameter Tuning):
+```bash
+curl -X POST http://localhost:8280/train -H 'Content-Type: application/json' \
+  -d '{
+    "dataset_id":"<RUN_ID>",
+    "name":"pca_tuning",
+    "hpo_config": {
+      "algorithm": "grid",
+      "max_trials": 10,
+      "search_space": {
+        "n_components": [2, 3, 4],
+        "percentile": [99.0, 99.5, 99.9]
+      }
+    }
+  }'
+```
+
+#### Hyperparameter Optimization (HPO)
+The system supports automated parameter exploration via `hpo_config`:
+- **Algorithms**: `grid` (deterministic exhaustive) or `random` (stochastic sampled, optionally seeded).
+- **Search Space**: Supports `n_components` (1-5) and `percentile` (50.0-99.99).
+- **Orchestration**: A tuning request creates a **Parent Tuning Run** which spawns multiple **Trial Runs**.
+- **Best Trial Selection**: The parent automatically selects the "best" trial based on the **lowest reconstruction error threshold** among successful trials. 
+- **Constraints**: Max 50 trials per tuning run; Grid search space is capped at 100 combinations to prevent resource exhaustion.
+- **Concurrency**: Trials are submitted to the job pipeline and executed concurrently (currently bounded by the job queue capacity).
 
 ### 3. Run Scorer (Inference)
 Run the scorer simulation loop (checks `artifacts/pca/default/model.json`):
@@ -261,15 +287,18 @@ Set the API base URL (default: http://localhost:8280):
 flutter run -d chrome --web-port 8300 --dart-define=API_BASE_URL=http://localhost:8280
 ```
 
-Tabs:
-- Control (generate/train/infer)
-- Runs
-- Dataset Analytics
-- Models (scoring job + eval)
-- Inference History
+### Dashboard Tabs
+- **Control**: Trigger generation and training. Includes the **Hyperparameter Tuning** opt-in panel.
+- **Runs**: View dataset generation history.
+- **Dataset Analytics**: Deep-dive into metrics, distributions, and Top-K dimensions.
+- **Models**: Management of training runs. 
+  - **Tuning Runs** are marked with badges and show completion progress.
+  - **Trial Details** link back to their parent tuning run.
+  - **Trials Table** allows navigating to individual trial results and comparing them against the baseline or "best" trial.
+- **Inference History**: Audit of past inference requests.
 
 ## Testing
-Run the comprehensive test suite (Unit + Parity):
+Run the comprehensive test suite (Unit + Parity + HPO Contracts):
 ```bash
 ./build/unit_tests
 ```
@@ -292,6 +321,8 @@ Compare results across dataset sizes to validate scale behavior.
 
 ## Features
 - **Deterministic**: Seeded generation for reproducible anomalies.
+- **Hyperparameter Tuning (HPO)**: Automated search for optimal PCA parameters.
+- **Best-Trial Selection**: Automated ranking based on tightest detection thresholds.
 - **Golden Regression**: C++ inference matches committed golden artifacts (verified via `tests/parity`).
 - **Fusion**: Combines robust statistical checks (Z-score) with multivariate PCA reconstruction error.
 - **Alert Management**: Includes anti-flapping (hysteresis) and storm-control (cooldown) logic.

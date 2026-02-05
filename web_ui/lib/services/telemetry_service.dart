@@ -284,6 +284,14 @@ class ModelRunSummary {
   final String createdAt;
   final String completedAt;
   final Map<String, dynamic> trainingConfig;
+  final String? parentRunId;
+  final int? trialIndex;
+  final Map<String, dynamic>? hpoSummary;
+  final String? selectionMetricDirection;
+  final String? tieBreakBasis;
+  final bool isEligible;
+  final String? eligibilityReason;
+  final double? selectionMetricValue;
 
   ModelRunSummary({
     required this.modelRunId,
@@ -294,6 +302,14 @@ class ModelRunSummary {
     required this.createdAt,
     required this.completedAt,
     this.trainingConfig = const {},
+    this.parentRunId,
+    this.trialIndex,
+    this.hpoSummary,
+    this.selectionMetricDirection,
+    this.tieBreakBasis,
+    this.isEligible = true,
+    this.eligibilityReason,
+    this.selectionMetricValue,
   });
 
   factory ModelRunSummary.fromJson(Map<String, dynamic> json) {
@@ -306,6 +322,14 @@ class ModelRunSummary {
       createdAt: json['created_at'] ?? '',
       completedAt: json['completed_at'] ?? '',
       trainingConfig: json['training_config'] ?? {},
+      parentRunId: json['parent_run_id'],
+      trialIndex: json['trial_index'],
+      hpoSummary: json['hpo_summary'],
+      selectionMetricDirection: json['selection_metric_direction'],
+      tieBreakBasis: json['tie_break_basis'],
+      isEligible: json['is_eligible'] ?? true,
+      eligibilityReason: json['eligibility_reason'],
+      selectionMetricValue: (json['selection_metric_value'] as num?)?.toDouble(),
     );
   }
 }
@@ -620,13 +644,14 @@ class TelemetryService {
   }
 
   Future<String> trainModel(String datasetId,
-      {String name = 'pca_default', int? nComponents, double? percentile}) async {
+      {String name = 'pca_default', int? nComponents, double? percentile, Map<String, dynamic>? hpoConfig}) async {
     final Map<String, dynamic> body = {
       'dataset_id': datasetId,
       'name': name,
     };
     if (nComponents != null) body['n_components'] = nComponents;
     if (percentile != null) body['percentile'] = percentile;
+    if (hpoConfig != null) body['hpo_config'] = hpoConfig;
 
     final response = await _client.post(
       Uri.parse('$baseUrl/train'),
@@ -647,6 +672,14 @@ class TelemetryService {
     }
     _handleError(response, 'Failed to get model status');
     throw Exception('Unreachable');
+  }
+
+  Future<void> cancelModelRun(String id) async {
+    final response = await _client.delete(Uri.parse('$baseUrl/train/$id'));
+    if (response.statusCode == 200) {
+      return;
+    }
+    _handleError(response, 'Failed to cancel training run');
   }
 
   Future<InferenceResponse> runInference(String modelId, List<Map<String, dynamic>> samples) async {

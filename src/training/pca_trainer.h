@@ -2,11 +2,41 @@
 
 #include <string>
 #include <vector>
+#include <optional>
 
 #include "linalg/matrix.h"
 
 namespace telemetry {
 namespace training {
+
+struct TrainingConfig {
+    std::string dataset_id;
+    int n_components = 3;
+    double percentile = 99.5;
+    std::vector<std::string> feature_set = {"cpu_usage", "memory_usage", "disk_utilization", "network_rx_rate", "network_tx_rate"};
+};
+
+struct SearchSpace {
+    std::vector<int> n_components;
+    std::vector<double> percentile;
+};
+
+struct HpoConfig {
+    std::string algorithm = "grid"; // "grid" or "random"
+    int max_trials = 10;
+    int max_concurrency = 2;
+    std::optional<int> seed;
+    SearchSpace search_space;
+};
+
+struct HpoValidationError {
+    std::string field;
+    std::string message;
+};
+
+std::vector<HpoValidationError> ValidateHpoConfig(const HpoConfig& config);
+
+std::vector<TrainingConfig> GenerateTrials(const HpoConfig& hpo, const std::string& dataset_id);
 
 struct PcaArtifact {
     linalg::Vector scaler_mean;

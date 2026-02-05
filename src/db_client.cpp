@@ -275,17 +275,48 @@ telemetry::RunStatus DbClient::GetRunStatus(const std::string& run_id) {
 std::string DbClient::CreateModelRun(const std::string& dataset_id, 
                                      const std::string& name,
                                      const nlohmann::json& training_config,
-                                     const std::string& request_id) {
+                                     const std::string& request_id,
+                                     const nlohmann::json& hpo_config) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config) "
-                                 "VALUES ($1, $2, 'PENDING', $3, $4) RETURNING model_run_id",
-                                 dataset_id, name, request_id, training_config.dump());
+        
+        std::string hpo_val_str;
+        const char* hpo_ptr = nullptr;
+        if (!hpo_config.is_null() && !hpo_config.empty()) {
+            hpo_val_str = hpo_config.dump();
+            hpo_ptr = hpo_val_str.c_str();
+        }
+
+        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, hpo_config) "
+                                 "VALUES ($1, $2, 'PENDING', $3, $4, $5) RETURNING model_run_id",
+                                 dataset_id, name, request_id, training_config.dump(), hpo_ptr);
         W.commit();
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
         spdlog::error("Failed to create model run: {}", e.what());
+        throw;
+    }
+    return "";
+}
+
+std::string DbClient::CreateHpoTrialRun(const std::string& dataset_id,
+                                        const std::string& name,
+                                        const nlohmann::json& training_config,
+                                        const std::string& request_id,
+                                        const std::string& parent_run_id,
+                                        int trial_index,
+                                        const nlohmann::json& trial_params) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, parent_run_id, trial_index, trial_params) "
+                                 "VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7) RETURNING model_run_id",
+                                 dataset_id, name, request_id, training_config.dump(), parent_run_id, trial_index, trial_params.dump());
+        W.commit();
+        if (!res.empty()) return res[0][0].as<std::string>();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to create HPO trial run: {}", e.what());
         throw;
     }
     return "";
@@ -321,7 +352,10 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
 
         pqxx::nontransaction N(C);
 
-        auto res = N.exec_params("SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id, training_config "
+        auto res = N.exec_params("SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id, training_config, "
+                                 "hpo_config, parent_run_id, trial_index, trial_params, "
+                                 "best_trial_run_id, best_metric_value, best_metric_name, "
+                                 "selection_metric_direction, tie_break_basis, is_eligible, eligibility_reason, selection_metric_value "
                                  "FROM model_runs WHERE model_run_id = $1", model_run_id);
 
         if (!res.empty()) {
@@ -354,12 +388,109 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
                 j["training_config"] = nlohmann::json::object();
             }
 
+            if (!res[0][10].is_null()) {
+                try {
+                    j["hpo_config"] = nlohmann::json::parse(res[0][10].as<std::string>());
+                } catch (...) {
+                    j["hpo_config"] = nlohmann::json::object();
+                }
+            } else {
+                j["hpo_config"] = nlohmann::json();
+            }
+
+            j["parent_run_id"] = res[0][11].is_null() ? nlohmann::json() : nlohmann::json(res[0][11].as<std::string>());
+            j["trial_index"] = res[0][12].is_null() ? nlohmann::json() : nlohmann::json(res[0][12].as<int>());
+            
+            if (!res[0][13].is_null()) {
+                try {
+                    j["trial_params"] = nlohmann::json::parse(res[0][13].as<std::string>());
+                } catch (...) {
+                    j["trial_params"] = nlohmann::json::object();
+                }
+            } else {
+                j["trial_params"] = nlohmann::json();
+            }
+
+            j["best_trial_run_id"] = res[0][14].is_null() ? nlohmann::json() : nlohmann::json(res[0][14].as<std::string>());
+            j["best_metric_value"] = res[0][15].is_null() ? nlohmann::json() : nlohmann::json(res[0][15].as<double>());
+            j["best_metric_name"] = res[0][16].is_null() ? nlohmann::json() : nlohmann::json(res[0][16].as<std::string>());
+
+            j["selection_metric_direction"] = res[0][17].is_null() ? nlohmann::json() : nlohmann::json(res[0][17].as<std::string>());
+            j["tie_break_basis"] = res[0][18].is_null() ? nlohmann::json() : nlohmann::json(res[0][18].as<std::string>());
+            j["is_eligible"] = res[0][19].as<bool>();
+            j["eligibility_reason"] = res[0][20].is_null() ? nlohmann::json() : nlohmann::json(res[0][20].as<std::string>());
+            j["selection_metric_value"] = res[0][21].is_null() ? nlohmann::json() : nlohmann::json(res[0][21].as<double>());
         }
 
     } catch (const std::exception& e) {
         spdlog::error("DB Error in GetModelRun for {}: {}", model_run_id, e.what());
     }
     return j;
+}
+
+void DbClient::UpdateBestTrial(const std::string& parent_run_id,
+                               const std::string& best_trial_run_id,
+                               double best_metric_value,
+                               const std::string& best_metric_name,
+                               const std::string& best_metric_direction,
+                               const std::string& tie_break_basis) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        W.exec_params("UPDATE model_runs SET best_trial_run_id=$1, best_metric_value=$2, best_metric_name=$3, "
+                     "selection_metric_direction=$4, tie_break_basis=$5 WHERE model_run_id=$6",
+                     best_trial_run_id, best_metric_value, best_metric_name, 
+                     best_metric_direction, tie_break_basis, parent_run_id);
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to update best trial for {}: {}", parent_run_id, e.what());
+    }
+}
+
+void DbClient::UpdateTrialEligibility(const std::string& model_run_id,
+                                     bool is_eligible,
+                                     const std::string& reason,
+                                     double metric_value) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        W.exec_params("UPDATE model_runs SET is_eligible=$1, eligibility_reason=$2, selection_metric_value=$3 "
+                     "WHERE model_run_id=$4",
+                     is_eligible, reason, metric_value, model_run_id);
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to update trial eligibility for {}: {}", model_run_id, e.what());
+    }
+}
+
+nlohmann::json DbClient::GetHpoTrials(const std::string& parent_run_id) {
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        auto res = N.exec_params(
+            "SELECT model_run_id, status, trial_index, trial_params, created_at, completed_at, error, "
+            "is_eligible, eligibility_reason, selection_metric_value "
+            "FROM model_runs WHERE parent_run_id = $1 ORDER BY trial_index ASC",
+            parent_run_id);
+        for (const auto& row : res) {
+            nlohmann::json j;
+            j["model_run_id"] = row[0].as<std::string>();
+            j["status"] = row[1].as<std::string>();
+            j["trial_index"] = row[2].as<int>();
+            j["trial_params"] = nlohmann::json::parse(row[3].as<std::string>());
+            j["created_at"] = row[4].as<std::string>();
+            j["completed_at"] = row[5].is_null() ? "" : row[5].as<std::string>();
+            j["error"] = row[6].is_null() ? "" : row[6].as<std::string>();
+            j["is_eligible"] = row[7].as<bool>();
+            j["eligibility_reason"] = row[8].is_null() ? nlohmann::json() : nlohmann::json(row[8].as<std::string>());
+            j["selection_metric_value"] = row[9].is_null() ? nlohmann::json() : nlohmann::json(row[9].as<double>());
+            out.push_back(j);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get HPO trials for parent {}: {}", parent_run_id, e.what());
+    }
+    return out;
 }
 
 std::string DbClient::CreateInferenceRun(const std::string& model_run_id) {
@@ -532,7 +663,9 @@ nlohmann::json DbClient::ListModelRuns(int limit,
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
         std::string query =
-            "SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, training_config "
+            "SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, training_config, "
+            "parent_run_id, trial_index, best_trial_run_id, best_metric_value, best_metric_name, "
+            "is_eligible, eligibility_reason, selection_metric_value "
             "FROM model_runs ";
         std::vector<std::string> where;
         if (!status.empty()) where.push_back("status = " + N.quote(status));
@@ -568,6 +701,14 @@ nlohmann::json DbClient::ListModelRuns(int limit,
             } else {
                 j["training_config"] = nlohmann::json::object();
             }
+            j["parent_run_id"] = row[9].is_null() ? nlohmann::json() : nlohmann::json(row[9].as<std::string>());
+            j["trial_index"] = row[10].is_null() ? nlohmann::json() : nlohmann::json(row[10].as<int>());
+            j["best_trial_run_id"] = row[11].is_null() ? nlohmann::json() : nlohmann::json(row[11].as<std::string>());
+            j["best_metric_value"] = row[12].is_null() ? nlohmann::json() : nlohmann::json(row[12].as<double>());
+            j["best_metric_name"] = row[13].is_null() ? nlohmann::json() : nlohmann::json(row[13].as<std::string>());
+            j["is_eligible"] = row[14].as<bool>();
+            j["eligibility_reason"] = row[15].is_null() ? nlohmann::json() : nlohmann::json(row[15].as<std::string>());
+            j["selection_metric_value"] = row[16].is_null() ? nlohmann::json() : nlohmann::json(row[16].as<double>());
             out.push_back(j);
         }
     } catch (const std::exception& e) {
@@ -1358,6 +1499,16 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
             out["items"].push_back(j);
         }
 
+        // Include metadata in results response
+        auto model_run = GetModelRun(model_run_id);
+        if (!model_run.empty()) {
+            out["training_config"] = model_run.value("training_config", nlohmann::json::object());
+            out["hpo_config"] = model_run.value("hpo_config", nlohmann::json());
+            out["parent_run_id"] = model_run.value("parent_run_id", nlohmann::json());
+            out["trial_index"] = model_run.value("trial_index", nlohmann::json());
+            out["trial_params"] = model_run.value("trial_params", nlohmann::json());
+        }
+
         auto count_res = N.exec("SELECT COUNT(*) FROM dataset_scores s " + where);
         out["total"] = count_res.empty() ? 0 : count_res[0][0].as<long>();
 
@@ -1480,6 +1631,16 @@ nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
         }
         out["roc"] = roc;
         out["pr"] = pr;
+
+        // Include metadata in results response
+        auto model_run = GetModelRun(model_run_id);
+        if (!model_run.empty()) {
+            out["training_config"] = model_run.value("training_config", nlohmann::json::object());
+            out["hpo_config"] = model_run.value("hpo_config", nlohmann::json());
+            out["parent_run_id"] = model_run.value("parent_run_id", nlohmann::json());
+            out["trial_index"] = model_run.value("trial_index", nlohmann::json());
+            out["trial_params"] = model_run.value("trial_params", nlohmann::json());
+        }
     } catch (const std::exception& e) {
         spdlog::error("Failed to get eval metrics: {}", e.what());
     }

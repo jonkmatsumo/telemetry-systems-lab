@@ -87,6 +87,31 @@ class _CompareModelsScreenState extends State<CompareModelsScreen> {
     }
   }
 
+  Future<void> _updateLeft(String? id) async {
+    if (id == null) {
+      setState(() {
+        _leftDetail = null;
+      });
+      return;
+    }
+    setState(() => _loading = true);
+    final service = context.read<TelemetryService>();
+    try {
+      final left = await service.getModelDetail(id);
+      if (!mounted) return;
+      setState(() {
+        _leftDetail = left;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading model: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -101,12 +126,15 @@ class _CompareModelsScreenState extends State<CompareModelsScreen> {
                 overrideParams: {
                   'compareLeft': _leftDetail!['model_run_id'],
                   'compareRight': _rightDetail!['model_run_id'],
+                  if (Uri.base.queryParameters.containsKey('runType')) 'runType': Uri.base.queryParameters['runType']!,
+                  if (Uri.base.queryParameters.containsKey('runStatus')) 'runStatus': Uri.base.queryParameters['runStatus']!,
+                  if (Uri.base.queryParameters.containsKey('sortBy')) 'sortBy': Uri.base.queryParameters['sortBy']!,
                 },
               ),
             ),
         ],
       ),
-      body: _loading && _leftDetail == null
+      body: _loading && _leftDetail == null && _rightDetail == null
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
@@ -126,10 +154,9 @@ class _CompareModelsScreenState extends State<CompareModelsScreen> {
   }
 
   Widget _buildModelColumn(Map<String, dynamic>? detail, {required bool isLeft}) {
-    if (detail == null && !isLeft) {
-      return _buildModelSelector();
+    if (detail == null) {
+      return _buildModelSelector(isLeft: isLeft);
     }
-    if (detail == null) return const Center(child: CircularProgressIndicator());
 
     return ListView(
       padding: const EdgeInsets.all(24),
@@ -139,11 +166,10 @@ class _CompareModelsScreenState extends State<CompareModelsScreen> {
           children: [
             Text(isLeft ? 'Left Model' : 'Right Model',
                 style: const TextStyle(fontSize: 14, color: Color(0xFF94A3B8))),
-            if (!isLeft)
-              TextButton(
-                onPressed: () => _updateRight(null),
-                child: const Text('Change'),
-              ),
+            TextButton(
+              onPressed: () => isLeft ? _updateLeft(null) : _updateRight(null),
+              child: const Text('Change'),
+            ),
           ],
         ),
         Text(detail['name'] ?? 'N/A',
@@ -155,9 +181,11 @@ class _CompareModelsScreenState extends State<CompareModelsScreen> {
         _kv('Status', detail['status']),
         _kv('Created', _formatTs(detail['created_at'])),
         _kv('Dataset', '${(detail['dataset_id'] ?? '').toString().substring(0, 8)}...'),
+        if (detail['parent_run_id'] != null) _kv('Parent Run', '${detail['parent_run_id'].toString().substring(0, 8)}...'),
+        if (detail['trial_index'] != null) _kv('Trial Index', detail['trial_index'].toString()),
         
         // Training Config
-        ..._buildConfigRows(detail['training_config'] ?? {}),
+        ..._buildConfigRows(detail['training_config'] ?? {}, isLeft),
 
         const SizedBox(height: 24),
         _section('Artifact Stats'),
@@ -168,30 +196,62 @@ class _CompareModelsScreenState extends State<CompareModelsScreen> {
     );
   }
 
-  List<Widget> _buildConfigRows(Map<String, dynamic> config) {
+  List<Widget> _buildConfigRows(Map<String, dynamic> config, bool isLeft) {
     if (config.isEmpty) return [const Text('No training config stored.')];
-    return config.entries.map((e) => _kv(e.key, e.value.toString())).toList();
+    
+    final otherConfig = isLeft ? (_rightDetail?['training_config'] ?? {}) : (_leftDetail?['training_config'] ?? {});
+    final List<Widget> rows = [];
+    final List<String> identicalKeys = [];
+
+    for (final entry in config.entries) {
+      final key = entry.key;
+      final val = entry.value.toString();
+      final otherVal = otherConfig[key]?.toString();
+
+      if (_rightDetail != null && val == otherVal) {
+        identicalKeys.add(key);
+      } else {
+        rows.add(_kv(key, val));
+      }
+    }
+
+    if (identicalKeys.isNotEmpty) {
+      rows.add(
+        ExpansionTile(
+          title: Text('${identicalKeys.length} Identical Fields', 
+                       style: const TextStyle(fontSize: 12, color: Colors.white54)),
+          tilePadding: EdgeInsets.zero,
+          children: identicalKeys.map((k) => _kv(k, config[k].toString())).toList(),
+        )
+      );
+    }
+
+    return rows;
   }
 
-  Widget _buildModelSelector() {
+  Widget _buildModelSelector({required bool isLeft}) {
+    final otherDetail = isLeft ? _rightDetail : _leftDetail;
+    final otherId = otherDetail?['model_run_id'];
+    
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Text('Select a model to compare', style: TextStyle(fontSize: 18, color: Colors.white70)),
+          Text('Select ${isLeft ? "left" : "right"} model', style: const TextStyle(fontSize: 18, color: Colors.white70)),
           const SizedBox(height: 24),
           SizedBox(
             width: 300,
             child: DropdownButton<String>(
               isExpanded: true,
               hint: const Text('Choose model'),
-              items: _availableModels.where((m) => m.modelRunId != widget.leftRunId).map((m) {
-                return DropdownMenuItem(
-                  value: m.modelRunId,
-                  child: Text('${m.name} (${m.status})'),
-                );
-              }).toList(),
-              onChanged: _updateRight,
+              items: _availableModels
+                  .where((m) => m.modelRunId != otherId)
+                  .map((m) => DropdownMenuItem<String>(
+                        value: m.modelRunId,
+                        child: Text('${m.name} (${m.status})'),
+                      ))
+                  .toList(),
+              onChanged: isLeft ? _updateLeft : _updateRight,
             ),
           ),
         ],
@@ -207,25 +267,41 @@ class _CompareModelsScreenState extends State<CompareModelsScreen> {
     final rightT = _rightDetail!['artifact']?['thresholds']?['reconstruction_error'] ?? 0.0;
     final tDiff = rightT - leftT;
 
+    final leftC = _leftDetail!['artifact']?['model']?['n_components'] ?? 0;
+    final rightC = _rightDetail!['artifact']?['model']?['n_components'] ?? 0;
+    final cDiff = rightC - leftC;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: const BoxDecoration(
         color: Color(0xFF0F172A),
         border: Border(top: BorderSide(color: Colors.white24)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Wrap(
+        spacing: 32,
+        runSpacing: 16,
+        alignment: WrapAlignment.center,
         children: [
-          const Text('Threshold Delta: ', style: TextStyle(color: Colors.white54)),
-          Text(
-            '${tDiff > 0 ? "+" : ""}${tDiff.toStringAsFixed(6)}',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: tDiff == 0 ? Colors.white : (tDiff > 0 ? Colors.orangeAccent : Colors.greenAccent),
-            ),
-          ),
+          _deltaItem('Threshold Delta', tDiff, format: (v) => v.toStringAsFixed(6)),
+          _deltaItem('N Components Delta', cDiff.toDouble(), format: (v) => v.toInt().toString()),
         ],
       ),
+    );
+  }
+
+  Widget _deltaItem(String label, double diff, {required String Function(double) format}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('$label: ', style: const TextStyle(color: Colors.white54, fontSize: 13)),
+        Text(
+          '${diff > 0 ? "+" : ""}${format(diff)}',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: diff == 0 ? Colors.white : (diff > 0 ? Colors.orangeAccent : Colors.greenAccent),
+          ),
+        ),
+      ],
     );
   }
 

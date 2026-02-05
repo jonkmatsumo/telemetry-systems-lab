@@ -9,6 +9,7 @@
 #include "telemetry.grpc.pb.h"
 #include "db_client.h"
 #include "job_manager.h"
+#include "training/pca_trainer.h"
 
 namespace telemetry {
 namespace api {
@@ -22,6 +23,16 @@ public:
     void Stop();
 
 private:
+    struct TuningTask {
+        std::string parent_run_id;
+        std::string name;
+        std::string dataset_id;
+        std::string rid;
+        std::vector<training::TrainingConfig> trials;
+        int max_concurrency;
+    };
+
+    void OrchestrateTuning(TuningTask task);
     // Route Handlers
     void HandleGenerateData(const httplib::Request& req, httplib::Response& res);
     void HandleListDatasets(const httplib::Request& req, httplib::Response& res);
@@ -50,6 +61,12 @@ private:
     void HandleGetJobProgress(const httplib::Request& req, httplib::Response& res);
     void HandleModelEval(const httplib::Request& req, httplib::Response& res);
     void HandleModelErrorDistribution(const httplib::Request& req, httplib::Response& res);
+
+    void RunPcaTraining(const std::string& model_run_id, 
+                         const std::string& dataset_id, 
+                         int n_components, 
+                         double percentile, 
+                         const std::string& rid);
 
     void ValidateRoutes();
 

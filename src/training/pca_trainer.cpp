@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <random>
 #include <stdexcept>
 
 #include <nlohmann/json.hpp>
@@ -330,6 +331,93 @@ void WriteArtifactJson(const PcaArtifact& artifact, const std::string& output_pa
         telemetry::obs::EmitCounter("train_bytes_written", static_cast<long>(size), "bytes", "trainer",
                                     {}, {{"artifact_path", output_path}});
     }
+}
+
+std::vector<HpoValidationError> ValidateHpoConfig(const HpoConfig& config) {
+    std::vector<HpoValidationError> errors;
+
+    if (config.algorithm != "grid" && config.algorithm != "random") {
+        errors.push_back({"algorithm", "Algorithm must be 'grid' or 'random'"});
+    }
+
+    if (config.max_trials <= 0 || config.max_trials > 50) {
+        errors.push_back({"max_trials", "max_trials must be between 1 and 50"});
+    }
+
+    if (config.max_concurrency <= 0 || config.max_concurrency > 10) {
+        errors.push_back({"max_concurrency", "max_concurrency must be between 1 and 10"});
+    }
+
+    if (config.search_space.n_components.empty() && config.search_space.percentile.empty()) {
+        errors.push_back({"search_space", "Search space cannot be empty"});
+    }
+
+    for (int n : config.search_space.n_components) {
+        if (n <= 0 || n > 5) {
+            errors.push_back({"search_space.n_components", "n_components must be between 1 and 5"});
+            break;
+        }
+    }
+
+    for (double p : config.search_space.percentile) {
+        if (p < 50.0 || p >= 100.0) {
+            errors.push_back({"search_space.percentile", "percentile must be between 50.0 and 99.99"});
+            break;
+        }
+    }
+
+    if (config.algorithm == "grid") {
+        size_t total_combinations = 1;
+        if (!config.search_space.n_components.empty()) total_combinations *= config.search_space.n_components.size();
+        if (!config.search_space.percentile.empty()) total_combinations *= config.search_space.percentile.size();
+
+        if (total_combinations > 100) {
+             errors.push_back({"search_space", "Grid search space too large (max 100 combinations)"});
+        }
+    }
+
+    return errors;
+}
+
+std::vector<TrainingConfig> GenerateTrials(const HpoConfig& hpo, const std::string& dataset_id) {
+    std::vector<TrainingConfig> trials;
+
+    // Use default search values if space is partially defined
+    std::vector<int> n_components_space = hpo.search_space.n_components;
+    if (n_components_space.empty()) n_components_space = {3};
+
+    std::vector<double> percentile_space = hpo.search_space.percentile;
+    if (percentile_space.empty()) percentile_space = {99.5};
+
+    if (hpo.algorithm == "grid") {
+        for (int n : n_components_space) {
+            for (double p : percentile_space) {
+                if (static_cast<int>(trials.size()) >= hpo.max_trials) break;
+                TrainingConfig config;
+                config.dataset_id = dataset_id;
+                config.n_components = n;
+                config.percentile = p;
+                trials.push_back(config);
+            }
+            if (static_cast<int>(trials.size()) >= hpo.max_trials) break;
+        }
+    } else if (hpo.algorithm == "random") {
+        unsigned int seed = hpo.seed.has_value() ? static_cast<unsigned int>(hpo.seed.value()) : 
+                            static_cast<unsigned int>(std::chrono::system_clock::now().time_since_epoch().count());
+        std::mt19937 gen(seed);
+        std::uniform_int_distribution<> n_dist(0, static_cast<int>(n_components_space.size()) - 1);
+        std::uniform_int_distribution<> p_dist(0, static_cast<int>(percentile_space.size()) - 1);
+
+        for (int i = 0; i < hpo.max_trials; ++i) {
+            TrainingConfig config;
+            config.dataset_id = dataset_id;
+            config.n_components = n_components_space[static_cast<size_t>(n_dist(gen))];
+            config.percentile = percentile_space[static_cast<size_t>(p_dist(gen))];
+            trials.push_back(config);
+        }
+    }
+
+    return trials;
 }
 
 } // namespace training
