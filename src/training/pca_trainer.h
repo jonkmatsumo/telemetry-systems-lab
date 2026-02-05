@@ -23,6 +23,7 @@ struct SearchSpace {
 struct HpoConfig {
     std::string algorithm = "grid"; // "grid" or "random"
     int max_trials = 10;
+    int max_concurrency = 2;
     std::optional<int> seed;
     SearchSpace search_space;
 };

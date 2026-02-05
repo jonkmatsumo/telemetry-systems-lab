@@ -344,6 +344,10 @@ std::vector<HpoValidationError> ValidateHpoConfig(const HpoConfig& config) {
         errors.push_back({"max_trials", "max_trials must be between 1 and 50"});
     }
 
+    if (config.max_concurrency <= 0 || config.max_concurrency > 10) {
+        errors.push_back({"max_concurrency", "max_concurrency must be between 1 and 10"});
+    }
+
     if (config.search_space.n_components.empty() && config.search_space.percentile.empty()) {
         errors.push_back({"search_space", "Search space cannot be empty"});
     }

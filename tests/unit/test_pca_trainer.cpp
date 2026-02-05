@@ -85,6 +85,19 @@ TEST(HpoContractTest, ValidatesGridSearchCap) {
     EXPECT_EQ(errors[0].message, "Grid search space too large (max 100 combinations)");
 }
 
+TEST(HpoContractTest, ValidatesMaxConcurrency) {
+    telemetry::training::HpoConfig config;
+    config.max_concurrency = 0;
+    auto errors = telemetry::training::ValidateHpoConfig(config);
+    ASSERT_FALSE(errors.empty());
+    EXPECT_EQ(errors[0].field, "max_concurrency");
+
+    config.max_concurrency = 11;
+    errors = telemetry::training::ValidateHpoConfig(config);
+    ASSERT_FALSE(errors.empty());
+    EXPECT_EQ(errors[0].field, "max_concurrency");
+}
+
 TEST(HpoContractTest, GeneratesDeterministicGrid) {
     telemetry::training::HpoConfig config;
     config.algorithm = "grid";

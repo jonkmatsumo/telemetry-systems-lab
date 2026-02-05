@@ -23,6 +23,16 @@ public:
     void Stop();
 
 private:
+    struct TuningTask {
+        std::string parent_run_id;
+        std::string name;
+        std::string dataset_id;
+        std::string rid;
+        std::vector<training::TrainingConfig> trials;
+        int max_concurrency;
+    };
+
+    void OrchestrateTuning(TuningTask task);
     // Route Handlers
     void HandleGenerateData(const httplib::Request& req, httplib::Response& res);
     void HandleListDatasets(const httplib::Request& req, httplib::Response& res);

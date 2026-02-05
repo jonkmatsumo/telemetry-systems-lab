@@ -823,6 +823,85 @@ void ApiServer::HandleGetDatasetModels(const httplib::Request& req, httplib::Res
     }
 }
 
+void ApiServer::OrchestrateTuning(TuningTask task) {
+    job_manager_->StartJob("tuning-" + task.parent_run_id, task.rid, [this, task](const std::atomic<bool>* stop_flag) {
+        spdlog::info("Tuning orchestration started for model_run_id: {} with {} trials (max_concurrency: {})", 
+                     task.parent_run_id, task.trials.size(), task.max_concurrency);
+        
+        db_client_->UpdateModelRunStatus(task.parent_run_id, "RUNNING");
+
+        std::vector<std::string> trial_ids;
+        int idx = 0;
+        for (const auto& trial_cfg : task.trials) {
+            nlohmann::json trial_params = {
+                {"n_components", trial_cfg.n_components},
+                {"percentile", trial_cfg.percentile}
+            };
+            
+            std::string trial_name = task.name + "_trial_" + std::to_string(idx);
+            nlohmann::json t_training_config = {
+                {"dataset_id", task.dataset_id},
+                {"n_components", trial_cfg.n_components},
+                {"percentile", trial_cfg.percentile},
+                {"feature_set", "cpu,mem,disk,rx,tx"}
+            };
+
+            std::string trial_run_id = db_client_->CreateHpoTrialRun(
+                task.dataset_id, 
+                trial_name, 
+                t_training_config, 
+                task.rid, 
+                task.parent_run_id, 
+                idx, 
+                trial_params);
+            
+            if (!trial_run_id.empty()) {
+                trial_ids.push_back(trial_run_id);
+            }
+            idx++;
+        }
+
+        // Execution loop with concurrency control
+        size_t next_trial = 0;
+        std::map<std::string, bool> active_trials;
+
+        while (next_trial < trial_ids.size() || !active_trials.empty()) {
+            if (stop_flag->load()) {
+                spdlog::warn("Tuning orchestration for {} cancelled.", task.parent_run_id);
+                // Propagate cancel to all remaining trials (already handles by HandleDelete endpoint but here for robustness)
+                return;
+            }
+
+            // Start new trials up to concurrency limit
+            while (next_trial < trial_ids.size() && active_trials.size() < static_cast<size_t>(task.max_concurrency)) {
+                std::string tid = trial_ids[next_trial];
+                auto& t_cfg = task.trials[next_trial];
+                
+                RunPcaTraining(tid, task.dataset_id, t_cfg.n_components, t_cfg.percentile, task.rid);
+                active_trials[tid] = true;
+                next_trial++;
+            }
+
+            // Wait and check for trial completions
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            
+            auto it = active_trials.begin();
+            while (it != active_trials.end()) {
+                auto run_info = db_client_->GetModelRun(it->first);
+                std::string status = run_info["status"];
+                if (status == "COMPLETED" || status == "FAILED" || status == "CANCELLED") {
+                    it = active_trials.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
+        spdlog::info("Tuning orchestration finished for model_run_id: {}", task.parent_run_id);
+        // Status aggregation is handled by HandleGetDetail dynamically but we can trigger a final update here too
+    });
+}
+
 void ApiServer::RunPcaTraining(const std::string& model_run_id, 
                                const std::string& dataset_id, 
                                int n_components, 
@@ -990,6 +1069,7 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
             telemetry::training::HpoConfig hpo;
             hpo.algorithm = hpo_config.value("algorithm", "grid");
             hpo.max_trials = hpo_config.value("max_trials", 10);
+            hpo.max_concurrency = hpo_config.value("max_concurrency", 2);
             if (hpo_config.contains("seed")) hpo.seed = hpo_config["seed"].get<int>();
             if (hpo_config.contains("search_space")) {
                 auto ss = hpo_config["search_space"];
@@ -998,40 +1078,16 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
             }
 
             auto trials = telemetry::training::GenerateTrials(hpo, dataset_id);
-            spdlog::info("Starting HPO orchestration for model_run_id: {} with {} trials", model_run_id, trials.size());
             
-            // Mark parent as RUNNING
-            db_client_->UpdateModelRunStatus(model_run_id, "RUNNING");
+            TuningTask task;
+            task.parent_run_id = model_run_id;
+            task.name = name;
+            task.dataset_id = dataset_id;
+            task.rid = rid;
+            task.trials = trials;
+            task.max_concurrency = std::clamp(hpo.max_concurrency, 1, 10);
 
-            int idx = 0;
-            for (const auto& trial_cfg : trials) {
-                nlohmann::json trial_params = {
-                    {"n_components", trial_cfg.n_components},
-                    {"percentile", trial_cfg.percentile}
-                };
-                
-                std::string trial_name = name + "_trial_" + std::to_string(idx);
-                nlohmann::json t_training_config = {
-                    {"dataset_id", dataset_id},
-                    {"n_components", trial_cfg.n_components},
-                    {"percentile", trial_cfg.percentile},
-                    {"feature_set", "cpu,mem,disk,rx,tx"}
-                };
-
-                std::string trial_run_id = db_client_->CreateHpoTrialRun(
-                    dataset_id, 
-                    trial_name, 
-                    t_training_config, 
-                    rid, 
-                    model_run_id, 
-                    idx, 
-                    trial_params);
-                
-                if (!trial_run_id.empty()) {
-                    RunPcaTraining(trial_run_id, dataset_id, trial_cfg.n_components, trial_cfg.percentile, rid);
-                }
-                idx++;
-            }
+            OrchestrateTuning(std::move(task));
         }
 
         nlohmann::json resp;
