@@ -28,10 +28,52 @@ class _ModelsScreenState extends State<ModelsScreen> {
   bool _jobPollingInFlight = false;
   double? _currentThreshold;
 
+  // Filter State
+  String _runTypeFilter = 'all'; // all, tuning, trial, single
+  String _statusFilter = 'all'; // all, running, terminal
+  String _sortBy = 'newest'; // newest, best_metric
+
   @override
   void initState() {
     super.initState();
-    _modelsFuture = context.read<TelemetryService>().listModels();
+    _loadStateFromUrl();
+    _modelsFuture = _fetchModels();
+  }
+
+  void _loadStateFromUrl() {
+    final uri = Uri.base;
+    if (uri.queryParameters.containsKey('runType')) _runTypeFilter = uri.queryParameters['runType']!;
+    if (uri.queryParameters.containsKey('runStatus')) _statusFilter = uri.queryParameters['runStatus']!;
+    if (uri.queryParameters.containsKey('sortBy')) _sortBy = uri.queryParameters['sortBy']!;
+  }
+
+  Future<List<ModelRunSummary>> _fetchModels() async {
+    final all = await context.read<TelemetryService>().listModels(limit: 200);
+    
+    // Apply local filtering (simplest for now)
+    var filtered = all.where((m) {
+      if (_runTypeFilter == 'tuning') return m.hpoSummary != null;
+      if (_runTypeFilter == 'trial') return m.parentRunId != null;
+      if (_runTypeFilter == 'single') return m.hpoSummary == null && m.parentRunId == null;
+      return true;
+    }).where((m) {
+      if (_statusFilter == 'running') return m.status == 'RUNNING' || m.status == 'PENDING';
+      if (_statusFilter == 'terminal') return m.status == 'COMPLETED' || m.status == 'FAILED' || m.status == 'CANCELLED';
+      return true;
+    }).toList();
+
+    // Sorting
+    if (_sortBy == 'newest') {
+      filtered.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    } else if (_sortBy == 'best_metric') {
+      filtered.sort((a, b) {
+        final va = a.hpoSummary?['best_metric_value'] ?? a.selectionMetricValue ?? 99999.0;
+        final vb = b.hpoSummary?['best_metric_value'] ?? b.selectionMetricValue ?? 99999.0;
+        return va.compareTo(vb);
+      });
+    }
+
+    return filtered;
   }
 
   @override
@@ -42,8 +84,61 @@ class _ModelsScreenState extends State<ModelsScreen> {
 
   Future<void> _refresh() async {
     setState(() {
-      _modelsFuture = context.read<TelemetryService>().listModels();
+      _modelsFuture = _fetchModels();
     });
+  }
+
+  Widget _buildFilters() {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _dropdown('Type', _runTypeFilter, ['all', 'tuning', 'trial', 'single'], (v) {
+                setState(() => _runTypeFilter = v!);
+                _refresh();
+              }),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _dropdown('Status', _statusFilter, ['all', 'running', 'terminal'], (v) {
+                setState(() => _statusFilter = v!);
+                _refresh();
+              }),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _dropdown('Sort By', _sortBy, ['newest', 'best_metric'], (v) {
+          setState(() => _sortBy = v!);
+          _refresh();
+        }),
+      ],
+    );
+  }
+
+  Widget _dropdown(String label, String value, List<String> items, ValueChanged<String?> onChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10)),
+        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(4)),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: value,
+              isExpanded: true,
+              style: const TextStyle(fontSize: 12, color: Colors.white),
+              dropdownColor: const Color(0xFF1E293B),
+              items: items.map((i) => DropdownMenuItem(value: i, child: Text(i.replaceAll('_', ' ').toUpperCase()))).toList(),
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _selectById(String id, {TelemetryService? service}) async {
@@ -277,6 +372,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
                     IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
                   ],
                 ),
+                const SizedBox(height: 12),
+                _buildFilters(),
                 const SizedBox(height: 12),
                 Expanded(
                   child: FutureBuilder<List<ModelRunSummary>>(
