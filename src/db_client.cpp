@@ -276,7 +276,10 @@ std::string DbClient::CreateModelRun(const std::string& dataset_id,
                                      const std::string& name,
                                      const nlohmann::json& training_config,
                                      const std::string& request_id,
-                                     const nlohmann::json& hpo_config) {
+                                     const nlohmann::json& hpo_config,
+                                     const std::string& candidate_fingerprint,
+                                     const std::string& generator_version,
+                                     std::optional<long long> seed_used) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
@@ -288,9 +291,12 @@ std::string DbClient::CreateModelRun(const std::string& dataset_id,
             hpo_ptr = hpo_val_str.c_str();
         }
 
-        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, hpo_config) "
-                                 "VALUES ($1, $2, 'PENDING', $3, $4, $5) RETURNING model_run_id",
-                                 dataset_id, name, request_id, training_config.dump(), hpo_ptr);
+        const char* fp_ptr = candidate_fingerprint.empty() ? nullptr : candidate_fingerprint.c_str();
+        const char* gv_ptr = generator_version.empty() ? nullptr : generator_version.c_str();
+
+        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, hpo_config, candidate_fingerprint, generator_version, seed_used) "
+                                 "VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8) RETURNING model_run_id",
+                                 dataset_id, name, request_id, training_config.dump(), hpo_ptr, fp_ptr, gv_ptr, seed_used);
         W.commit();
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
@@ -355,27 +361,20 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
         auto res = N.exec_params("SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id, training_config, "
                                  "hpo_config, parent_run_id, trial_index, trial_params, "
                                  "best_trial_run_id, best_metric_value, best_metric_name, "
-                                 "selection_metric_direction, tie_break_basis, is_eligible, eligibility_reason, selection_metric_value "
+                                 "selection_metric_direction, tie_break_basis, is_eligible, eligibility_reason, selection_metric_value, "
+                                 "candidate_fingerprint, generator_version, seed_used "
                                  "FROM model_runs WHERE model_run_id = $1", model_run_id);
 
         if (!res.empty()) {
-
+            // ... (keep previous assignments)
             j["model_run_id"] = res[0][0].as<std::string>();
-
             j["dataset_id"] = res[0][1].as<std::string>();
-
             j["name"] = res[0][2].as<std::string>();
-
             j["status"] = res[0][3].as<std::string>();
-
             j["artifact_path"] = res[0][4].is_null() ? "" : res[0][4].as<std::string>();
-
             j["error"] = res[0][5].is_null() ? "" : res[0][5].as<std::string>();
-
             j["created_at"] = res[0][6].as<std::string>();
-
             j["completed_at"] = res[0][7].is_null() ? "" : res[0][7].as<std::string>();
-
             j["request_id"] = res[0][8].is_null() ? "" : res[0][8].as<std::string>();
 
             if (!res[0][9].is_null()) {
@@ -420,6 +419,10 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
             j["is_eligible"] = res[0][19].as<bool>();
             j["eligibility_reason"] = res[0][20].is_null() ? nlohmann::json() : nlohmann::json(res[0][20].as<std::string>());
             j["selection_metric_value"] = res[0][21].is_null() ? nlohmann::json() : nlohmann::json(res[0][21].as<double>());
+
+            j["candidate_fingerprint"] = res[0][22].is_null() ? nlohmann::json() : nlohmann::json(res[0][22].as<std::string>());
+            j["generator_version"] = res[0][23].is_null() ? nlohmann::json() : nlohmann::json(res[0][23].as<std::string>());
+            j["seed_used"] = res[0][24].is_null() ? nlohmann::json() : nlohmann::json(res[0][24].as<long long>());
         }
 
     } catch (const std::exception& e) {

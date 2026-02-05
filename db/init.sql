@@ -107,6 +107,9 @@ CREATE TABLE IF NOT EXISTS model_runs (
     is_eligible BOOLEAN NOT NULL DEFAULT TRUE,
     eligibility_reason TEXT NULL,
     selection_metric_value DOUBLE PRECISION NULL,
+    candidate_fingerprint TEXT NULL,
+    generator_version TEXT NULL,
+    seed_used BIGINT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ NULL
 );

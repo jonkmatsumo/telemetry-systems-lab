@@ -27,7 +27,10 @@ public:
                                        const std::string& name,
                                        const nlohmann::json& training_config = {},
                                        const std::string& request_id = "",
-                                       const nlohmann::json& hpo_config = nlohmann::json::object()) = 0;
+                                       const nlohmann::json& hpo_config = nlohmann::json::object(),
+                                       const std::string& candidate_fingerprint = "",
+                                       const std::string& generator_version = "",
+                                       std::optional<long long> seed_used = std::nullopt) = 0;
     
     virtual std::string CreateHpoTrialRun(const std::string& dataset_id,
                                           const std::string& name,

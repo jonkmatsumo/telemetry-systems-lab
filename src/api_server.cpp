@@ -1019,12 +1019,20 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         };
 
         nlohmann::json hpo_config = nlohmann::json::object();
+        std::string fingerprint = "";
+        std::string generator_version = "";
+        std::optional<long long> seed_used = std::nullopt;
+
         if (j.contains("hpo_config")) {
             hpo_config = j["hpo_config"];
             telemetry::training::HpoConfig hpo;
             hpo.algorithm = hpo_config.value("algorithm", "grid");
             hpo.max_trials = hpo_config.value("max_trials", 10);
-            if (hpo_config.contains("seed")) hpo.seed = hpo_config["seed"].get<int>();
+            hpo.max_concurrency = hpo_config.value("max_concurrency", 2);
+            if (hpo_config.contains("seed")) {
+                hpo.seed = hpo_config["seed"].get<int>();
+                seed_used = hpo.seed.value();
+            }
             
             if (hpo_config.contains("search_space")) {
                 auto ss = hpo_config["search_space"];
@@ -1043,17 +1051,18 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
                 SendJson(res, err_resp, 400, rid);
                 return;
             }
-            // If HPO is enabled, we'll handle it in Phase 2. 
-            // For now, we just persist it if CreateModelRun is called with it.
+            
+            fingerprint = telemetry::training::ComputeCandidateFingerprint(hpo);
+            generator_version = telemetry::training::kHpoGeneratorVersion;
         }
 
         log.AddFields({{"dataset_id", dataset_id}, {"training_config", training_config.dump()}});
         if (!hpo_config.empty()) {
-            log.AddFields({{"hpo_config", hpo_config.dump()}});
+            log.AddFields({{"hpo_config", hpo_config.dump()}, {"fingerprint", fingerprint}});
         }
 
         // 1. Create DB entry
-        std::string model_run_id = db_client_->CreateModelRun(dataset_id, name, training_config, rid, hpo_config);
+        std::string model_run_id = db_client_->CreateModelRun(dataset_id, name, training_config, rid, hpo_config, fingerprint, generator_version, seed_used);
         if (model_run_id.empty()) {
             log.RecordError(telemetry::obs::kErrDbInsertFailed, "Failed to create model run in DB", 500);
             SendError(res, "Failed to create model run in DB", 500, telemetry::obs::kErrDbInsertFailed, rid);

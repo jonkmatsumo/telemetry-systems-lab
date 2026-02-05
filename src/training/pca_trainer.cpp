@@ -420,5 +420,30 @@ std::vector<TrainingConfig> GenerateTrials(const HpoConfig& hpo, const std::stri
     return trials;
 }
 
+std::string ComputeCandidateFingerprint(const HpoConfig& hpo) {
+    nlohmann::json normalized;
+    normalized["algorithm"] = hpo.algorithm;
+    normalized["max_trials"] = hpo.max_trials;
+    normalized["max_concurrency"] = std::clamp(hpo.max_concurrency, 1, 10);
+    normalized["seed"] = hpo.seed.has_value() ? nlohmann::json(hpo.seed.value()) : nlohmann::json(nullptr);
+    
+    auto n_comp = hpo.search_space.n_components;
+    std::sort(n_comp.begin(), n_comp.end());
+    normalized["search_space"]["n_components"] = n_comp;
+    
+    auto perc = hpo.search_space.percentile;
+    std::sort(perc.begin(), perc.end());
+    normalized["search_space"]["percentile"] = perc;
+    
+    normalized["generator_version"] = kHpoGeneratorVersion;
+
+    std::string serialized = normalized.dump();
+    size_t hash_val = std::hash<std::string>{}(serialized);
+    
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%zx", hash_val);
+    return std::string(buf);
+}
+
 } // namespace training
 } // namespace telemetry

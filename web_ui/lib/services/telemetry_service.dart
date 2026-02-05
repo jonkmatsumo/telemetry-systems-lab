@@ -292,6 +292,9 @@ class ModelRunSummary {
   final bool isEligible;
   final String? eligibilityReason;
   final double? selectionMetricValue;
+  final String? candidateFingerprint;
+  final String? generatorVersion;
+  final int? seedUsed;
 
   ModelRunSummary({
     required this.modelRunId,
@@ -310,6 +313,9 @@ class ModelRunSummary {
     this.isEligible = true,
     this.eligibilityReason,
     this.selectionMetricValue,
+    this.candidateFingerprint,
+    this.generatorVersion,
+    this.seedUsed,
   });
 
   factory ModelRunSummary.fromJson(Map<String, dynamic> json) {
@@ -330,6 +336,9 @@ class ModelRunSummary {
       isEligible: json['is_eligible'] ?? true,
       eligibilityReason: json['eligibility_reason'],
       selectionMetricValue: (json['selection_metric_value'] as num?)?.toDouble(),
+      candidateFingerprint: json['candidate_fingerprint'],
+      generatorVersion: json['generator_version'],
+      seedUsed: json['seed_used'],
     );
   }
 }

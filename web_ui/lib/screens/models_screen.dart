@@ -566,6 +566,12 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   ],
                 )
               ),
+            
+            const SizedBox(height: 12),
+            const Text('Audit & Reproducibility', style: TextStyle(fontWeight: FontWeight.bold)),
+            _kv('Fingerprint', _displayValue(detail['candidate_fingerprint'])),
+            _kv('Generator Version', _displayValue(detail['generator_version'])),
+            _kv('Seed Used', _displayValue(detail['seed_used'])),
           ],
           
           if (!isParent && parentRunId != null) ...[

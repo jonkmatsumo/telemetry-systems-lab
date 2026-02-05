@@ -34,9 +34,13 @@ struct HpoValidationError {
     std::string message;
 };
 
+constexpr const char* kHpoGeneratorVersion = "hpo_generator_v1";
+
 std::vector<HpoValidationError> ValidateHpoConfig(const HpoConfig& config);
 
 std::vector<TrainingConfig> GenerateTrials(const HpoConfig& hpo, const std::string& dataset_id);
+
+std::string ComputeCandidateFingerprint(const HpoConfig& hpo);
 
 struct PcaArtifact {
     linalg::Vector scaler_mean;
