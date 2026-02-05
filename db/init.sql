@@ -95,6 +95,18 @@ CREATE TABLE IF NOT EXISTS model_runs (
     error TEXT NULL,
     request_id TEXT NULL,
     training_config JSONB NOT NULL DEFAULT '{}',
+    hpo_config JSONB NULL,
+    parent_run_id UUID NULL REFERENCES model_runs(model_run_id),
+    trial_index INT NULL,
+    trial_params JSONB NULL,
+    best_trial_run_id UUID NULL REFERENCES model_runs(model_run_id),
+    best_metric_value DOUBLE PRECISION NULL,
+    best_metric_name TEXT NULL,
+    selection_metric_direction TEXT NULL,
+    tie_break_basis TEXT NULL,
+    is_eligible BOOLEAN NOT NULL DEFAULT TRUE,
+    eligibility_reason TEXT NULL,
+    selection_metric_value DOUBLE PRECISION NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ NULL
 );
@@ -113,6 +125,7 @@ CREATE TABLE IF NOT EXISTS inference_runs (
 
 CREATE INDEX IF NOT EXISTS idx_model_runs_dataset_id ON model_runs(dataset_id);
 CREATE INDEX IF NOT EXISTS idx_model_runs_request_id ON model_runs(request_id);
+CREATE INDEX IF NOT EXISTS idx_model_runs_parent_id ON model_runs(parent_run_id);
 CREATE INDEX IF NOT EXISTS idx_inference_model_id ON inference_runs(model_run_id);
 
 -- Table: dataset_score_jobs
