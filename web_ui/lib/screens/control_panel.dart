@@ -905,15 +905,18 @@ class _ControlPanelState extends State<ControlPanel> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  const Text('Hyperparameter Tuning', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
-                  const SizedBox(width: 4),
-                  Tooltip(
-                    message: 'Automatically explore parameter combinations. Grid search is deterministic; Random search can be seeded.',
-                    child: Icon(Icons.help_outline, size: 14, color: Colors.white38),
-                  ),
-                ],
+              Expanded(
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text('Hyperparameter Tuning', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
+                    const SizedBox(width: 4),
+                    Tooltip(
+                      message: 'Automatically explore parameter combinations. Grid search is deterministic; Random search can be seeded.',
+                      child: Icon(Icons.help_outline, size: 14, color: Colors.white38),
+                    ),
+                  ],
+                ),
               ),
               Switch(
                 value: _hpoEnabled,
