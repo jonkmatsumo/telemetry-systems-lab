@@ -166,6 +166,29 @@ class _ModelsScreenState extends State<ModelsScreen> {
     _selectById(model.modelRunId);
   }
 
+  void _showErrorDetail(Map<String, dynamic> summary) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Error: ${summary['code'] ?? 'Unknown'}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _kv('Stage', summary['stage'] ?? 'N/A'),
+            const SizedBox(height: 8),
+            const Text('Message:', style: TextStyle(color: Colors.white54, fontSize: 12)),
+            const SizedBox(height: 4),
+            Text(summary['message'] ?? 'No message available', style: const TextStyle(fontSize: 13)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+        ],
+      ),
+    );
+  }
+
   Widget _badge(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -230,7 +253,26 @@ class _ModelsScreenState extends State<ModelsScreen> {
                     ],
                   ),
                 ),
-                Padding(padding: const EdgeInsets.all(8), child: Text(t['status'] ?? 'N/A', style: TextStyle(fontSize: 11, color: _getStatusColor(t['status'] ?? '')))),
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(t['status'] ?? 'N/A', style: TextStyle(fontSize: 11, color: _getStatusColor(t['status'] ?? ''))),
+                      if (t['status'] == 'FAILED' && t['error_summary'] != null)
+                        InkWell(
+                          onTap: () => _showErrorDetail(t['error_summary']),
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              t['error_summary']['code'] ?? 'ERROR',
+                              style: const TextStyle(fontSize: 9, color: Colors.redAccent, decoration: TextDecoration.underline),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
                 Padding(
                   padding: const EdgeInsets.all(4), 
                   child: Row(
@@ -574,6 +616,16 @@ class _ModelsScreenState extends State<ModelsScreen> {
             _kv('Seed Used', _displayValue(detail['seed_used'])),
           ],
           
+          if (isParent && detail['error_aggregates'] != null && (detail['error_aggregates'] as Map).isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ExpansionTile(
+              title: const Text('Error Summary (Aggregated)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.redAccent)),
+              children: [
+                ...(detail['error_aggregates'] as Map).entries.map((e) => _kv(e.key, e.value.toString())),
+              ],
+            ),
+          ],
+
           if (!isParent && parentRunId != null) ...[
             const SizedBox(height: 12),
             const Text('Selection Metadata', style: TextStyle(fontWeight: FontWeight.bold)),
