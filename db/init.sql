@@ -112,6 +112,8 @@ CREATE TABLE IF NOT EXISTS model_runs (
     seed_used BIGINT NULL,
     error_summary JSONB NULL,
     error_aggregates JSONB NULL,
+    selection_metric_source TEXT NULL,
+    selection_metric_computed_at TIMESTAMPTZ NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ NULL
 );

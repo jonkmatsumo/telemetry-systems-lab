@@ -64,7 +64,8 @@ public:
     virtual void UpdateTrialEligibility(const std::string& model_run_id,
                                         bool is_eligible,
                                         const std::string& reason,
-                                        double metric_value) = 0;
+                                        double metric_value,
+                                        const std::string& source = "") = 0;
 
     virtual void UpdateParentErrorAggregates(const std::string& parent_run_id,
                                              const nlohmann::json& error_aggregates) = 0;

@@ -1022,7 +1022,7 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
 
                         // Update eligibility metadata
 
-                        db_client_->UpdateTrialEligibility(model_run_id, true, "", artifact.threshold);
+                        db_client_->UpdateTrialEligibility(model_run_id, true, "", artifact.threshold, "evaluation_artifact_v1");
 
         
 

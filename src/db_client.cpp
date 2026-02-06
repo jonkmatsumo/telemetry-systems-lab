@@ -375,12 +375,14 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
                                  "best_trial_run_id, best_metric_value, best_metric_name, "
                                  "selection_metric_direction, tie_break_basis, is_eligible, eligibility_reason, selection_metric_value, "
                                  "candidate_fingerprint, generator_version, seed_used, "
-                                 "error_summary, error_aggregates "
+                                 "error_summary, error_aggregates, "
+                                 "selection_metric_source, selection_metric_computed_at "
                                  "FROM model_runs WHERE model_run_id = $1", model_run_id);
 
         if (!res.empty()) {
-            // ... (keep previous assignments)
+            // ...
             j["model_run_id"] = res[0][0].as<std::string>();
+            // ... (keep middle assignments)
             j["dataset_id"] = res[0][1].as<std::string>();
             j["name"] = res[0][2].as<std::string>();
             j["status"] = res[0][3].as<std::string>();
@@ -456,6 +458,9 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
             } else {
                 j["error_aggregates"] = nlohmann::json();
             }
+
+            j["selection_metric_source"] = res[0][27].is_null() ? nlohmann::json() : nlohmann::json(res[0][27].as<std::string>());
+            j["selection_metric_computed_at"] = res[0][28].is_null() ? nlohmann::json() : nlohmann::json(res[0][28].as<std::string>());
         }
 
     } catch (const std::exception& e) {
@@ -486,13 +491,18 @@ void DbClient::UpdateBestTrial(const std::string& parent_run_id,
 void DbClient::UpdateTrialEligibility(const std::string& model_run_id,
                                      bool is_eligible,
                                      const std::string& reason,
-                                     double metric_value) {
+                                     double metric_value,
+                                     const std::string& source) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        W.exec_params("UPDATE model_runs SET is_eligible=$1, eligibility_reason=$2, selection_metric_value=$3 "
-                     "WHERE model_run_id=$4",
-                     is_eligible, reason, metric_value, model_run_id);
+        
+        const char* src_ptr = source.empty() ? nullptr : source.c_str();
+
+        W.exec_params("UPDATE model_runs SET is_eligible=$1, eligibility_reason=$2, selection_metric_value=$3, "
+                     "selection_metric_source=$4, selection_metric_computed_at=NOW() "
+                     "WHERE model_run_id=$5",
+                     is_eligible, reason, metric_value, src_ptr, model_run_id);
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to update trial eligibility for {}: {}", model_run_id, e.what());
