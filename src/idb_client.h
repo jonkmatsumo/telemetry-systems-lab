@@ -2,6 +2,7 @@
 #include "types.h"
 #include <vector>
 #include <string>
+#include <optional>
 #include <nlohmann/json.hpp>
 #include "telemetry.grpc.pb.h"
 

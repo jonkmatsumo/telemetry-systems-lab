@@ -1,6 +1,7 @@
 #pragma once
 #include "idb_client.h"
 #include <pqxx/pqxx>
+#include <optional>
 #include <string>
 #include <vector>
 
