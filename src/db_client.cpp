@@ -276,7 +276,10 @@ std::string DbClient::CreateModelRun(const std::string& dataset_id,
                                      const std::string& name,
                                      const nlohmann::json& training_config,
                                      const std::string& request_id,
-                                     const nlohmann::json& hpo_config) {
+                                     const nlohmann::json& hpo_config,
+                                     const std::string& candidate_fingerprint,
+                                     const std::string& generator_version,
+                                     std::optional<long long> seed_used) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
@@ -288,9 +291,12 @@ std::string DbClient::CreateModelRun(const std::string& dataset_id,
             hpo_ptr = hpo_val_str.c_str();
         }
 
-        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, hpo_config) "
-                                 "VALUES ($1, $2, 'PENDING', $3, $4, $5) RETURNING model_run_id",
-                                 dataset_id, name, request_id, training_config.dump(), hpo_ptr);
+        const char* fp_ptr = candidate_fingerprint.empty() ? nullptr : candidate_fingerprint.c_str();
+        const char* gv_ptr = generator_version.empty() ? nullptr : generator_version.c_str();
+
+        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, hpo_config, candidate_fingerprint, generator_version, seed_used) "
+                                 "VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8) RETURNING model_run_id",
+                                 dataset_id, name, request_id, training_config.dump(), hpo_ptr, fp_ptr, gv_ptr, seed_used);
         W.commit();
         if (!res.empty()) return res[0][0].as<std::string>();
     } catch (const std::exception& e) {
@@ -325,16 +331,28 @@ std::string DbClient::CreateHpoTrialRun(const std::string& dataset_id,
 void DbClient::UpdateModelRunStatus(const std::string& model_run_id, 
                                     const std::string& status, 
                                     const std::string& artifact_path, 
-                                    const std::string& error) {
+                                    const std::string& error,
+                                    const nlohmann::json& error_summary) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
+        
+        std::string summary_str;
+        const char* summary_ptr = nullptr;
+        if (!error_summary.is_null() && !error_summary.empty()) {
+            summary_str = error_summary.dump();
+            summary_ptr = summary_str.c_str();
+        }
+
         if (status == "COMPLETED") {
              W.exec_params("UPDATE model_runs SET status=$1, artifact_path=$2, completed_at=NOW() WHERE model_run_id=$3",
                           status, artifact_path, model_run_id);
+        } else if (status == "FAILED" || status == "CANCELLED" || status == "CANCELED") {
+             W.exec_params("UPDATE model_runs SET status=$1, error=$2, error_summary=$3, completed_at=NOW() WHERE model_run_id=$4",
+                          status, error, summary_ptr, model_run_id);
         } else {
-             W.exec_params("UPDATE model_runs SET status=$1, error=$2 WHERE model_run_id=$3",
-                          status, error, model_run_id);
+             W.exec_params("UPDATE model_runs SET status=$1 WHERE model_run_id=$2",
+                          status, model_run_id);
         }
         W.commit();
     } catch (const std::exception& e) {
@@ -355,27 +373,23 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
         auto res = N.exec_params("SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id, training_config, "
                                  "hpo_config, parent_run_id, trial_index, trial_params, "
                                  "best_trial_run_id, best_metric_value, best_metric_name, "
-                                 "selection_metric_direction, tie_break_basis, is_eligible, eligibility_reason, selection_metric_value "
+                                 "selection_metric_direction, tie_break_basis, is_eligible, eligibility_reason, selection_metric_value, "
+                                 "candidate_fingerprint, generator_version, seed_used, "
+                                 "error_summary, error_aggregates, "
+                                 "selection_metric_source, selection_metric_computed_at "
                                  "FROM model_runs WHERE model_run_id = $1", model_run_id);
 
         if (!res.empty()) {
-
+            // ...
             j["model_run_id"] = res[0][0].as<std::string>();
-
+            // ... (keep middle assignments)
             j["dataset_id"] = res[0][1].as<std::string>();
-
             j["name"] = res[0][2].as<std::string>();
-
             j["status"] = res[0][3].as<std::string>();
-
             j["artifact_path"] = res[0][4].is_null() ? "" : res[0][4].as<std::string>();
-
             j["error"] = res[0][5].is_null() ? "" : res[0][5].as<std::string>();
-
             j["created_at"] = res[0][6].as<std::string>();
-
             j["completed_at"] = res[0][7].is_null() ? "" : res[0][7].as<std::string>();
-
             j["request_id"] = res[0][8].is_null() ? "" : res[0][8].as<std::string>();
 
             if (!res[0][9].is_null()) {
@@ -420,6 +434,33 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
             j["is_eligible"] = res[0][19].as<bool>();
             j["eligibility_reason"] = res[0][20].is_null() ? nlohmann::json() : nlohmann::json(res[0][20].as<std::string>());
             j["selection_metric_value"] = res[0][21].is_null() ? nlohmann::json() : nlohmann::json(res[0][21].as<double>());
+
+            j["candidate_fingerprint"] = res[0][22].is_null() ? nlohmann::json() : nlohmann::json(res[0][22].as<std::string>());
+            j["generator_version"] = res[0][23].is_null() ? nlohmann::json() : nlohmann::json(res[0][23].as<std::string>());
+            j["seed_used"] = res[0][24].is_null() ? nlohmann::json() : nlohmann::json(res[0][24].as<long long>());
+
+            if (!res[0][25].is_null()) {
+                try {
+                    j["error_summary"] = nlohmann::json::parse(res[0][25].as<std::string>());
+                } catch (...) {
+                    j["error_summary"] = nlohmann::json::object();
+                }
+            } else {
+                j["error_summary"] = nlohmann::json();
+            }
+
+            if (!res[0][26].is_null()) {
+                try {
+                    j["error_aggregates"] = nlohmann::json::parse(res[0][26].as<std::string>());
+                } catch (...) {
+                    j["error_aggregates"] = nlohmann::json::object();
+                }
+            } else {
+                j["error_aggregates"] = nlohmann::json();
+            }
+
+            j["selection_metric_source"] = res[0][27].is_null() ? nlohmann::json() : nlohmann::json(res[0][27].as<std::string>());
+            j["selection_metric_computed_at"] = res[0][28].is_null() ? nlohmann::json() : nlohmann::json(res[0][28].as<std::string>());
         }
 
     } catch (const std::exception& e) {
@@ -450,29 +491,96 @@ void DbClient::UpdateBestTrial(const std::string& parent_run_id,
 void DbClient::UpdateTrialEligibility(const std::string& model_run_id,
                                      bool is_eligible,
                                      const std::string& reason,
-                                     double metric_value) {
+                                     double metric_value,
+                                     const std::string& source) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
-        W.exec_params("UPDATE model_runs SET is_eligible=$1, eligibility_reason=$2, selection_metric_value=$3 "
-                     "WHERE model_run_id=$4",
-                     is_eligible, reason, metric_value, model_run_id);
+        
+        const char* src_ptr = source.empty() ? nullptr : source.c_str();
+
+        W.exec_params("UPDATE model_runs SET is_eligible=$1, eligibility_reason=$2, selection_metric_value=$3, "
+                     "selection_metric_source=$4, selection_metric_computed_at=NOW() "
+                     "WHERE model_run_id=$5",
+                     is_eligible, reason, metric_value, src_ptr, model_run_id);
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to update trial eligibility for {}: {}", model_run_id, e.what());
     }
 }
 
+void DbClient::UpdateParentErrorAggregates(const std::string& parent_run_id,
+                                           const nlohmann::json& error_aggregates) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        W.exec_params("UPDATE model_runs SET error_aggregates=$1 "
+                     "WHERE model_run_id=$2",
+                     error_aggregates.dump(), parent_run_id);
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to update error aggregates for {}: {}", parent_run_id, e.what());
+    }
+}
+
 nlohmann::json DbClient::GetHpoTrials(const std::string& parent_run_id) {
+    return GetHpoTrialsPaginated(parent_run_id, 1000, 0);
+}
+
+std::map<std::string, nlohmann::json> DbClient::GetBulkHpoTrialSummaries(const std::vector<std::string>& parent_run_ids) {
+    std::map<std::string, nlohmann::json> summaries;
+    if (parent_run_ids.empty()) return summaries;
+
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+        
+        std::string in_clause = "";
+        for (const auto& id : parent_run_ids) {
+            if (!in_clause.empty()) in_clause += ", ";
+            in_clause += N.quote(id);
+        }
+        
+        std::string query = "SELECT parent_run_id, status, COUNT(*) FROM model_runs WHERE parent_run_id IN (" + in_clause + ") GROUP BY parent_run_id, status";
+        
+        auto res = N.exec(query); 
+        
+        for (const auto& row : res) {
+            std::string pid = row[0].as<std::string>();
+            std::string status = row[1].as<std::string>();
+            long count = row[2].as<long>();
+            
+            if (!summaries.count(pid)) {
+                 summaries[pid] = {
+                     {"trial_count", 0},
+                     {"completed_count", 0},
+                     {"status_counts", {{"PENDING", 0}, {"RUNNING", 0}, {"COMPLETED", 0}, {"FAILED", 0}, {"converted_FAIL", 0}}}
+                 };
+            }
+            
+            summaries[pid]["trial_count"] = summaries[pid]["trial_count"].get<long>() + count;
+            summaries[pid]["status_counts"][status] = summaries[pid]["status_counts"][status].get<long>() + count;
+            if (status == "COMPLETED") {
+                summaries[pid]["completed_count"] = summaries[pid]["completed_count"].get<long>() + count;
+            }
+        }
+        
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to bulk fetch hpo summaries: {}", e.what());
+    }
+    return summaries;
+}
+
+nlohmann::json DbClient::GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) {
     nlohmann::json out = nlohmann::json::array();
     try {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
             "SELECT model_run_id, status, trial_index, trial_params, created_at, completed_at, error, "
-            "is_eligible, eligibility_reason, selection_metric_value "
-            "FROM model_runs WHERE parent_run_id = $1 ORDER BY trial_index ASC",
-            parent_run_id);
+            "is_eligible, eligibility_reason, selection_metric_value, selection_metric_source, error_summary, dataset_id, name, training_config "
+            "FROM model_runs WHERE parent_run_id = $1 ORDER BY trial_index ASC LIMIT $2 OFFSET $3",
+            parent_run_id, limit, offset);
         for (const auto& row : res) {
             nlohmann::json j;
             j["model_run_id"] = row[0].as<std::string>();
@@ -485,10 +593,23 @@ nlohmann::json DbClient::GetHpoTrials(const std::string& parent_run_id) {
             j["is_eligible"] = row[7].as<bool>();
             j["eligibility_reason"] = row[8].is_null() ? nlohmann::json() : nlohmann::json(row[8].as<std::string>());
             j["selection_metric_value"] = row[9].is_null() ? nlohmann::json() : nlohmann::json(row[9].as<double>());
+            j["selection_metric_source"] = row[10].is_null() ? nlohmann::json() : nlohmann::json(row[10].as<std::string>());
+            if (!row[11].is_null()) {
+                try {
+                    j["error_summary"] = nlohmann::json::parse(row[11].as<std::string>());
+                } catch (...) { j["error_summary"] = nlohmann::json::object(); }
+            } else { j["error_summary"] = nlohmann::json(); }
+            j["dataset_id"] = row[12].as<std::string>();
+            j["name"] = row[13].as<std::string>();
+            if (!row[14].is_null()) {
+                try {
+                    j["training_config"] = nlohmann::json::parse(row[14].as<std::string>());
+                } catch (...) { j["training_config"] = nlohmann::json::object(); }
+            } else { j["training_config"] = nlohmann::json::object(); }
             out.push_back(j);
         }
     } catch (const std::exception& e) {
-        spdlog::error("Failed to get HPO trials for parent {}: {}", parent_run_id, e.what());
+        spdlog::error("Failed to get paginated HPO trials for parent {}: {}", parent_run_id, e.what());
     }
     return out;
 }
@@ -1372,10 +1493,10 @@ nlohmann::json DbClient::ListScoreJobs(int limit,
     return out;
 }
 
-std::vector<DbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const std::string& dataset_id,
+std::vector<IDbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const std::string& dataset_id,
                                                                         long last_record_id,
                                                                         int limit) {
-    std::vector<ScoringRow> rows;
+    std::vector<IDbClient::ScoringRow> rows;
     try {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
@@ -1385,7 +1506,7 @@ std::vector<DbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const st
             dataset_id, last_record_id, limit);
         rows.reserve(res.size());
         for (const auto& row : res) {
-            ScoringRow r;
+            IDbClient::ScoringRow r;
             r.record_id = row[0].as<long>();
             r.is_anomaly = row[1].as<bool>();
             r.cpu = row[2].as<double>();
@@ -1397,6 +1518,7 @@ std::vector<DbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const st
         }
     } catch (const std::exception& e) {
         spdlog::error("Failed to fetch scoring rows: {}", e.what());
+        throw;
     }
     return rows;
 }
@@ -1451,7 +1573,25 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
         }
         telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "db_insert", "db", fields);
     } catch (const std::exception& e) {
-        spdlog::error("Failed to insert dataset scores: {}", e.what());
+        spdlog::error("Failed to insert dataset scores (dataset_id={}, model_run_id={}): {}", 
+                      dataset_id, model_run_id, e.what());
+        throw;
+    }
+}
+
+long DbClient::GetDatasetRecordCount(const std::string& dataset_id) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+#if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
+        auto res = N.exec_params("SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1", dataset_id);
+#else
+        auto res = N.exec_params("SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1", dataset_id);
+#endif
+        return res.empty() ? 0 : res[0][0].as<long>();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get dataset record count: {}", e.what());
+        throw;
     }
 }
 

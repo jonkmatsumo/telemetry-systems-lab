@@ -133,3 +133,54 @@ TEST(HpoContractTest, GeneratesDeterministicSeededRandom) {
         EXPECT_EQ(trials1[i].percentile, trials2[i].percentile);
     }
 }
+
+TEST(HpoContractTest, PreflightCalculatesCorrectly) {
+    telemetry::training::HpoConfig config;
+    config.algorithm = "grid";
+    config.search_space.n_components = {2, 3, 4};
+    config.search_space.percentile = {99.0, 99.5};
+    config.max_trials = 10;
+
+    auto preflight = telemetry::training::PreflightHpoConfig(config);
+    EXPECT_EQ(preflight.estimated_candidates, 6);
+    EXPECT_EQ(preflight.effective_trials, 6);
+    EXPECT_EQ(preflight.capped_by, telemetry::training::HpoCapReason::NONE);
+
+    config.max_trials = 4;
+    preflight = telemetry::training::PreflightHpoConfig(config);
+    EXPECT_EQ(preflight.effective_trials, 4);
+    EXPECT_EQ(preflight.capped_by, telemetry::training::HpoCapReason::MAX_TRIALS);
+
+    // Test GRID_CAP (100)
+    config.search_space.n_components = {1, 2, 3, 4, 5};
+    config.search_space.percentile = {};
+    for (int i = 0; i < 30; ++i) config.search_space.percentile.push_back(90.0 + i * 0.1);
+    // 5 * 30 = 150 combinations
+    preflight = telemetry::training::PreflightHpoConfig(config);
+    EXPECT_EQ(preflight.estimated_candidates, 150);
+    EXPECT_EQ(preflight.effective_trials, 100);
+    EXPECT_EQ(preflight.capped_by, telemetry::training::HpoCapReason::GRID_CAP);
+}
+
+TEST(HpoContractTest, FingerprintIsStable) {
+    telemetry::training::HpoConfig config;
+    config.algorithm = "random";
+    config.max_trials = 10;
+    config.seed = 123;
+    config.search_space.n_components = {2, 4};
+    config.search_space.percentile = {99.0};
+
+    std::string fp1 = telemetry::training::ComputeCandidateFingerprint(config);
+    std::string fp2 = telemetry::training::ComputeCandidateFingerprint(config);
+    EXPECT_EQ(fp1, fp2);
+
+    // Permute search space - should still be same fingerprint because we sort it
+    config.search_space.n_components = {4, 2};
+    std::string fp3 = telemetry::training::ComputeCandidateFingerprint(config);
+    EXPECT_EQ(fp1, fp3);
+
+    // Change something - should be different
+    config.max_trials = 11;
+    std::string fp4 = telemetry::training::ComputeCandidateFingerprint(config);
+    EXPECT_NE(fp1, fp4);
+}

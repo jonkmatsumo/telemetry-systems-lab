@@ -176,6 +176,23 @@ class _CompareModelsScreenState extends State<CompareModelsScreen> {
             style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF38BDF8))),
         const SizedBox(height: 8),
         Text(detail['model_run_id'], style: const TextStyle(fontSize: 10, color: Colors.white54)),
+        
+        if (detail['selection_metric_value'] == null && detail['status'] == 'COMPLETED')
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: Colors.amber.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.amber.withValues(alpha: 0.3))),
+              child: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.amberAccent, size: 14),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('Primary metric unavailable; showing N/A', style: TextStyle(color: Colors.amberAccent, fontSize: 11))),
+                ],
+              ),
+            ),
+          ),
+
         const SizedBox(height: 24),
         _section('Configuration'),
         _kv('Status', detail['status']),

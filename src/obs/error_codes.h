@@ -20,5 +20,9 @@ inline constexpr const char* kErrInferScoreFailed = "E_INFER_SCORE_FAILED";
 
 inline constexpr const char* kErrInternal = "E_INTERNAL";
 
+
+inline constexpr const char* kErrHttpMissingField = "E_HTTP_MISSING_FIELD";
+inline constexpr const char* kErrHttpJsonParseError = "E_HTTP_JSON_PARSE_ERROR";
+
 } // namespace obs
 } // namespace telemetry

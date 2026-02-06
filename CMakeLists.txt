@@ -200,6 +200,13 @@ add_executable(unit_tests
     tests/unit/test_db_client_security.cpp
     tests/unit/test_job_manager.cpp
     tests/unit/test_obs_metrics.cpp
+    tests/unit/test_hardening_scaffolding.cpp
+    tests/unit/test_api_scoring.cpp
+    tests/unit/test_time_parsing.cpp
+    tests/unit/test_api_safety.cpp
+    tests/unit/test_error_classification.cpp
+    tests/unit/test_api_performance.cpp
+    src/api_server.cpp
     src/generator.cpp
     src/db_client.cpp
     src/route_registry.cpp
@@ -212,6 +219,7 @@ add_executable(unit_tests
 )
 
 target_include_directories(unit_tests PRIVATE src tests)
+target_compile_definitions(unit_tests PRIVATE TELEMETRY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(unit_tests
     GTest::GTest
     GTest::Main
@@ -227,8 +235,13 @@ target_link_libraries(unit_tests
     nlohmann_json::nlohmann_json
 )
 
+if(HTTPLIB_FOUND)
+    target_link_libraries(unit_tests PkgConfig::HTTPLIB)
+endif()
+
 
 add_test(NAME UnitTests COMMAND unit_tests)
+set_tests_properties(UnitTests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 # Integration Test Client (End-to-End)
 add_executable(test_client tests/client.cpp)

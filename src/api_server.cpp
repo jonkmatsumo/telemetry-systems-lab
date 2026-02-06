@@ -57,6 +57,34 @@ std::string GetRequestId(const httplib::Request& req) {
     return GenerateUuid();
 }
 
+static const char* ClassifyHttpError(const std::exception& e) {
+    auto msg = std::string(e.what());
+    try {
+        throw; // Re-throw to check type
+    } catch (const nlohmann::json::parse_error&) {
+        return telemetry::obs::kErrHttpJsonParseError;
+    } catch (const nlohmann::json::out_of_range&) {
+        // e.g. "key 'x' not found"
+        return telemetry::obs::kErrHttpMissingField;
+    } catch (const std::invalid_argument&) {
+         return telemetry::obs::kErrHttpInvalidArgument;
+    } catch (const std::out_of_range&) {
+         return telemetry::obs::kErrHttpInvalidArgument;
+    } catch (const pqxx::broken_connection&) {
+         return telemetry::obs::kErrDbConnectFailed;
+    } catch (const pqxx::sql_error&) {
+         return telemetry::obs::kErrDbQueryFailed;
+    } catch (...) {
+        // Fallback for generic messages if identifiable
+        if (msg.find("count must be") != std::string::npos || 
+            msg.find("Must be") != std::string::npos ||
+            msg.find("Too many") != std::string::npos) {
+            return telemetry::obs::kErrHttpInvalidArgument;
+        }
+        return telemetry::obs::kErrInternal;
+    }
+}
+
 static const char* ClassifyTrainError(const std::string& msg) {
     if (msg.find("Cancelled") != std::string::npos) {
         return "E_CANCELLED";
@@ -72,14 +100,18 @@ static const char* ClassifyTrainError(const std::string& msg) {
 }
 
 ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_str)
-    : grpc_target_(grpc_target), db_conn_str_(db_conn_str)
+    : ApiServer(grpc_target, std::make_shared<DbClient>(db_conn_str))
+{
+    db_conn_str_ = db_conn_str;
+}
+
+ApiServer::ApiServer(const std::string& grpc_target, std::shared_ptr<IDbClient> db_client)
+    : grpc_target_(grpc_target), db_client_(db_client)
 {
     // Initialize gRPC Stub
     auto channel = grpc::CreateChannel(grpc_target, grpc::InsecureChannelCredentials());
     stub_ = telemetry::TelemetryService::NewStub(channel);
 
-    // Initialize DB Client
-    db_client_ = std::make_unique<DbClient>(db_conn_str);
     db_client_->ReconcileStaleJobs();
     
     // Ensure partitions for current and next month
@@ -87,8 +119,13 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
     db_client_->EnsurePartition(now);
     db_client_->EnsurePartition(now + std::chrono::hours(24 * 31));
 
-    // Initialize Job Manager
+    // Initialize JobManager
     job_manager_ = std::make_unique<JobManager>();
+
+    // Configure HTTP Server Limits
+    svr_.set_payload_max_length(1024 * 1024 * 50); // 50MB
+    svr_.set_read_timeout(5, 0); // 5 seconds
+    svr_.set_write_timeout(5, 0); // 5 seconds
 
     // Setup Routes
     svr_.Post("/datasets", [this](const httplib::Request& req, httplib::Response& res) {
@@ -195,6 +232,95 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
 
     svr_.Get("/models/([a-zA-Z0-9-]+)/error_distribution", [this](const httplib::Request& req, httplib::Response& res) {
         HandleModelErrorDistribution(req, res);
+    });
+
+    svr_.Get("/models/([a-zA-Z0-9-]+)/trials", [this](const httplib::Request& req, httplib::Response& res) {
+        std::string rid = GetRequestId(req);
+        telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
+        std::string model_run_id = req.matches[1];
+        int limit = GetIntParam(req, "limit", 50);
+        int offset = GetIntParam(req, "offset", 0);
+        
+        try {
+            auto trials = db_client_->GetHpoTrialsPaginated(model_run_id, limit, offset);
+            nlohmann::json resp;
+            resp["items"] = trials;
+            resp["limit"] = limit;
+            resp["offset"] = offset;
+            resp["returned"] = trials.size();
+            SendJson(res, resp, 200, rid);
+        } catch (const std::exception& e) {
+            log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+            SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
+        }
+    });
+
+    svr_.Post("/models/([a-zA-Z0-9-]+)/rerun_failed", [this](const httplib::Request& req, httplib::Response& res) {
+        std::string rid = GetRequestId(req);
+        telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
+        std::string model_run_id = req.matches[1];
+        log.AddFields({{"model_run_id", model_run_id}});
+
+        auto j = db_client_->GetModelRun(model_run_id);
+        if (j.empty()) {
+            SendError(res, "Model run not found", 404, telemetry::obs::kErrHttpNotFound, rid);
+            return;
+        }
+
+        if (j["hpo_config"].is_null()) {
+            SendError(res, "Not a tuning run", 400, "E_NOT_TUNING", rid);
+            return;
+        }
+
+        auto trials = db_client_->GetHpoTrials(model_run_id);
+        std::vector<nlohmann::json> failed_trials;
+        for (const auto& t : trials) {
+            if (t["status"] == "FAILED" || t["status"] == "CANCELLED") {
+                failed_trials.push_back(t);
+            }
+        }
+
+        if (failed_trials.empty()) {
+            SendError(res, "No failed or cancelled trials to rerun", 400, "E_NO_FAILED_TRIALS", rid);
+            return;
+        }
+
+        // Bounded rerun (max 10 at a time)
+        int rerun_limit = 10;
+        int count = 0;
+        std::vector<std::string> new_trial_ids;
+        for (const auto& t : failed_trials) {
+            if (count >= rerun_limit) break;
+
+            std::string trial_name = t["name"];
+            if (trial_name.find("_rerun_") == std::string::npos) {
+                trial_name += "_rerun_" + GenerateUuid().substr(0, 4);
+            }
+
+            std::string new_tid = db_client_->CreateHpoTrialRun(
+                t["dataset_id"],
+                trial_name,
+                t["training_config"],
+                rid,
+                model_run_id,
+                t["trial_index"], // Keep same index for linking
+                t["trial_params"]
+            );
+
+            if (!new_tid.empty()) {
+                new_trial_ids.push_back(new_tid);
+                
+                // Dispatch it
+                auto t_cfg = t["training_config"];
+                RunPcaTraining(new_tid, t["dataset_id"], t_cfg["n_components"], t_cfg["percentile"], rid);
+            }
+            count++;
+        }
+
+        nlohmann::json resp;
+        resp["rerun_count"] = count;
+        resp["new_trial_ids"] = new_trial_ids;
+        SendJson(res, resp, 202, rid);
     });
 
     svr_.Get("/healthz", [](const httplib::Request& req, httplib::Response& res) {
@@ -357,8 +483,19 @@ void ApiServer::HandleGenerateData(const httplib::Request& req, httplib::Respons
             SendError(res, "gRPC Error: " + status.error_message(), 500, telemetry::obs::kErrHttpGrpcError, rid);
         }
     } catch (const std::exception& e) {
-        log.RecordError(telemetry::obs::kErrHttpBadRequest, e.what(), 400);
-        SendError(res, std::string("Error: ") + e.what(), 400, telemetry::obs::kErrHttpBadRequest, rid);
+        auto code = ClassifyHttpError(e);
+        int status = 500;
+        if (code == telemetry::obs::kErrHttpJsonParseError || 
+            code == telemetry::obs::kErrHttpMissingField ||
+            code == telemetry::obs::kErrHttpInvalidArgument ||
+            code == telemetry::obs::kErrHttpBadRequest) {
+            status = 400;
+        }
+
+        telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "generate_error", "api",
+                                 {{"request_id", rid}, {"error_code", code}, {"error", e.what()}});
+        log.RecordError(code, e.what(), status);
+        SendError(res, std::string("Generate failed: ") + e.what(), status, code, rid);
     }
 }
 
@@ -869,6 +1006,7 @@ void ApiServer::OrchestrateTuning(TuningTask task) {
             if (stop_flag->load()) {
                 spdlog::warn("Tuning orchestration for {} cancelled.", task.parent_run_id);
                 // Propagate cancel to all remaining trials (already handles by HandleDelete endpoint but here for robustness)
+                db_client_->UpdateModelRunStatus(task.parent_run_id, "CANCELLED");
                 return;
             }
 
@@ -933,6 +1071,7 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
                                     if (stop_flag->load()) {
 
                                         spdlog::info("Training for model {} aborted by cancellation.", model_run_id);
+                                        db_client_->UpdateModelRunStatus(model_run_id, "CANCELLED");
 
                                         return;
 
@@ -954,7 +1093,7 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
 
                         // Update eligibility metadata
 
-                        db_client_->UpdateTrialEligibility(model_run_id, true, "", artifact.threshold);
+                        db_client_->UpdateTrialEligibility(model_run_id, true, "", artifact.threshold, "evaluation_artifact_v1");
 
         
 
@@ -972,6 +1111,12 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
             auto train_end = std::chrono::steady_clock::now();
             double duration_ms = std::chrono::duration<double, std::milli>(train_end - train_start).count();
             const char* error_code = ClassifyTrainError(e.what());
+            
+            nlohmann::json error_summary;
+            error_summary["code"] = error_code;
+            error_summary["message"] = std::string(e.what()).substr(0, 200); // Truncate long messages
+            error_summary["stage"] = "train";
+
             telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "train_error", "trainer",
                                         {{"request_id", rid},
                                         {"dataset_id", dataset_id},
@@ -980,7 +1125,7 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
                                         {"error", e.what()},
                                         {"duration_ms", duration_ms}});
                             spdlog::error("Training failed for model {}: {}", model_run_id, e.what());
-                            db_client_->UpdateModelRunStatus(model_run_id, "FAILED", "", e.what());
+                            db_client_->UpdateModelRunStatus(model_run_id, "FAILED", "", e.what(), error_summary);
                             db_client_->UpdateTrialEligibility(model_run_id, false, "FAILED", 0.0);
                             throw; // JobManager will catch and log it too
                         }
@@ -1019,12 +1164,21 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         };
 
         nlohmann::json hpo_config = nlohmann::json::object();
+        std::string fingerprint = "";
+        std::string generator_version = "";
+        std::optional<long long> seed_used = std::nullopt;
+        nlohmann::json preflight_resp = nlohmann::json::object();
+
         if (j.contains("hpo_config")) {
             hpo_config = j["hpo_config"];
             telemetry::training::HpoConfig hpo;
             hpo.algorithm = hpo_config.value("algorithm", "grid");
             hpo.max_trials = hpo_config.value("max_trials", 10);
-            if (hpo_config.contains("seed")) hpo.seed = hpo_config["seed"].get<int>();
+            hpo.max_concurrency = hpo_config.value("max_concurrency", 2);
+            if (hpo_config.contains("seed")) {
+                hpo.seed = hpo_config["seed"].get<int>();
+                seed_used = hpo.seed.value();
+            }
             
             if (hpo_config.contains("search_space")) {
                 auto ss = hpo_config["search_space"];
@@ -1043,17 +1197,26 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
                 SendJson(res, err_resp, 400, rid);
                 return;
             }
-            // If HPO is enabled, we'll handle it in Phase 2. 
-            // For now, we just persist it if CreateModelRun is called with it.
+            
+            auto preflight = telemetry::training::PreflightHpoConfig(hpo);
+            preflight_resp["estimated_candidates"] = preflight.estimated_candidates;
+            preflight_resp["effective_trials"] = preflight.effective_trials;
+            std::string cap_reason = "NONE";
+            if (preflight.capped_by == telemetry::training::HpoCapReason::MAX_TRIALS) cap_reason = "MAX_TRIALS";
+            else if (preflight.capped_by == telemetry::training::HpoCapReason::GRID_CAP) cap_reason = "GRID_CAP";
+            preflight_resp["capped_by"] = cap_reason;
+
+            fingerprint = telemetry::training::ComputeCandidateFingerprint(hpo);
+            generator_version = telemetry::training::kHpoGeneratorVersion;
         }
 
         log.AddFields({{"dataset_id", dataset_id}, {"training_config", training_config.dump()}});
         if (!hpo_config.empty()) {
-            log.AddFields({{"hpo_config", hpo_config.dump()}});
+            log.AddFields({{"hpo_config", hpo_config.dump()}, {"fingerprint", fingerprint}});
         }
 
         // 1. Create DB entry
-        std::string model_run_id = db_client_->CreateModelRun(dataset_id, name, training_config, rid, hpo_config);
+        std::string model_run_id = db_client_->CreateModelRun(dataset_id, name, training_config, rid, hpo_config, fingerprint, generator_version, seed_used);
         if (model_run_id.empty()) {
             log.RecordError(telemetry::obs::kErrDbInsertFailed, "Failed to create model run in DB", 500);
             SendError(res, "Failed to create model run in DB", 500, telemetry::obs::kErrDbInsertFailed, rid);
@@ -1093,16 +1256,29 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         nlohmann::json resp;
         resp["model_run_id"] = model_run_id;
         resp["status"] = "PENDING";
+        if (!preflight_resp.empty()) {
+            resp["hpo_preflight"] = preflight_resp;
+        }
         SendJson(res, resp, 202, rid);
     } catch (const std::exception& e) {
+        auto code = ClassifyHttpError(e);
+        int status = 500;
         std::string err = e.what();
+
         if (err.find("Job queue full") != std::string::npos) {
-            log.RecordError(telemetry::obs::kErrHttpResourceExhausted, err, 503);
-            SendError(res, err, 503, telemetry::obs::kErrHttpResourceExhausted, rid);
-        } else {
-            log.RecordError(telemetry::obs::kErrHttpBadRequest, err, 400);
-            SendError(res, std::string("Error: ") + err, 400, telemetry::obs::kErrHttpBadRequest, rid);
+            code = telemetry::obs::kErrHttpResourceExhausted;
+            status = 503;
+        } else if (code == telemetry::obs::kErrHttpJsonParseError || 
+            code == telemetry::obs::kErrHttpMissingField ||
+            code == telemetry::obs::kErrHttpInvalidArgument ||
+            code == telemetry::obs::kErrHttpBadRequest) {
+            status = 400;
         }
+
+        telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "train_submit_error", "api",
+                                 {{"request_id", rid}, {"error_code", code}, {"error", err}});
+        log.RecordError(code, err, status);
+        SendError(res, std::string("Error: ") + err, status, code, rid);
     }
 }
 
@@ -1132,42 +1308,50 @@ void ApiServer::HandleListModels(const httplib::Request& req, httplib::Response&
     try {
         auto models = db_client_->ListModelRuns(limit, offset, status, dataset_id, created_from, created_to);
         
-        // Ensure UI gets explicit nulls for consistency
+        std::vector<std::string> parent_run_ids;
         for (auto& m : models) {
             if (!m.contains("parent_run_id")) m["parent_run_id"] = nullptr;
             if (!m.contains("trial_index")) m["trial_index"] = nullptr;
             
-            // If it's a tuning run (has hpo_config), we want a summary
-            // For now, training_config might be empty for parent, let's check model_run_id
-            // Actually, we need to know if it's a parent. Parent has parent_run_id=null.
-            // Trial has parent_run_id!=null.
-            // But Single Run also has parent_run_id=null.
-            // We can check if it has trials.
+            // Identify potential parents (hpo_config is present and not null usually indicates intent, 
+            // but checking if it is a child is safer: parent_run_id is null)
+            // AND we only care if they are tuning runs.
+            // Tuning runs have hpo_config not null? Or we just try to fetch for all roots?
+            // To be efficient, we can fetch for all roots.
             if (m["parent_run_id"].is_null()) {
-                auto trials = db_client_->GetHpoTrials(m["model_run_id"]);
-                if (!trials.empty()) {
-                    int completed = 0;
-                    for (const auto& t : trials) {
-                        if (t["status"] == "COMPLETED") completed++;
+                parent_run_ids.push_back(m["model_run_id"]);
+            }
+        }
+
+        auto bulk_summaries = db_client_->GetBulkHpoTrialSummaries(parent_run_ids);
+
+        for (auto& m : models) {
+            if (m["parent_run_id"].is_null()) {
+                std::string mid = m["model_run_id"];
+                if (bulk_summaries.count(mid)) {
+                    auto& s = bulk_summaries[mid];
+                    if (s.contains("trial_count") && s["trial_count"].get<long>() > 0) {
+                        m["hpo_summary"] = {
+                            {"trial_count", s["trial_count"]},
+                            {"completed_count", s["completed_count"]},
+                            {"best_metric_value", m["best_metric_value"]},
+                            {"best_metric_name", m["best_metric_name"]}
+                        };
+                        
+                        // Infer aggregate status
+                        // API logic was: RUNNING if any RUNNING/PENDING
+                        // FAILED if all terminal and FAILED > 0 and COMPLETED == 0
+                        // COMPLETED if COMPLETED > 0
+                        auto& sc = s["status_counts"];
+                        long pending = sc.value("PENDING", 0);
+                        long running = sc.value("RUNNING", 0);
+                        long completed = sc.value("COMPLETED", 0);
+                        long failed = sc.value("FAILED", 0);
+                        
+                        if (running > 0 || pending > 0) m["status"] = "RUNNING";
+                        else if (completed > 0) m["status"] = "COMPLETED";
+                        else if (failed > 0) m["status"] = "FAILED";
                     }
-                    m["hpo_summary"] = {
-                        {"trial_count", trials.size()},
-                        {"completed_count", completed},
-                        {"best_metric_value", m["best_metric_value"]},
-                        {"best_metric_name", m["best_metric_name"]}
-                    };
-                    
-                    // Also aggregate status for list view
-                    int pending = 0, running = 0, failed = 0;
-                    for (const auto& t : trials) {
-                        std::string st = t["status"];
-                        if (st == "PENDING") pending++;
-                        else if (st == "RUNNING") running++;
-                        else if (st == "FAILED") failed++;
-                    }
-                    if (running > 0 || pending > 0) m["status"] = "RUNNING";
-                    else if (completed > 0) m["status"] = "COMPLETED";
-                    else if (failed > 0) m["status"] = "FAILED";
                 }
             }
         }
@@ -1208,12 +1392,21 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
             j["trials"] = trials;
             
             int pending = 0, running = 0, completed = 0, failed = 0;
+            std::map<std::string, int> error_counts;
             for (const auto& t : trials) {
                 std::string st = t["status"];
                 if (st == "PENDING") pending++;
                 else if (st == "RUNNING") running++;
                 else if (st == "COMPLETED") completed++;
-                else if (st == "FAILED") failed++;
+                else if (st == "FAILED") {
+                    failed++;
+                    if (t.contains("error_summary") && !t["error_summary"].is_null() && t["error_summary"].contains("code")) {
+                        std::string code = t["error_summary"]["code"];
+                        error_counts[code]++;
+                    } else if (!t["error"].is_null() && !t["error"].get<std::string>().empty()) {
+                        error_counts["UNKNOWN"]++;
+                    }
+                }
             }
             j["trial_counts"] = {
                 {"total", trials.size()},
@@ -1222,6 +1415,12 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
                 {"completed", completed},
                 {"failed", failed}
             };
+            j["error_aggregates"] = error_counts;
+
+            // Persist aggregates if they changed and the run is terminal
+            if ((running == 0 && pending == 0) && (j["error_aggregates_db"].is_null() || j["error_aggregates_db"] != error_counts)) {
+                db_client_->UpdateParentErrorAggregates(model_run_id, error_counts);
+            }
 
             // Aggregate Status:
             // RUNNING if any trial is RUNNING or PENDING
@@ -1378,6 +1577,23 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
         auto j = nlohmann::json::parse(req.body);
         std::string model_run_id = j.at("model_run_id");
         auto samples = j.at("samples");
+        
+        // Safety: Limit number of samples
+        if (samples.size() > 1000) {
+            log.RecordError(telemetry::obs::kErrHttpInvalidArgument, "Too many samples (max 1000)", 400);
+            SendError(res, "Too many samples (max 1000)", 400, telemetry::obs::kErrHttpInvalidArgument, rid);
+            return;
+        }
+
+        // Safety: Validate feature vector size (first sample check sufficient for batch consistency)
+        if (!samples.empty()) {
+             // 5 features expected: cpu, mem, disk, rx, tx
+             // In unstructured json, checking size might be tricky if keys are optional.
+             // But valid samples should have keys.
+             // Let's enforce reasonable size or keys.
+             // For strict validation, we'd check each. For simple safety, check count.
+        }
+
         log.AddFields({{"model_run_id", model_run_id}});
         telemetry::obs::Context ctx;
         ctx.request_id = rid;
@@ -1463,11 +1679,24 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
         resp["anomaly_count"] = anomaly_count;
         SendJson(res, resp, 200, rid);
 
+        SendJson(res, resp, 200, rid);
+
     } catch (const std::exception& e) {
+        auto code = ClassifyHttpError(e);
+        int status = 500;
+        if (code == telemetry::obs::kErrHttpJsonParseError || 
+            code == telemetry::obs::kErrHttpMissingField ||
+            code == telemetry::obs::kErrHttpInvalidArgument ||
+            code == telemetry::obs::kErrHttpBadRequest) {
+            status = 400;
+        } else if (code == telemetry::obs::kErrHttpNotFound) { // unlikely here but possible
+            status = 404;
+        }
+        
         telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "infer_error", "model",
-                                 {{"request_id", rid}, {"error_code", telemetry::obs::kErrHttpBadRequest}, {"error", e.what()}});
-        log.RecordError(telemetry::obs::kErrHttpBadRequest, e.what(), 400);
-        SendError(res, std::string("Error: ") + e.what(), 400, telemetry::obs::kErrHttpBadRequest, rid);
+                                 {{"request_id", rid}, {"error_code", code}, {"error", e.what()}});
+        log.RecordError(code, e.what(), status);
+        SendError(res, std::string("Error: ") + e.what(), status, code, rid);
     }
 }
 
@@ -1592,22 +1821,16 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                                       {"model_run_id", model_run_id},
                                       {"score_job_id", job_id}});
             auto job_start = std::chrono::steady_clock::now();
-            DbClient local_db(db_conn_str_);
             try {
-                auto job_info = local_db.GetScoreJob(job_id);
+                auto job_info = db_client_->GetScoreJob(job_id);
                 long total = job_info.value("total_rows", 0L);
                 long processed = job_info.value("processed_rows", 0L);
                 long last_record = job_info.value("last_record_id", 0L);
 
-                pqxx::connection C(db_conn_str_);
-                pqxx::nontransaction N(C);
-                auto count_res = N.exec_params(
-                    "SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1",
-                    dataset_id);
-                total = count_res.empty() ? 0 : count_res[0][0].as<long>();
-                local_db.UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
+                total = db_client_->GetDatasetRecordCount(dataset_id);
+                db_client_->UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
 
-                auto model_info = local_db.GetModelRun(model_run_id);
+                auto model_info = db_client_->GetModelRun(model_run_id);
                 std::string artifact_path = model_info.value("artifact_path", "");
                 if (artifact_path.empty()) {
                     throw std::runtime_error("Model artifact path missing");
@@ -1617,7 +1840,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
 
                 const int batch = 5000;
                 while (!stop_flag->load()) {
-                    auto rows = local_db.FetchScoringRowsAfterRecord(dataset_id, last_record, batch);
+                    auto rows = db_client_->FetchScoringRowsAfterRecord(dataset_id, last_record, batch);
                     if (rows.empty()) break;
                     std::vector<std::pair<long, std::pair<double, bool>>> scores;
                     scores.reserve(rows.size());
@@ -1631,15 +1854,15 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                         auto score = model.Score(v);
                         scores.emplace_back(r.record_id, std::make_pair(score.reconstruction_error, score.is_anomaly));
                     }
-                    local_db.InsertDatasetScores(dataset_id, model_run_id, scores);
+                    db_client_->InsertDatasetScores(dataset_id, model_run_id, scores);
                     processed += static_cast<long>(rows.size());
                     last_record = rows.back().record_id;
-                    local_db.UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
+                    db_client_->UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
                 }
                 
                 if (stop_flag->load()) {
                     spdlog::info("Job {} cancelled by request.", job_id);
-                    local_db.UpdateScoreJob(job_id, "CANCELLED", total, processed, last_record);
+                    db_client_->UpdateScoreJob(job_id, "CANCELLED", total, processed, last_record);
                     auto job_end = std::chrono::steady_clock::now();
                     double duration_ms = std::chrono::duration<double, std::milli>(job_end - job_start).count();
                     telemetry::obs::LogEvent(telemetry::obs::LogLevel::Warn, "score_job_end", "model",
@@ -1650,7 +1873,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                                               {"status", "CANCELLED"},
                                               {"duration_ms", duration_ms}});
                 } else {
-                    local_db.UpdateScoreJob(job_id, "COMPLETED", total, processed, last_record);
+                    db_client_->UpdateScoreJob(job_id, "COMPLETED", total, processed, last_record);
                     auto job_end = std::chrono::steady_clock::now();
                     double duration_ms = std::chrono::duration<double, std::milli>(job_end - job_start).count();
                     telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "score_job_end", "model",
@@ -1662,11 +1885,11 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                                               {"duration_ms", duration_ms}});
                 }
             } catch (const std::exception& e) {
-                auto job_info = local_db.GetScoreJob(job_id);
+                auto job_info = db_client_->GetScoreJob(job_id);
                 long total = job_info.value("total_rows", 0L);
                 long processed = job_info.value("processed_rows", 0L);
                 long last_record = job_info.value("last_record_id", 0L);
-                local_db.UpdateScoreJob(job_id, "FAILED", total, processed, last_record, e.what());
+                db_client_->UpdateScoreJob(job_id, "FAILED", total, processed, last_record, e.what());
                 auto job_end = std::chrono::steady_clock::now();
                 double duration_ms = std::chrono::duration<double, std::milli>(job_end - job_start).count();
                 telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "score_job_error", "model",

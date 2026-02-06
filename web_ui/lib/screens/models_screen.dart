@@ -28,6 +28,13 @@ class _ModelsScreenState extends State<ModelsScreen> {
   bool _jobPollingInFlight = false;
   double? _currentThreshold;
 
+  // Trials Pagination State
+  final List<dynamic> _paginatedTrials = [];
+  int _trialsOffset = 0;
+  bool _hasMoreTrials = false;
+  bool _loadingMoreTrials = false;
+  static const int _trialsLimit = 50;
+
   // Filter State
   String _runTypeFilter = 'all'; // all, tuning, trial, single
   String _statusFilter = 'all'; // all, running, terminal
@@ -144,7 +151,12 @@ class _ModelsScreenState extends State<ModelsScreen> {
   Future<void> _selectById(String id, {TelemetryService? service}) async {
     final s = service ?? context.read<TelemetryService>();
     final appState = context.read<AppState>();
-    setState(() => _loadingDetail = true);
+    setState(() {
+      _loadingDetail = true;
+      _paginatedTrials.clear();
+      _trialsOffset = 0;
+      _hasMoreTrials = false;
+    });
     try {
       final detail = await s.getModelDetail(id);
       if (!mounted) return;
@@ -153,6 +165,10 @@ class _ModelsScreenState extends State<ModelsScreen> {
         _evalMetrics = null;
         _errorDist = [];
         _jobStatus = null;
+        
+        if (detail['hpo_config'] != null) {
+          _fetchTrialsPage(id);
+        }
       });
       appState.setModel(id);
     } finally {
@@ -162,8 +178,56 @@ class _ModelsScreenState extends State<ModelsScreen> {
     }
   }
 
+  Future<void> _fetchTrialsPage(String parentId) async {
+    final service = context.read<TelemetryService>();
+    try {
+      final res = await service.getHpoTrials(parentId, limit: _trialsLimit, offset: _trialsOffset);
+      final List items = res['items'] ?? [];
+      setState(() {
+        _paginatedTrials.addAll(items);
+        _hasMoreTrials = items.length == _trialsLimit;
+        _trialsOffset += items.length;
+      });
+    } catch (e) {
+      debugPrint('Failed to fetch trials page: $e');
+    }
+  }
+
+  Future<void> _loadMoreTrials() async {
+    if (_loadingMoreTrials || !_hasMoreTrials || _selectedDetail == null) return;
+    setState(() => _loadingMoreTrials = true);
+    try {
+      await _fetchTrialsPage(_selectedDetail!['model_run_id']);
+    } finally {
+      setState(() => _loadingMoreTrials = false);
+    }
+  }
+
   Future<void> _selectModel(ModelRunSummary model) async {
     _selectById(model.modelRunId);
+  }
+
+  void _showErrorDetail(Map<String, dynamic> summary) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Error: ${summary['code'] ?? 'Unknown'}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _kv('Stage', summary['stage'] ?? 'N/A'),
+            const SizedBox(height: 8),
+            const Text('Message:', style: TextStyle(color: Colors.white54, fontSize: 12)),
+            const SizedBox(height: 4),
+            Text(summary['message'] ?? 'No message available', style: const TextStyle(fontSize: 13)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+        ],
+      ),
+    );
   }
 
   Widget _badge(String label, Color color) {
@@ -204,9 +268,18 @@ class _ModelsScreenState extends State<ModelsScreen> {
             final isBest = t['model_run_id'] == bestTrialId;
             final trialId = t['model_run_id'];
             final isEligible = t['is_eligible'] ?? true;
+            final isRerun = (t['name'] ?? '').toString().contains('_rerun_');
             return TableRow(
               children: [
-                Padding(padding: const EdgeInsets.all(8), child: Text(t['trial_index']?.toString() ?? 'N/A', style: const TextStyle(fontSize: 12))),
+                Padding(
+                  padding: const EdgeInsets.all(8), 
+                  child: Column(
+                    children: [
+                      Text(t['trial_index']?.toString() ?? 'N/A', style: const TextStyle(fontSize: 12)),
+                      if (isRerun) _badge('RERUN', Colors.orange),
+                    ],
+                  )
+                ),
                 Padding(
                   padding: const EdgeInsets.all(8), 
                   child: Row(
@@ -222,6 +295,11 @@ class _ModelsScreenState extends State<ModelsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(_displayValue(t['selection_metric_value']), style: const TextStyle(fontSize: 11)),
+                      if (t['selection_metric_source'] != null)
+                        Text(
+                          t['selection_metric_source'].toString().replaceAll('evaluation_artifact_', 'v'),
+                          style: const TextStyle(fontSize: 8, color: Colors.white38),
+                        ),
                       if (!isEligible) 
                         Padding(
                           padding: const EdgeInsets.only(top: 2),
@@ -230,10 +308,29 @@ class _ModelsScreenState extends State<ModelsScreen> {
                     ],
                   ),
                 ),
-                Padding(padding: const EdgeInsets.all(8), child: Text(t['status'] ?? 'N/A', style: TextStyle(fontSize: 11, color: _getStatusColor(t['status'] ?? '')))),
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(t['status'] ?? 'N/A', style: TextStyle(fontSize: 11, color: _getStatusColor(t['status'] ?? ''))),
+                      if (t['status'] == 'FAILED' && t['error_summary'] != null)
+                        InkWell(
+                          onTap: () => _showErrorDetail(t['error_summary']),
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              t['error_summary']['code'] ?? 'ERROR',
+                              style: const TextStyle(fontSize: 9, color: Colors.redAccent, decoration: TextDecoration.underline),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
                 Padding(
                   padding: const EdgeInsets.all(4), 
-                  child: Row(
+                  child: Wrap(
                     children: [
                       TextButton(
                         onPressed: () => _selectById(trialId), 
@@ -294,6 +391,38 @@ class _ModelsScreenState extends State<ModelsScreen> {
     if (_jobStatus == null) return;
     final status = await context.read<TelemetryService>().getJobProgress(_jobStatus!.jobId);
     setState(() => _jobStatus = status);
+  }
+
+  Future<void> _rerunFailed(String modelRunId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rerun Failed Trials?'),
+        content: const Text('This will attempt to rerun up to 10 failed or cancelled trials using their original parameters.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Yes, Rerun'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final service = context.read<TelemetryService>();
+    final sm = ScaffoldMessenger.of(context);
+    try {
+      final res = await service.rerunFailedTrials(modelRunId);
+      final count = res['rerun_count'] ?? 0;
+      if (!mounted) return;
+      sm.showSnackBar(SnackBar(content: Text('Dispatched $count reruns.')));
+      _selectById(modelRunId, service: service);
+    } catch (e) {
+      if (!mounted) return;
+      sm.showSnackBar(SnackBar(content: Text('Failed to rerun: $e'), backgroundColor: Colors.red));
+    }
   }
 
   Future<void> _loadEval(String datasetId, String modelRunId) async {
@@ -566,8 +695,34 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   ],
                 )
               ),
+            
+            const SizedBox(height: 12),
+            const Text('Audit & Reproducibility', style: TextStyle(fontWeight: FontWeight.bold)),
+            _kv('Fingerprint', _displayValue(detail['candidate_fingerprint'])),
+            _kv('Generator Version', _displayValue(detail['generator_version'])),
+            _kv('Seed Used', _displayValue(detail['seed_used'])),
           ],
           
+          if (isParent && detail['error_aggregates'] != null && (detail['error_aggregates'] as Map).isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ExpansionTile(
+              title: const Text('Error Summary (Aggregated)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.redAccent)),
+              children: [
+                ...(detail['error_aggregates'] as Map).entries.map((e) => _kv(e.key, e.value.toString())),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              onPressed: () => _rerunFailed(modelRunId),
+              icon: const Icon(Icons.replay_rounded),
+              label: const Text('Rerun Failed Trials'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple.withValues(alpha: 0.2),
+                foregroundColor: Colors.purpleAccent,
+              ),
+            ),
+          ],
+
           if (!isParent && parentRunId != null) ...[
             const SizedBox(height: 12),
             const Text('Selection Metadata', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -576,11 +731,22 @@ class _ModelsScreenState extends State<ModelsScreen> {
             _kv('Metric Value', _displayValue(detail['selection_metric_value'])),
           ],
 
-          if (isParent && detail['trials'] != null) ...[
+          if (isParent && _paginatedTrials.isNotEmpty) ...[
             const SizedBox(height: 24),
             const Text('Trials', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF38BDF8))),
             const SizedBox(height: 8),
-            _buildTrialsTable(detail['trials'], bestTrialId, detail['best_metric_name']),
+            _buildTrialsTable(_paginatedTrials, bestTrialId, detail['best_metric_name']),
+            if (_hasMoreTrials)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Center(
+                  child: TextButton.icon(
+                    onPressed: _loadingMoreTrials ? null : _loadMoreTrials,
+                    icon: _loadingMoreTrials ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.add),
+                    label: const Text('Load More Trials'),
+                  ),
+                ),
+              ),
           ],
 
           if (detail['artifact_error'] != null && detail['artifact_error'].toString().isNotEmpty)

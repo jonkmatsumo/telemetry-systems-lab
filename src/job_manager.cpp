@@ -33,6 +33,11 @@ void JobManager::CleanupFinishedThreads() {
 void JobManager::StartJob(const std::string& job_id, const std::string& request_id, std::function<void(const std::atomic<bool>*)> work) {
     std::lock_guard<std::mutex> lock(mutex_);
     
+    
+    if (stopping_) {
+        throw std::runtime_error("JobManager is stopping");
+    }
+
     CleanupFinishedThreads();
 
     if (current_jobs_ >= max_jobs_) {
@@ -53,7 +58,9 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
 
     threads_[job_id] = std::thread([this, job_id, request_id, work, stop_flag]() {
         try {
+            spdlog::info("DEBUG: Starting job wrapper for {}", job_id);
             work(stop_flag.get());
+            spdlog::info("DEBUG: Job wrapper finished for {}", job_id);
             
             std::lock_guard<std::mutex> lock(mutex_);
             if (jobs_.count(job_id)) {
@@ -68,6 +75,7 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
             telemetry::metrics::MetricsRegistry::Instance().Increment("job_completed_total", {});
         } catch (const std::exception& e) {
             spdlog::error("Job {} (req_id: {}) failed: {}", job_id, request_id, e.what());
+            // ... (rest of catch)
             std::lock_guard<std::mutex> lock(mutex_);
             if (jobs_.count(job_id)) {
                 jobs_[job_id].status = JobStatus::FAILED;
@@ -76,6 +84,16 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
             current_jobs_--;
             telemetry::metrics::MetricsRegistry::Instance().SetGauge("job_active_count", static_cast<double>(current_jobs_));
             telemetry::metrics::MetricsRegistry::Instance().Increment("job_failed_total", {{"error", "exception"}});
+        } catch (...) {
+            spdlog::error("Job {} (req_id: {}) failed with unknown exception", job_id, request_id);
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (jobs_.count(job_id)) {
+                jobs_[job_id].status = JobStatus::FAILED;
+                jobs_[job_id].error = "Unknown exception";
+            }
+            current_jobs_--;
+            telemetry::metrics::MetricsRegistry::Instance().SetGauge("job_active_count", static_cast<double>(current_jobs_));
+            telemetry::metrics::MetricsRegistry::Instance().Increment("job_failed_total", {{"error", "unknown"}});
         }
     });
 }
@@ -109,20 +127,26 @@ void JobManager::Stop() {
     if (stopping_.exchange(true)) return;
     
     spdlog::info("Stopping JobManager, waiting for {} threads...", threads_.size());
+    
+    std::vector<std::thread> to_join;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         for (auto& [id, flag] : stop_flags_) {
             flag->store(true);
         }
+        
+        for (auto& [id, t] : threads_) {
+            if (t.joinable()) {
+                to_join.push_back(std::move(t));
+            }
+        }
+        threads_.clear();
+        stop_flags_.clear();
     }
 
-    for (auto& [id, t] : threads_) {
-        if (t.joinable()) {
-            t.join();
-        }
+    for (auto& t : to_join) {
+        t.join();
     }
-    threads_.clear();
-    stop_flags_.clear();
 }
 
 } // namespace api

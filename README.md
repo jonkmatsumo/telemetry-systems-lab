@@ -161,8 +161,12 @@ The system supports automated parameter exploration via `hpo_config`:
 - **Search Space**: Supports `n_components` (1-5) and `percentile` (50.0-99.99).
 - **Orchestration**: A tuning request creates a **Parent Tuning Run** which spawns multiple **Trial Runs**.
 - **Best Trial Selection**: The parent automatically selects the "best" trial based on the **lowest reconstruction error threshold** among successful trials. 
-- **Constraints**: Max 50 trials per tuning run; Grid search space is capped at 100 combinations to prevent resource exhaustion.
-- **Concurrency**: Trials are submitted to the job pipeline and executed concurrently (currently bounded by the job queue capacity).
+- **Tie-break Rules**: If thresholds are identical, the system selects the trial with the **earliest completion time**, then the **lower trial index**.
+- **Constraints**: 
+  - Max 50 trials per tuning run.
+  - Grid search space is capped at 100 combinations to prevent resource exhaustion.
+  - Concurrency is clamped between 1 and 10 (default: 2).
+- **Concurrency**: Trials are orchestrated by the `TuningOrchestrator` and executed concurrently according to the `max_concurrency` setting.
 
 ### 3. Run Scorer (Inference)
 Run the scorer simulation loop (checks `artifacts/pca/default/model.json`):

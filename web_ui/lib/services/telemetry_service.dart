@@ -292,6 +292,9 @@ class ModelRunSummary {
   final bool isEligible;
   final String? eligibilityReason;
   final double? selectionMetricValue;
+  final String? candidateFingerprint;
+  final String? generatorVersion;
+  final int? seedUsed;
 
   ModelRunSummary({
     required this.modelRunId,
@@ -310,6 +313,9 @@ class ModelRunSummary {
     this.isEligible = true,
     this.eligibilityReason,
     this.selectionMetricValue,
+    this.candidateFingerprint,
+    this.generatorVersion,
+    this.seedUsed,
   });
 
   factory ModelRunSummary.fromJson(Map<String, dynamic> json) {
@@ -330,6 +336,9 @@ class ModelRunSummary {
       isEligible: json['is_eligible'] ?? true,
       eligibilityReason: json['eligibility_reason'],
       selectionMetricValue: (json['selection_metric_value'] as num?)?.toDouble(),
+      candidateFingerprint: json['candidate_fingerprint'],
+      generatorVersion: json['generator_version'],
+      seedUsed: json['seed_used'],
     );
   }
 }
@@ -682,6 +691,18 @@ class TelemetryService {
     _handleError(response, 'Failed to cancel training run');
   }
 
+  Future<Map<String, dynamic>> rerunFailedTrials(String modelRunId) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/models/$modelRunId/rerun_failed'),
+      headers: {'Content-Type': 'application/json'},
+    );
+    if (response.statusCode == 200 || response.statusCode == 202) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    _handleError(response, 'Failed to rerun failed trials');
+    throw Exception('Unreachable');
+  }
+
   Future<InferenceResponse> runInference(String modelId, List<Map<String, dynamic>> samples) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/inference'),
@@ -1022,6 +1043,16 @@ class TelemetryService {
       return data;
     }
     _handleError(response, 'Failed to get model detail');
+    throw Exception('Unreachable');
+  }
+
+  Future<Map<String, dynamic>> getHpoTrials(String parentRunId, {int limit = 50, int offset = 0}) async {
+    final params = {'limit': '$limit', 'offset': '$offset'};
+    final response = await _client.get(_buildUri('/models/$parentRunId/trials', params));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    _handleError(response, 'Failed to get trials');
     throw Exception('Unreachable');
   }
 

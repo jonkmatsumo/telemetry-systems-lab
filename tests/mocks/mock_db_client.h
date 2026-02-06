@@ -2,9 +2,14 @@
 #include "idb_client.h"
 #include <vector>
 #include <string>
+#include <mutex>
+#include <map>
 
 class MockDbClient : public IDbClient {
 public:
+    void ReconcileStaleJobs() override {}
+    void EnsurePartition(std::chrono::system_clock::time_point tp) override {}
+
     void CreateRun(const std::string& run_id, 
                    const telemetry::GenerateRequest& config, 
                    const std::string& status,
@@ -39,7 +44,10 @@ public:
                                const std::string& name,
                                const nlohmann::json& training_config = {},
                                const std::string& request_id = "",
-                               const nlohmann::json& hpo_config = nlohmann::json::object()) override {
+                               const nlohmann::json& hpo_config = nlohmann::json::object(),
+                               const std::string& candidate_fingerprint = "",
+                               const std::string& generator_version = "",
+                               std::optional<long long> seed_used = std::nullopt) override {
         return "mock-model-run-id";
     }
 
@@ -56,20 +64,45 @@ public:
     void UpdateModelRunStatus(const std::string& model_run_id, 
                               const std::string& status, 
                               const std::string& artifact_path = "", 
-                              const std::string& error = "") override {
-        // No-op
+                              const std::string& error = "",
+                              const nlohmann::json& error_summary = nlohmann::json()) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        last_model_run_id = model_run_id;
+        last_model_run_status = status;
+        model_run_statuses[model_run_id] = status;
     }
 
     nlohmann::json GetModelRun(const std::string& model_run_id) override {
         nlohmann::json j;
         j["model_run_id"] = model_run_id;
         j["status"] = "COMPLETED";
-        j["artifact_path"] = "artifacts/pca/default/model.json";
+        j["artifact_path"] = mock_artifact_path;
         return j;
     }
 
+    int get_hpo_trials_count = 0;
     nlohmann::json GetHpoTrials(const std::string& parent_run_id) override {
+        get_hpo_trials_count++;
         return nlohmann::json::array();
+    }
+
+    nlohmann::json GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) override {
+        return nlohmann::json::array();
+    }
+
+    int get_bulk_hpo_count = 0;
+    std::map<std::string, nlohmann::json> GetBulkHpoTrialSummaries(const std::vector<std::string>& parent_run_ids) override {
+        get_bulk_hpo_count++;
+        std::map<std::string, nlohmann::json> ret;
+        for (const auto& id : parent_run_ids) {
+            // Return dummy summary for performance test
+             ret[id] = {
+                 {"trial_count", 10},
+                 {"completed_count", 10},
+                 {"status_counts", {{"COMPLETED", 10}}}
+             };
+        }
+        return ret;
     }
 
     void UpdateBestTrial(const std::string& parent_run_id,
@@ -96,11 +129,195 @@ public:
     void UpdateTrialEligibility(const std::string& model_run_id,
                                 bool is_eligible,
                                 const std::string& reason,
-                                double metric_value) override {
+                                double metric_value,
+                                const std::string& source = "") override {
         // No-op
     }
 
+    void UpdateParentErrorAggregates(const std::string& parent_run_id,
+                                     const nlohmann::json& error_aggregates) override {
+        // No-op
+    }
+
+    void InsertDatasetScores(const std::string& dataset_id,
+                             const std::string& model_run_id,
+                             const std::vector<std::pair<long, std::pair<double, bool>>>& scores) override {
+        if (should_fail_insert) {
+            throw std::runtime_error("Simulated insert failure");
+        }
+    }
+
+    long GetDatasetRecordCount(const std::string& dataset_id) override {
+        return 100;
+    }
+
+    nlohmann::json ListGenerationRuns(int limit,
+                                      int offset,
+                                      const std::string& status = "",
+                                      const std::string& created_from = "",
+                                      const std::string& created_to = "") override {
+        return nlohmann::json::array();
+    }
+    nlohmann::json GetDatasetDetail(const std::string& run_id) override { return {}; }
+    nlohmann::json GetDatasetSamples(const std::string& run_id, int limit) override { return nlohmann::json::array(); }
+    nlohmann::json SearchDatasetRecords(const std::string& run_id,
+                                        int limit,
+                                        int offset,
+                                        const std::string& start_time,
+                                        const std::string& end_time,
+                                        const std::string& is_anomaly,
+                                        const std::string& anomaly_type,
+                                        const std::string& host_id,
+                                        const std::string& region,
+                                        const std::string& sort_by,
+                                        const std::string& sort_order,
+                                        const std::string& anchor_time) override {
+        return nlohmann::json::array();
+    }
+    nlohmann::json GetDatasetRecord(const std::string& run_id, long record_id) override { return {}; }
+    nlohmann::json GetMetricStats(const std::string& run_id, const std::string& metric) override { return {}; }
+    nlohmann::json GetDatasetMetricsSummary(const std::string& run_id) override { return {}; }
+    nlohmann::json GetModelsForDataset(const std::string& dataset_id) override { return nlohmann::json::array(); }
+    nlohmann::json ListModelRuns(int limit,
+                                 int offset,
+                                 const std::string& status = "",
+                                 const std::string& dataset_id = "",
+                                 const std::string& created_from = "",
+                                 const std::string& created_to = "") override {
+        return nlohmann::json::array();
+    }
+    nlohmann::json GetScoredDatasetsForModel(const std::string& model_run_id) override { return nlohmann::json::array(); }
+    nlohmann::json GetScores(const std::string& dataset_id,
+                             const std::string& model_run_id,
+                             int limit,
+                             int offset,
+                             bool only_anomalies,
+                             double min_score,
+                             double max_score) override {
+        return nlohmann::json::array();
+    }
+    nlohmann::json ListInferenceRuns(const std::string& dataset_id,
+                                     const std::string& model_run_id,
+                                     int limit,
+                                     int offset,
+                                     const std::string& status = "",
+                                     const std::string& created_from = "",
+                                     const std::string& created_to = "") override {
+        return nlohmann::json::array();
+    }
+    nlohmann::json GetInferenceRun(const std::string& inference_id) override { return {}; }
+    nlohmann::json GetEvalMetrics(const std::string& dataset_id,
+                                  const std::string& model_run_id,
+                                  int points,
+                                  int max_samples) override {
+        return {};
+    }
+    nlohmann::json GetErrorDistribution(const std::string& dataset_id,
+                                        const std::string& model_run_id,
+                                        const std::string& group_by) override {
+        return {};
+    }
+
+    nlohmann::json GetDatasetSummary(const std::string& run_id, int topk) override { return {}; }
+    nlohmann::json GetTopK(const std::string& run_id,
+                           const std::string& column,
+                           int k,
+                           const std::string& region,
+                           const std::string& is_anomaly,
+                           const std::string& anomaly_type,
+                           const std::string& start_time,
+                           const std::string& end_time,
+                           bool include_total_distinct = false) override {
+        return {};
+    }
+    nlohmann::json GetTimeSeries(const std::string& run_id,
+                                 const std::vector<std::string>& metrics,
+                                 const std::vector<std::string>& aggs,
+                                 int bucket_seconds,
+                                 const std::string& region,
+                                 const std::string& is_anomaly,
+                                 const std::string& anomaly_type,
+                                 const std::string& start_time,
+                                 const std::string& end_time) override {
+        return {};
+    }
+    nlohmann::json GetHistogram(const std::string& run_id,
+                                const std::string& metric,
+                                int bins,
+                                double min_val,
+                                double max_val,
+                                const std::string& region,
+                                const std::string& is_anomaly,
+                                const std::string& anomaly_type,
+                                const std::string& start_time,
+                                const std::string& end_time) override {
+        return {};
+    }
+
+    void UpdateScoreJob(const std::string& job_id,
+                        const std::string& status,
+                        long total_rows,
+                        long processed_rows,
+                        long last_record_id = 0,
+                        const std::string& error = "") override {
+        last_job_id = job_id;
+        last_job_status = status;
+        last_job_error = error;
+    }
+
+    nlohmann::json GetScoreJob(const std::string& job_id) override {
+        nlohmann::json j;
+        j["job_id"] = job_id;
+        j["status"] = last_job_status.empty() ? "PENDING" : last_job_status;
+        j["total_rows"] = 100;
+        j["processed_rows"] = 0;
+        j["last_record_id"] = 0;
+        return j;
+    }
+
+    std::vector<ScoringRow> FetchScoringRowsAfterRecord(const std::string& dataset_id,
+                                                        long last_record_id,
+                                                        int limit) override {
+        if (should_fail_fetch) {
+            throw std::runtime_error("Simulated fetch failure");
+        }
+        if (last_record_id >= 100) return {};
+        std::vector<ScoringRow> rows;
+        for (int i = 0; i < std::min(limit, 10); ++i) {
+            ScoringRow r;
+            r.record_id = last_record_id + i + 1;
+            rows.push_back(r);
+        }
+        return rows;
+    }
+
+    std::string CreateScoreJob(const std::string& dataset_id, 
+                               const std::string& model_run_id,
+                               const std::string& request_id = "") override {
+        return "mock-score-job-id";
+    }
+
+    nlohmann::json ListScoreJobs(int limit,
+                                 int offset,
+                                 const std::string& status = "",
+                                 const std::string& dataset_id = "",
+                                 const std::string& model_run_id = "",
+                                 const std::string& created_from = "",
+                                 const std::string& created_to = "") override {
+        return nlohmann::json::array();
+    }
+
     // Inspection helpers
+    bool should_fail_insert = false;
+    bool should_fail_fetch = false;
+    std::string mock_artifact_path = "artifacts/pca/default/model.json";
+    std::string last_job_id;
+    std::string last_job_status;
+    std::string last_job_error;
+    std::string last_model_run_id;
+    std::string last_model_run_status;
+    std::map<std::string, std::string> model_run_statuses; // Store status per ID
+    std::mutex mutex_;
     size_t last_batch_size = 0;
     TelemetryRecord last_record;
 };
