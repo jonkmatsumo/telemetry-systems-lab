@@ -197,6 +197,27 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleModelErrorDistribution(req, res);
     });
 
+    svr_.Get("/models/([a-zA-Z0-9-]+)/trials", [this](const httplib::Request& req, httplib::Response& res) {
+        std::string rid = GetRequestId(req);
+        telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
+        std::string model_run_id = req.matches[1];
+        int limit = GetIntParam(req, "limit", 50);
+        int offset = GetIntParam(req, "offset", 0);
+        
+        try {
+            auto trials = db_client_->GetHpoTrialsPaginated(model_run_id, limit, offset);
+            nlohmann::json resp;
+            resp["items"] = trials;
+            resp["limit"] = limit;
+            resp["offset"] = offset;
+            resp["returned"] = trials.size();
+            SendJson(res, resp, 200, rid);
+        } catch (const std::exception& e) {
+            log.RecordError(telemetry::obs::kErrDbQueryFailed, e.what(), 500);
+            SendError(res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid);
+        }
+    });
+
     svr_.Post("/models/([a-zA-Z0-9-]+)/rerun_failed", [this](const httplib::Request& req, httplib::Response& res) {
         std::string rid = GetRequestId(req);
         telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);

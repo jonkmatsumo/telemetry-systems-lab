@@ -68,6 +68,7 @@ public:
                                       const nlohmann::json& error_summary = nlohmann::json()) override;
     nlohmann::json GetModelRun(const std::string& model_run_id) override;
     nlohmann::json GetHpoTrials(const std::string& parent_run_id) override;
+    nlohmann::json GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) override;
     void UpdateBestTrial(const std::string& parent_run_id,
                          const std::string& best_trial_run_id,
                          double best_metric_value,

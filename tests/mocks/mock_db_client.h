@@ -76,6 +76,10 @@ public:
         return nlohmann::json::array();
     }
 
+    nlohmann::json GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) override {
+        return nlohmann::json::array();
+    }
+
     void UpdateBestTrial(const std::string& parent_run_id,
                          const std::string& best_trial_run_id,
                          double best_metric_value,
