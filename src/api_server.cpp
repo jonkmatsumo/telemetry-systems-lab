@@ -2142,8 +2142,8 @@ std::string ApiServer::GetStrParam(const httplib::Request& req, const std::strin
 void ApiServer::ValidateRoutes() {
     // Basic sanity check: ensure registry matches expected count
     // We don't do deep introspection of httplib because it's hard.
-    if (kRequiredRoutes.size() != 31) {
-        spdlog::warn("Route registry count mismatch! Expected 31, got {}", kRequiredRoutes.size());
+    if (kRequiredRoutes.size() != 35) {
+        spdlog::warn("Route registry count mismatch! Expected 35, got {}", kRequiredRoutes.size());
     } else {
         spdlog::info("Route registry validated ({} routes)", kRequiredRoutes.size());
     }
