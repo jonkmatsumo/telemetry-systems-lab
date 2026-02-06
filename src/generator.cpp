@@ -17,7 +17,8 @@ std::chrono::system_clock::time_point ParseTime(const std::string& iso) {
     std::tm tm = {};
     std::stringstream ss(iso);
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%SZ"); // Expect Zulu for simplicity in MVP
-    return std::chrono::system_clock::from_time_t(std::mktime(&tm));
+    tm.tm_isdst = 0; // Explicitly disable DST for UTC
+    return std::chrono::system_clock::from_time_t(timegm(&tm));
 }
 
 Generator::Generator(const telemetry::GenerateRequest& request, 

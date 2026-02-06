@@ -201,6 +201,9 @@ add_executable(unit_tests
     tests/unit/test_job_manager.cpp
     tests/unit/test_obs_metrics.cpp
     tests/unit/test_hardening_scaffolding.cpp
+    tests/unit/test_api_scoring.cpp
+    tests/unit/test_time_parsing.cpp
+    src/api_server.cpp
     src/generator.cpp
     src/db_client.cpp
     src/route_registry.cpp
@@ -227,6 +230,10 @@ target_link_libraries(unit_tests
     PkgConfig::UUID
     nlohmann_json::nlohmann_json
 )
+
+if(HTTPLIB_FOUND)
+    target_link_libraries(unit_tests PkgConfig::HTTPLIB)
+endif()
 
 
 add_test(NAME UnitTests COMMAND unit_tests)
