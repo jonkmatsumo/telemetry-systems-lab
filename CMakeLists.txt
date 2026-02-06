@@ -5,6 +5,16 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Build Safety Nets: Warnings
+set(COMMON_WARNINGS -Wall -Wextra -Wpedantic -Wunused -Wshadow -Wconversion -Wcast-align -Woverloaded-virtual)
+add_compile_options(${COMMON_WARNINGS})
+
+option(TREAT_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+if(TREAT_WARNINGS_AS_ERRORS OR DEFINED ENV{CI})
+    add_compile_options(-Werror)
+    message(STATUS "Treating warnings as errors (-Werror)")
+endif()
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GRPC REQUIRED IMPORTED_TARGET grpc++)
 pkg_check_modules(PROTOBUF REQUIRED IMPORTED_TARGET protobuf)

@@ -12,7 +12,7 @@ JobManager::~JobManager() {
 }
 
 void JobManager::SetMaxConcurrentJobs(size_t max_jobs) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lk(mutex_);
     max_jobs_ = max_jobs;
 }
 
@@ -31,7 +31,7 @@ void JobManager::CleanupFinishedThreads() {
 }
 
 void JobManager::StartJob(const std::string& job_id, const std::string& request_id, std::function<void(const std::atomic<bool>*)> work) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lk(mutex_);
     
     
     if (stopping_) {
@@ -62,7 +62,7 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
             work(stop_flag.get());
             spdlog::info("DEBUG: Job wrapper finished for {}", job_id);
             
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard<std::mutex> lk(mutex_);
             if (jobs_.count(job_id)) {
                 if (stop_flag->load()) {
                     jobs_[job_id].status = JobStatus::CANCELLED;
@@ -76,7 +76,7 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
         } catch (const std::exception& e) {
             spdlog::error("Job {} (req_id: {}) failed: {}", job_id, request_id, e.what());
             // ... (rest of catch)
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard<std::mutex> lk(mutex_);
             if (jobs_.count(job_id)) {
                 jobs_[job_id].status = JobStatus::FAILED;
                 jobs_[job_id].error = e.what();
@@ -86,7 +86,7 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
             telemetry::metrics::MetricsRegistry::Instance().Increment("job_failed_total", {{"error", "exception"}});
         } catch (...) {
             spdlog::error("Job {} (req_id: {}) failed with unknown exception", job_id, request_id);
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard<std::mutex> lk(mutex_);
             if (jobs_.count(job_id)) {
                 jobs_[job_id].status = JobStatus::FAILED;
                 jobs_[job_id].error = "Unknown exception";
@@ -99,7 +99,7 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
 }
 
 void JobManager::CancelJob(const std::string& job_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lk(mutex_);
     if (stop_flags_.count(job_id)) {
         stop_flags_[job_id]->store(true);
         spdlog::info("Requested stop for job {}", job_id);
@@ -107,7 +107,7 @@ void JobManager::CancelJob(const std::string& job_id) {
 }
 
 JobStatus JobManager::GetStatus(const std::string& job_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lk(mutex_);
     if (jobs_.count(job_id)) {
         return jobs_[job_id].status;
     }
@@ -115,7 +115,7 @@ JobStatus JobManager::GetStatus(const std::string& job_id) {
 }
 
 std::vector<JobInfo> JobManager::ListJobs() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lk(mutex_);
     std::vector<JobInfo> out;
     for (const auto& kv : jobs_) {
         out.push_back(kv.second);
@@ -130,7 +130,7 @@ void JobManager::Stop() {
     
     std::vector<std::thread> to_join;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lk(mutex_);
         for (auto& [id, flag] : stop_flags_) {
             flag->store(true);
         }

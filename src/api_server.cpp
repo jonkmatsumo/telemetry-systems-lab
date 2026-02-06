@@ -694,7 +694,6 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         resp["meta"]["request_id"] = rid;
 
         if (debug) {
-            double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
             resolved["column"] = allowed[column];
             resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(items.size()), resolved);

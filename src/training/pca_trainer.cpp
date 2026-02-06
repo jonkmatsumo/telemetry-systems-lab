@@ -52,27 +52,6 @@ struct RunningStats {
     }
 };
 
-static void stream_samples(const std::string& db_conn_str,
-                           const std::string& dataset_id,
-                           const std::function<void(const linalg::Vector&)>& on_sample) {
-    pqxx::connection conn(db_conn_str);
-    pqxx::nontransaction N(conn);
-
-    auto result = N.exec_params(
-        "SELECT cpu_usage, memory_usage, disk_utilization, "
-        "network_rx_rate, network_tx_rate "
-        "FROM host_telemetry_archival "
-        "WHERE run_id = $1 AND is_anomaly = false",
-        dataset_id);
-
-    for (const auto& row : result) {
-        linalg::Vector x(telemetry::anomaly::FeatureVector::kSize, 0.0);
-        x[0] = row[0].as<double>();
-        x[1] = row[1].as<double>();
-        x[2] = row[2].as<double>();
-        x[3] = row[3].as<double>();
-        x[4] = row[4].as<double>();
-        on_sample(x);
     }
 }
 
