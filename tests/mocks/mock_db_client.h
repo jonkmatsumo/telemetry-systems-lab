@@ -2,6 +2,8 @@
 #include "idb_client.h"
 #include <vector>
 #include <string>
+#include <mutex>
+#include <map>
 
 class MockDbClient : public IDbClient {
 public:
@@ -64,7 +66,10 @@ public:
                               const std::string& artifact_path = "", 
                               const std::string& error = "",
                               const nlohmann::json& error_summary = nlohmann::json()) override {
-        // No-op
+        std::lock_guard<std::mutex> lock(mutex_);
+        last_model_run_id = model_run_id;
+        last_model_run_status = status;
+        model_run_statuses[model_run_id] = status;
     }
 
     nlohmann::json GetModelRun(const std::string& model_run_id) override {
@@ -291,6 +296,10 @@ public:
     std::string last_job_id;
     std::string last_job_status;
     std::string last_job_error;
+    std::string last_model_run_id;
+    std::string last_model_run_status;
+    std::map<std::string, std::string> model_run_statuses; // Store status per ID
+    std::mutex mutex_;
     size_t last_batch_size = 0;
     TelemetryRecord last_record;
 };

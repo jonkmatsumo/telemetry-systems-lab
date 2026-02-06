@@ -72,14 +72,18 @@ static const char* ClassifyTrainError(const std::string& msg) {
 }
 
 ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_str)
-    : grpc_target_(grpc_target), db_conn_str_(db_conn_str)
+    : ApiServer(grpc_target, std::make_shared<DbClient>(db_conn_str))
+{
+    db_conn_str_ = db_conn_str;
+}
+
+ApiServer::ApiServer(const std::string& grpc_target, std::shared_ptr<IDbClient> db_client)
+    : grpc_target_(grpc_target), db_client_(db_client)
 {
     // Initialize gRPC Stub
     auto channel = grpc::CreateChannel(grpc_target, grpc::InsecureChannelCredentials());
     stub_ = telemetry::TelemetryService::NewStub(channel);
 
-    // Initialize DB Client
-    db_client_ = std::make_unique<DbClient>(db_conn_str);
     db_client_->ReconcileStaleJobs();
     
     // Ensure partitions for current and next month
@@ -958,6 +962,7 @@ void ApiServer::OrchestrateTuning(TuningTask task) {
             if (stop_flag->load()) {
                 spdlog::warn("Tuning orchestration for {} cancelled.", task.parent_run_id);
                 // Propagate cancel to all remaining trials (already handles by HandleDelete endpoint but here for robustness)
+                db_client_->UpdateModelRunStatus(task.parent_run_id, "CANCELLED");
                 return;
             }
 
@@ -1022,6 +1027,7 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
                                     if (stop_flag->load()) {
 
                                         spdlog::info("Training for model {} aborted by cancellation.", model_run_id);
+                                        db_client_->UpdateModelRunStatus(model_run_id, "CANCELLED");
 
                                         return;
 
@@ -1723,22 +1729,16 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                                       {"model_run_id", model_run_id},
                                       {"score_job_id", job_id}});
             auto job_start = std::chrono::steady_clock::now();
-            DbClient local_db(db_conn_str_);
             try {
-                auto job_info = local_db.GetScoreJob(job_id);
+                auto job_info = db_client_->GetScoreJob(job_id);
                 long total = job_info.value("total_rows", 0L);
                 long processed = job_info.value("processed_rows", 0L);
                 long last_record = job_info.value("last_record_id", 0L);
 
-                pqxx::connection C(db_conn_str_);
-                pqxx::nontransaction N(C);
-                auto count_res = N.exec_params(
-                    "SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1",
-                    dataset_id);
-                total = count_res.empty() ? 0 : count_res[0][0].as<long>();
-                local_db.UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
+                total = db_client_->GetDatasetRecordCount(dataset_id);
+                db_client_->UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
 
-                auto model_info = local_db.GetModelRun(model_run_id);
+                auto model_info = db_client_->GetModelRun(model_run_id);
                 std::string artifact_path = model_info.value("artifact_path", "");
                 if (artifact_path.empty()) {
                     throw std::runtime_error("Model artifact path missing");
@@ -1748,7 +1748,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
 
                 const int batch = 5000;
                 while (!stop_flag->load()) {
-                    auto rows = local_db.FetchScoringRowsAfterRecord(dataset_id, last_record, batch);
+                    auto rows = db_client_->FetchScoringRowsAfterRecord(dataset_id, last_record, batch);
                     if (rows.empty()) break;
                     std::vector<std::pair<long, std::pair<double, bool>>> scores;
                     scores.reserve(rows.size());
@@ -1762,15 +1762,15 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                         auto score = model.Score(v);
                         scores.emplace_back(r.record_id, std::make_pair(score.reconstruction_error, score.is_anomaly));
                     }
-                    local_db.InsertDatasetScores(dataset_id, model_run_id, scores);
+                    db_client_->InsertDatasetScores(dataset_id, model_run_id, scores);
                     processed += static_cast<long>(rows.size());
                     last_record = rows.back().record_id;
-                    local_db.UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
+                    db_client_->UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
                 }
                 
                 if (stop_flag->load()) {
                     spdlog::info("Job {} cancelled by request.", job_id);
-                    local_db.UpdateScoreJob(job_id, "CANCELLED", total, processed, last_record);
+                    db_client_->UpdateScoreJob(job_id, "CANCELLED", total, processed, last_record);
                     auto job_end = std::chrono::steady_clock::now();
                     double duration_ms = std::chrono::duration<double, std::milli>(job_end - job_start).count();
                     telemetry::obs::LogEvent(telemetry::obs::LogLevel::Warn, "score_job_end", "model",
@@ -1781,7 +1781,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                                               {"status", "CANCELLED"},
                                               {"duration_ms", duration_ms}});
                 } else {
-                    local_db.UpdateScoreJob(job_id, "COMPLETED", total, processed, last_record);
+                    db_client_->UpdateScoreJob(job_id, "COMPLETED", total, processed, last_record);
                     auto job_end = std::chrono::steady_clock::now();
                     double duration_ms = std::chrono::duration<double, std::milli>(job_end - job_start).count();
                     telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "score_job_end", "model",
@@ -1793,11 +1793,11 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                                               {"duration_ms", duration_ms}});
                 }
             } catch (const std::exception& e) {
-                auto job_info = local_db.GetScoreJob(job_id);
+                auto job_info = db_client_->GetScoreJob(job_id);
                 long total = job_info.value("total_rows", 0L);
                 long processed = job_info.value("processed_rows", 0L);
                 long last_record = job_info.value("last_record_id", 0L);
-                local_db.UpdateScoreJob(job_id, "FAILED", total, processed, last_record, e.what());
+                db_client_->UpdateScoreJob(job_id, "FAILED", total, processed, last_record, e.what());
                 auto job_end = std::chrono::steady_clock::now();
                 double duration_ms = std::chrono::duration<double, std::milli>(job_end - job_start).count();
                 telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "score_job_error", "model",
