@@ -1488,10 +1488,10 @@ nlohmann::json DbClient::ListScoreJobs(int limit,
     return out;
 }
 
-std::vector<DbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const std::string& dataset_id,
+std::vector<IDbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const std::string& dataset_id,
                                                                         long last_record_id,
                                                                         int limit) {
-    std::vector<ScoringRow> rows;
+    std::vector<IDbClient::ScoringRow> rows;
     try {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
@@ -1501,7 +1501,7 @@ std::vector<DbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const st
             dataset_id, last_record_id, limit);
         rows.reserve(res.size());
         for (const auto& row : res) {
-            ScoringRow r;
+            IDbClient::ScoringRow r;
             r.record_id = row[0].as<long>();
             r.is_anomaly = row[1].as<bool>();
             r.cpu = row[2].as<double>();
@@ -1513,6 +1513,7 @@ std::vector<DbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const st
         }
     } catch (const std::exception& e) {
         spdlog::error("Failed to fetch scoring rows: {}", e.what());
+        throw;
     }
     return rows;
 }
@@ -1567,7 +1568,25 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
         }
         telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "db_insert", "db", fields);
     } catch (const std::exception& e) {
-        spdlog::error("Failed to insert dataset scores: {}", e.what());
+        spdlog::error("Failed to insert dataset scores (dataset_id={}, model_run_id={}): {}", 
+                      dataset_id, model_run_id, e.what());
+        throw;
+    }
+}
+
+long DbClient::GetDatasetRecordCount(const std::string& dataset_id) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::nontransaction N(C);
+#if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
+        auto res = N.exec_params("SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1", dataset_id);
+#else
+        auto res = N.exec_params("SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1", dataset_id);
+#endif
+        return res.empty() ? 0 : res[0][0].as<long>();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to get dataset record count: {}", e.what());
+        throw;
     }
 }
 
