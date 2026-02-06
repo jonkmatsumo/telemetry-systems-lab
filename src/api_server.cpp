@@ -1008,7 +1008,10 @@ void ApiServer::OrchestrateTuning(TuningTask task) {
         spdlog::info("Tuning orchestration started for model_run_id: {} with {} trials (max_concurrency: {})", 
                      task.parent_run_id, task.trials.size(), task.max_concurrency);
         
-        db_client_->UpdateModelRunStatus(task.parent_run_id, "RUNNING");
+        if (!db_client_->TryTransitionModelRunStatus(task.parent_run_id, "PENDING", "RUNNING")) {
+            auto model_info = db_client_->GetModelRun(task.parent_run_id);
+            if (model_info.value("status", "") != "RUNNING") return;
+        }
 
         std::vector<std::string> trial_ids;
         int idx = 0;
@@ -1098,7 +1101,13 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
                                     {{"request_id", rid}, {"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
         auto train_start = std::chrono::steady_clock::now();
         spdlog::info("Training started for model {} (req_id: {})", model_run_id, rid);
-        db_client_->UpdateModelRunStatus(model_run_id, "RUNNING");
+        
+        if (!db_client_->TryTransitionModelRunStatus(model_run_id, "PENDING", "RUNNING")) {
+            auto model_info = db_client_->GetModelRun(model_run_id);
+            std::string current_status = model_info.value("status", "UNKNOWN");
+            spdlog::warn("Model {} transition PENDING->RUNNING failed (current status: {}).", model_run_id, current_status);
+            if (current_status != "RUNNING") return;
+        }
 
         std::string output_dir = "artifacts/pca/" + model_run_id;
         std::string output_path = output_dir + "/model.json";
@@ -1676,6 +1685,7 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
             log.AddFields({{"inference_run_id", inference_id}});
             ctx.inference_run_id = inference_id;
             telemetry::obs::UpdateContext(ctx);
+            // Optional: Transition to RUNNING if CreateInferenceRun returns PENDING
         }
         int anomaly_count = 0;
         nlohmann::json results = nlohmann::json::array();
@@ -1871,6 +1881,10 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                 long last_record = job_info.value("last_record_id", 0L);
 
                 total = db_client_->GetDatasetRecordCount(dataset_id);
+                if (!db_client_->TryTransitionScoreJobStatus(job_id, "PENDING", "RUNNING")) {
+                    auto job_info = db_client_->GetScoreJob(job_id);
+                    if (job_info.value("status", "") != "RUNNING") return;
+                }
                 db_client_->UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
 
                 auto model_info = db_client_->GetModelRun(model_run_id);
