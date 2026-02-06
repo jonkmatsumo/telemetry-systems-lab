@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 #include "api_server.h"
+#include "http_test_utils.h"
 #include "mocks/mock_db_client.h"
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 #include <thread>
 #include <chrono>
+#include <string>
 
 namespace telemetry {
 namespace api {
@@ -12,19 +14,26 @@ namespace api {
 class ApiServerPerformanceTest : public ::testing::Test {
 protected:
     std::unique_ptr<ApiServer> server;
-    int port = 50097; // Different port
+    std::thread server_thread;
+    const std::string host = "127.0.0.1";
+    int port = 0;
 
     void SetUp() override {
-        // Defer server creation to test body
+        port = AllocateTestPort();
     }
 
     void TearDown() override {
-        if (server) server->Stop();
+        if (server) {
+            server->Stop();
+        }
+        if (server_thread.joinable()) {
+            server_thread.join();
+        }
     }
 };
 
 TEST_F(ApiServerPerformanceTest, ListModelsUsesBulkFetch) {
-    httplib::Client cli("localhost", port);
+    httplib::Client cli(host, port);
     
     class TestMockDb : public MockDbClient {
     public:
@@ -54,18 +63,12 @@ TEST_F(ApiServerPerformanceTest, ListModelsUsesBulkFetch) {
     
     // Init server with my_mock
     server = std::make_unique<ApiServer>("localhost:50051", my_mock);
-    std::thread([this]() {
-        server->Start("localhost", port);
-    }).detach();
-    
-    int retries = 20;
-    while (retries-- > 0) {
-        try {
-            httplib::Client cli("localhost", port);
-            if (auto res = cli.Get("/health")) break;
-        } catch (...) {}
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
+    server_thread = std::thread([this]() {
+        server->Start(host, port);
+    });
+
+    ASSERT_TRUE(WaitForServerReady(host, port))
+        << "HTTP API server failed to start on port " << port;
 
     auto res = cli.Get("/models");
     ASSERT_TRUE(res);

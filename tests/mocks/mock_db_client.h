@@ -76,7 +76,7 @@ public:
         nlohmann::json j;
         j["model_run_id"] = model_run_id;
         j["status"] = "COMPLETED";
-        j["artifact_path"] = "artifacts/pca/default/model.json";
+        j["artifact_path"] = mock_artifact_path;
         return j;
     }
 
@@ -310,6 +310,7 @@ public:
     // Inspection helpers
     bool should_fail_insert = false;
     bool should_fail_fetch = false;
+    std::string mock_artifact_path = "artifacts/pca/default/model.json";
     std::string last_job_id;
     std::string last_job_status;
     std::string last_job_error;

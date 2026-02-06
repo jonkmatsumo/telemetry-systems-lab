@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 #include "api_server.h"
+#include "http_test_utils.h"
 #include "mocks/mock_db_client.h"
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 #include <thread>
 #include <chrono>
+#include <string>
 
 namespace telemetry {
 namespace api {
@@ -13,37 +15,35 @@ class ApiServerSafetyTest : public ::testing::Test {
 protected:
     std::shared_ptr<MockDbClient> mock_db;
     std::unique_ptr<ApiServer> server;
-    int port = 50099;
+    std::thread server_thread;
+    const std::string host = "127.0.0.1";
+    int port = 0;
 
     void SetUp() override {
+        port = AllocateTestPort();
         mock_db = std::make_shared<MockDbClient>();
         server = std::make_unique<ApiServer>("localhost:50051", mock_db);
-        
-        // Start server in background
-        std::thread([this]() {
-            server->Start("localhost", port);
-        }).detach();
-        
-        // Wait for start
-        int retries = 20;
-        while (retries-- > 0) {
-            try {
-                httplib::Client cli("localhost", port);
-                if (auto res = cli.Get("/health")) {
-                    break;
-                }
-            } catch (...) {}
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
+
+        server_thread = std::thread([this]() {
+            server->Start(host, port);
+        });
+
+        ASSERT_TRUE(WaitForServerReady(host, port))
+            << "HTTP API server failed to start on port " << port;
     }
 
     void TearDown() override {
-        server->Stop();
+        if (server) {
+            server->Stop();
+        }
+        if (server_thread.joinable()) {
+            server_thread.join();
+        }
     }
 };
 
 TEST_F(ApiServerSafetyTest, RejectsOversizedPayload) {
-    httplib::Client cli("localhost", port);
+    httplib::Client cli(host, port);
     
     // Create > 50MB payload
     std::string large_body(1024 * 1024 * 51, 'a');
@@ -58,7 +58,7 @@ TEST_F(ApiServerSafetyTest, RejectsOversizedPayload) {
 }
 
 TEST_F(ApiServerSafetyTest, InferenceValidatesCount) {
-    httplib::Client cli("localhost", port);
+    httplib::Client cli(host, port);
     
     // Create huge array of samples
     nlohmann::json body;
@@ -79,7 +79,7 @@ TEST_F(ApiServerSafetyTest, InferenceValidatesCount) {
 }
 
 TEST_F(ApiServerSafetyTest, InferenceValidatesFeatureSize) {
-    httplib::Client cli("localhost", port);
+    httplib::Client cli(host, port);
     
     // Test implicitly covered by schema validation or we can try malformed samples?
     // Current code doesn't strictly validate inner keys for size, only checks samples count.

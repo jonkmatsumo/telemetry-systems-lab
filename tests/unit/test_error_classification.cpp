@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 #include "api_server.h"
+#include "http_test_utils.h"
 #include "mocks/mock_db_client.h"
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 #include <thread>
 #include <chrono>
+#include <string>
 
 namespace telemetry {
 namespace api {
@@ -13,36 +15,35 @@ class ApiServerErrorTest : public ::testing::Test {
 protected:
     std::shared_ptr<MockDbClient> mock_db;
     std::unique_ptr<ApiServer> server;
-    int port = 50098; // Different port to avoid conflict
+    std::thread server_thread;
+    const std::string host = "127.0.0.1";
+    int port = 0;
 
     void SetUp() override {
+        port = AllocateTestPort();
         mock_db = std::make_shared<MockDbClient>();
         server = std::make_unique<ApiServer>("localhost:50051", mock_db);
         
-        std::thread([this]() {
-            server->Start("localhost", port);
-        }).detach();
-        
-        // Wait for start
-        int retries = 20;
-        while (retries-- > 0) {
-            try {
-                httplib::Client cli("localhost", port);
-                if (auto res = cli.Get("/health")) {
-                    break;
-                }
-            } catch (...) {}
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
+        server_thread = std::thread([this]() {
+            server->Start(host, port);
+        });
+
+        ASSERT_TRUE(WaitForServerReady(host, port))
+            << "HTTP API server failed to start on port " << port;
     }
 
     void TearDown() override {
-        server->Stop();
+        if (server) {
+            server->Stop();
+        }
+        if (server_thread.joinable()) {
+            server_thread.join();
+        }
     }
 };
 
 TEST_F(ApiServerErrorTest, ReturnsJsonParseError) {
-    httplib::Client cli("localhost", port);
+    httplib::Client cli(host, port);
     
     // Invalid JSON
     std::string body = "{ invalid json ";
@@ -56,7 +57,7 @@ TEST_F(ApiServerErrorTest, ReturnsJsonParseError) {
 }
 
 TEST_F(ApiServerErrorTest, ReturnsMissingField) {
-    httplib::Client cli("localhost", port);
+    httplib::Client cli(host, port);
     
     // Missing model_run_id (which is required via j.at("model_run_id"))
     nlohmann::json body = {
@@ -72,7 +73,7 @@ TEST_F(ApiServerErrorTest, ReturnsMissingField) {
 }
 
 TEST_F(ApiServerErrorTest, ReturnsInvalidArgument) {
-    httplib::Client cli("localhost", port);
+    httplib::Client cli(host, port);
     
     // Invalid type for model_run_id (expect string, give int) -> parse error or type error?
     // nlohmann::json throws type_error if at() mismatch? No, at() returns reference.

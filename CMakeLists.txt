@@ -219,6 +219,7 @@ add_executable(unit_tests
 )
 
 target_include_directories(unit_tests PRIVATE src tests)
+target_compile_definitions(unit_tests PRIVATE TELEMETRY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(unit_tests
     GTest::GTest
     GTest::Main
@@ -240,6 +241,7 @@ endif()
 
 
 add_test(NAME UnitTests COMMAND unit_tests)
+set_tests_properties(UnitTests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 # Integration Test Client (End-to-End)
 add_executable(test_client tests/client.cpp)

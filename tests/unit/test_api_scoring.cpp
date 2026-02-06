@@ -6,6 +6,10 @@
 #include <thread>
 #include <chrono>
 
+#ifndef TELEMETRY_SOURCE_DIR
+#define TELEMETRY_SOURCE_DIR "."
+#endif
+
 namespace telemetry {
 namespace api {
 
@@ -23,6 +27,8 @@ protected:
 
     void SetUp() override {
         mock_db = std::make_shared<MockDbClient>();
+        mock_db->mock_artifact_path =
+            std::string(TELEMETRY_SOURCE_DIR) + "/tests/parity/golden/test_pca_model.json";
         // Using a dummy grpc target
         server = std::make_unique<ApiServer>("localhost:50051", mock_db);
     }
