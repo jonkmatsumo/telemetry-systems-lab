@@ -87,13 +87,12 @@ private:
 
     httplib::Server svr_;
     std::unique_ptr<telemetry::TelemetryService::Stub> stub_;
+    std::string grpc_target_;
+    std::string db_conn_str_;
     std::shared_ptr<IDbClient> db_client_;
     std::shared_ptr<DbConnectionManager> db_manager_;
     std::unique_ptr<JobManager> job_manager_;
     std::unique_ptr<telemetry::anomaly::PcaModelCache> model_cache_;
-    
-    std::string grpc_target_;
-    std::string db_conn_str_;
 };
 
 } // namespace api

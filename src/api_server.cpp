@@ -856,7 +856,7 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
         
         int requested_bins = data.value("requested_bins", bins);
-        int returned_bins = data.value("counts", nlohmann::json::array()).size();
+        int returned_bins = static_cast<int>(data.value("counts", nlohmann::json::array()).size());
         bool truncated = requested_bins > returned_bins;
         data["meta"] = telemetry::api::BuildResponseMeta(
             requested_bins,
