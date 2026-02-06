@@ -15,6 +15,32 @@ if(TREAT_WARNINGS_AS_ERRORS OR DEFINED ENV{CI})
     message(STATUS "Treating warnings as errors (-Werror)")
 endif()
 
+# Sanitizers
+option(ENABLE_ASAN "Enable Address Sanitizer" OFF)
+option(ENABLE_UBSAN "Enable Undefined Behavior Sanitizer" OFF)
+option(ENABLE_TSAN "Enable Thread Sanitizer" OFF)
+
+if(ENABLE_ASAN)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+    message(STATUS "Address Sanitizer enabled")
+endif()
+
+if(ENABLE_UBSAN)
+    add_compile_options(-fsanitize=undefined)
+    add_link_options(-fsanitize=undefined)
+    message(STATUS "Undefined Behavior Sanitizer enabled")
+endif()
+
+if(ENABLE_TSAN)
+    if(ENABLE_ASAN OR ENABLE_UBSAN)
+        message(FATAL_ERROR "Thread Sanitizer cannot be combined with ASAN/UBSAN")
+    endif()
+    add_compile_options(-fsanitize=thread)
+    add_link_options(-fsanitize=thread)
+    message(STATUS "Thread Sanitizer enabled")
+endif()
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GRPC REQUIRED IMPORTED_TARGET grpc++)
 pkg_check_modules(PROTOBUF REQUIRED IMPORTED_TARGET protobuf)
