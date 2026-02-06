@@ -212,6 +212,11 @@ void Generator::Run() {
         const int BATCH_SIZE = 5000;
         
         for (auto t = start; t < end; t += duration) {
+            if (stop_flag_ && stop_flag_->load()) {
+                spdlog::info("Generation run {} cancelled by request.", run_id_);
+                db_->UpdateRunStatus(run_id_, "CANCELLED", total_rows);
+                return;
+            }
             for (const auto& host : hosts_) {
                 batch.push_back(GenerateRecord(host, t));
                 if (batch.size() >= BATCH_SIZE) {
@@ -220,6 +225,12 @@ void Generator::Run() {
                     total_rows += batch.size();
                     db_->UpdateRunStatus(run_id_, "RUNNING", total_rows);
                     batch.clear();
+                    
+                    if (stop_flag_ && stop_flag_->load()) {
+                        spdlog::info("Generation run {} cancelled by request.", run_id_);
+                        db_->UpdateRunStatus(run_id_, "CANCELLED", total_rows);
+                        return;
+                    }
                 }
             }
         }

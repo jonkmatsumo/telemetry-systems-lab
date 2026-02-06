@@ -3,7 +3,6 @@
 #include <spdlog/spdlog.h>
 
 namespace telemetry {
-namespace api {
 
 JobManager::JobManager() {}
 
@@ -18,7 +17,7 @@ void JobManager::SetMaxConcurrentJobs(size_t max_jobs) {
 
 void JobManager::CleanupFinishedThreads() {
     for (auto it = threads_.begin(); it != threads_.end(); ) {
-        if (jobs_.count(it->first) && jobs_[it->first].status != JobStatus::RUNNING) {
+        if (jobs_.count(it->first) && jobs_[it->first].status != telemetry::JobStatus::RUNNING) {
             if (it->second.joinable()) {
                 it->second.join();
             }
@@ -51,7 +50,7 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
     JobInfo info;
     info.job_id = job_id;
     info.request_id = request_id;
-    info.status = JobStatus::RUNNING;
+    info.status = telemetry::JobStatus::RUNNING;
     jobs_[job_id] = info;
     current_jobs_++;
     telemetry::metrics::MetricsRegistry::Instance().SetGauge("job_active_count", static_cast<double>(current_jobs_));
@@ -65,9 +64,9 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
             std::lock_guard<std::mutex> lk(mutex_);
             if (jobs_.count(job_id)) {
                 if (stop_flag->load()) {
-                    jobs_[job_id].status = JobStatus::CANCELLED;
+                    jobs_[job_id].status = telemetry::JobStatus::CANCELLED;
                 } else {
-                    jobs_[job_id].status = JobStatus::COMPLETED;
+                    jobs_[job_id].status = telemetry::JobStatus::COMPLETED;
                 }
             }
             current_jobs_--;
@@ -78,7 +77,7 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
             // ... (rest of catch)
             std::lock_guard<std::mutex> lk(mutex_);
             if (jobs_.count(job_id)) {
-                jobs_[job_id].status = JobStatus::FAILED;
+                jobs_[job_id].status = telemetry::JobStatus::FAILED;
                 jobs_[job_id].error = e.what();
             }
             current_jobs_--;
@@ -88,7 +87,7 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
             spdlog::error("Job {} (req_id: {}) failed with unknown exception", job_id, request_id);
             std::lock_guard<std::mutex> lk(mutex_);
             if (jobs_.count(job_id)) {
-                jobs_[job_id].status = JobStatus::FAILED;
+                jobs_[job_id].status = telemetry::JobStatus::FAILED;
                 jobs_[job_id].error = "Unknown exception";
             }
             current_jobs_--;
@@ -111,7 +110,7 @@ JobStatus JobManager::GetStatus(const std::string& job_id) {
     if (jobs_.count(job_id)) {
         return jobs_[job_id].status;
     }
-    return JobStatus::CANCELLED; // Or NOT_FOUND
+    return telemetry::JobStatus::CANCELLED; // Or NOT_FOUND
 }
 
 std::vector<JobInfo> JobManager::ListJobs() {
@@ -149,5 +148,4 @@ void JobManager::Stop() {
     }
 }
 
-} // namespace api
 } // namespace telemetry

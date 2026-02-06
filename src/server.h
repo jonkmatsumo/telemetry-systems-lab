@@ -7,6 +7,7 @@
 #include <spdlog/spdlog.h>
 #include "db_client.h"
 #include "idb_client.h"
+#include "job_manager.h"
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -28,10 +29,14 @@ public:
         db_factory_ = [this]() {
             return std::make_shared<DbClient>(db_conn_str_);
         };
+        job_manager_ = std::make_unique<telemetry::JobManager>();
     }
 
     explicit TelemetryServiceImpl(DbFactory factory)
-        : db_factory_(std::move(factory)) {}
+        : db_factory_(std::move(factory)) 
+    {
+        job_manager_ = std::make_unique<telemetry::JobManager>();
+    }
 
     Status GenerateTelemetry(ServerContext* context, const GenerateRequest* request,
                              GenerateResponse* response) override;
@@ -39,8 +44,11 @@ public:
     Status GetRun(ServerContext* context, const GetRunRequest* request,
                   RunStatus* response) override;
 
+    void SetMaxConcurrentJobs(size_t n) { job_manager_->SetMaxConcurrentJobs(n); }
+
 private:
     std::string db_conn_str_;
     DbFactory db_factory_;
+    std::unique_ptr<telemetry::JobManager> job_manager_;
 };
 

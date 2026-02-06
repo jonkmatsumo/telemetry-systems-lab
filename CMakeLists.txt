@@ -247,6 +247,7 @@ add_executable(unit_tests
     tests/unit/test_db_connection_pool.cpp
     tests/unit/test_pca_model_cache.cpp
     tests/unit/test_job_state_machine.cpp
+    tests/unit/test_generator_lifecycle.cpp
     tests/unit/test_api_safety.cpp
     tests/unit/test_error_classification.cpp
     tests/unit/test_api_performance.cpp
