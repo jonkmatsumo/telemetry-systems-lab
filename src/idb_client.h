@@ -1,5 +1,6 @@
 #pragma once
 #include "types.h"
+#include "db_connection_manager.h"
 #include <vector>
 #include <string>
 #include <optional>
@@ -9,6 +10,8 @@
 class IDbClient {
 public:
     virtual ~IDbClient() = default;
+
+    virtual std::shared_ptr<DbConnectionManager> GetConnectionManager() = 0;
 
     virtual void ReconcileStaleJobs() = 0;
     virtual void EnsurePartition(std::chrono::system_clock::time_point tp) = 0;
@@ -49,6 +52,11 @@ public:
                                       const std::string& artifact_path = "", 
                                       const std::string& error = "",
                                       const nlohmann::json& error_summary = nlohmann::json()) = 0;
+    
+    virtual bool TryTransitionModelRunStatus(const std::string& model_run_id,
+                                             const std::string& expected_current,
+                                             const std::string& next_status) = 0;
+
     virtual nlohmann::json GetModelRun(const std::string& model_run_id) = 0;
     virtual nlohmann::json GetHpoTrials(const std::string& parent_run_id) = 0;
     virtual nlohmann::json GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) = 0;
@@ -167,13 +175,19 @@ public:
     virtual std::string CreateScoreJob(const std::string& dataset_id, 
                                        const std::string& model_run_id,
                                        const std::string& request_id = "") = 0;
-    virtual void UpdateScoreJob(const std::string& job_id,
-                                const std::string& status,
-                                long total_rows,
-                                long processed_rows,
-                                long last_record_id = 0,
-                                const std::string& error = "") = 0;
-    virtual nlohmann::json GetScoreJob(const std::string& job_id) = 0;
+        virtual void UpdateScoreJob(const std::string& job_id,
+                            const std::string& status,
+                            long total_rows,
+                            long processed_rows,
+                            long last_record_id = 0,
+                            const std::string& error = "") = 0;
+    
+        virtual bool TryTransitionScoreJobStatus(const std::string& job_id,
+                                                 const std::string& expected_current,
+                                                 const std::string& next_status) = 0;
+    
+        virtual nlohmann::json GetScoreJob(const std::string& job_id) = 0;
+    
     virtual nlohmann::json ListScoreJobs(int limit,
                                          int offset,
                                          const std::string& status = "",

@@ -15,7 +15,7 @@ std::string GenerateUUID() {
     return std::string(uuid);
 }
 
-Status TelemetryServiceImpl::GenerateTelemetry(ServerContext* context, const GenerateRequest* request,
+Status TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* context, const GenerateRequest* request,
                                               GenerateResponse* response) {
     std::string run_id = GenerateUUID();
     spdlog::info("Received GenerateTelemetry request. Tier: {}, HostCount: {}, RunID: {}", 
@@ -26,24 +26,30 @@ Status TelemetryServiceImpl::GenerateTelemetry(ServerContext* context, const Gen
     GenerateRequest req_copy = *request;
     auto factory = db_factory_;
     
-    std::thread([run_id, req_copy, factory]() {
-        spdlog::info("Background generation for run {} started...", run_id);
-        try {
-            auto db = factory();
-            Generator gen(req_copy, run_id, db);
-            gen.Run();
-        } catch (const std::exception& e) {
-             spdlog::error("Thread for run {} failed: {}", run_id, e.what());
-        }
-        spdlog::info("Background generation for run {} finished.", run_id);
-    }).detach();
+    try {
+        job_manager_->StartJob("gen-" + run_id, "", [run_id, req_copy, factory](const std::atomic<bool>* stop_flag) {
+            spdlog::info("Background generation for run {} started...", run_id);
+            try {
+                auto db = factory();
+                Generator gen(req_copy, run_id, db);
+                gen.SetStopFlag(stop_flag);
+                gen.Run();
+            } catch (const std::exception& e) {
+                 spdlog::error("Thread for run {} failed: {}", run_id, e.what());
+            }
+            spdlog::info("Background generation for run {} finished.", run_id);
+        });
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to start generation job for run {}: {}", run_id, e.what());
+        return Status(grpc::StatusCode::RESOURCE_EXHAUSTED, e.what());
+    }
 
     response->set_run_id(run_id);
     return Status::OK;
 }
 
 
-Status TelemetryServiceImpl::GetRun(ServerContext* context, const GetRunRequest* request,
+Status TelemetryServiceImpl::GetRun([[maybe_unused]] ServerContext* context, const GetRunRequest* request,
                                    RunStatus* response) {
     spdlog::info("Received GetRun request for RunID: {}", request->run_id());
     

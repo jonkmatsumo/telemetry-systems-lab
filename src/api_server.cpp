@@ -100,16 +100,44 @@ static const char* ClassifyTrainError(const std::string& msg) {
 }
 
 ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_str)
-    : ApiServer(grpc_target, std::make_shared<DbClient>(db_conn_str))
 {
+    size_t pool_size = 5;
+    const char* env_pool_size = std::getenv("DB_POOL_SIZE");
+    if (env_pool_size) {
+        try {
+            pool_size = std::stoul(env_pool_size);
+        } catch (...) {}
+    }
+
+    int timeout_ms = 5000;
+    const char* env_timeout = std::getenv("DB_ACQUIRE_TIMEOUT_MS");
+    if (env_timeout) {
+        try {
+            timeout_ms = std::stoi(env_timeout);
+        } catch (...) {}
+    }
+
+    auto manager = std::make_shared<PooledDbConnectionManager>(
+        db_conn_str, pool_size, std::chrono::milliseconds(timeout_ms));
+    
+    db_client_ = std::make_shared<DbClient>(manager);
+    db_manager_ = manager;
+    grpc_target_ = grpc_target;
     db_conn_str_ = db_conn_str;
+
+    Initialize();
 }
 
 ApiServer::ApiServer(const std::string& grpc_target, std::shared_ptr<IDbClient> db_client)
     : grpc_target_(grpc_target), db_client_(db_client)
 {
+    db_manager_ = db_client_->GetConnectionManager();
+    Initialize();
+}
+
+void ApiServer::Initialize() {
     // Initialize gRPC Stub
-    auto channel = grpc::CreateChannel(grpc_target, grpc::InsecureChannelCredentials());
+    auto channel = grpc::CreateChannel(grpc_target_, grpc::InsecureChannelCredentials());
     stub_ = telemetry::TelemetryService::NewStub(channel);
 
     db_client_->ReconcileStaleJobs();
@@ -121,6 +149,21 @@ ApiServer::ApiServer(const std::string& grpc_target, std::shared_ptr<IDbClient> 
 
     // Initialize JobManager
     job_manager_ = std::make_unique<JobManager>();
+
+    // Initialize Model Cache (defaults: 100 entries, 1 hour TTL)
+    size_t cache_size = 100;
+    const char* env_cache_size = std::getenv("MODEL_CACHE_SIZE");
+    if (env_cache_size) {
+        try { cache_size = std::stoul(env_cache_size); } catch (...) {}
+    }
+
+    int cache_ttl = 3600;
+    const char* env_cache_ttl = std::getenv("MODEL_CACHE_TTL_SECONDS");
+    if (env_cache_ttl) {
+        try { cache_ttl = std::stoi(env_cache_ttl); } catch (...) {}
+    }
+
+    model_cache_ = std::make_unique<telemetry::anomaly::PcaModelCache>(cache_size, cache_ttl);
 
     // Configure HTTP Server Limits
     svr_.set_payload_max_length(1024 * 1024 * 50); // 50MB
@@ -334,7 +377,7 @@ ApiServer::ApiServer(const std::string& grpc_target, std::shared_ptr<IDbClient> 
         std::string rid = GetRequestId(req);
         telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
         try {
-            pqxx::connection C(db_conn_str_);
+            auto C = db_manager_->GetConnection();
             res.status = 200;
             res.set_content("{\"status\":\"READY\"}", "application/json");
         } catch (const std::exception& e) {
@@ -651,7 +694,6 @@ void ApiServer::HandleDatasetTopK(const httplib::Request& req, httplib::Response
         resp["meta"]["request_id"] = rid;
 
         if (debug) {
-            double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
             nlohmann::json resolved;
             resolved["column"] = allowed[column];
             resp["debug"] = BuildDebugMeta(duration_ms, static_cast<long>(items.size()), resolved);
@@ -814,7 +856,7 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
         
         int requested_bins = data.value("requested_bins", bins);
-        int returned_bins = data.value("counts", nlohmann::json::array()).size();
+        int returned_bins = static_cast<int>(data.value("counts", nlohmann::json::array()).size());
         bool truncated = requested_bins > returned_bins;
         data["meta"] = telemetry::api::BuildResponseMeta(
             requested_bins,
@@ -965,7 +1007,10 @@ void ApiServer::OrchestrateTuning(TuningTask task) {
         spdlog::info("Tuning orchestration started for model_run_id: {} with {} trials (max_concurrency: {})", 
                      task.parent_run_id, task.trials.size(), task.max_concurrency);
         
-        db_client_->UpdateModelRunStatus(task.parent_run_id, "RUNNING");
+        if (!db_client_->TryTransitionModelRunStatus(task.parent_run_id, "PENDING", "RUNNING")) {
+            auto model_info = db_client_->GetModelRun(task.parent_run_id);
+            if (model_info.value("status", "") != "RUNNING") return;
+        }
 
         std::vector<std::string> trial_ids;
         int idx = 0;
@@ -1055,7 +1100,13 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
                                     {{"request_id", rid}, {"dataset_id", dataset_id}, {"model_run_id", model_run_id}});
         auto train_start = std::chrono::steady_clock::now();
         spdlog::info("Training started for model {} (req_id: {})", model_run_id, rid);
-        db_client_->UpdateModelRunStatus(model_run_id, "RUNNING");
+        
+        if (!db_client_->TryTransitionModelRunStatus(model_run_id, "PENDING", "RUNNING")) {
+            auto model_info = db_client_->GetModelRun(model_run_id);
+            std::string current_status = model_info.value("status", "UNKNOWN");
+            spdlog::warn("Model {} transition PENDING->RUNNING failed (current status: {}).", model_run_id, current_status);
+            if (current_status != "RUNNING") return;
+        }
 
         std::string output_dir = "artifacts/pca/" + model_run_id;
         std::string output_path = output_dir + "/model.json";
@@ -1064,7 +1115,7 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
 
                                     std::filesystem::create_directories(output_dir);
 
-                                    auto artifact = telemetry::training::TrainPcaFromDb(db_conn_str_, dataset_id, n_components, percentile);
+                                    auto artifact = telemetry::training::TrainPcaFromDb(db_manager_, dataset_id, n_components, percentile);
 
                                     
 
@@ -1617,10 +1668,10 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
             return;
         }
 
-        // 2. Load Model
-        telemetry::anomaly::PcaModel pca;
+        // 2. Load Model (with cache)
+        std::shared_ptr<telemetry::anomaly::PcaModel> pca;
         try {
-            pca.Load(artifact_path);
+            pca = model_cache_->GetOrCreate(model_run_id, artifact_path);
         } catch (const std::exception& e) {
             log.RecordError(telemetry::obs::kErrModelLoadFailed, e.what(), 500);
             SendError(res, "Failed to load PCA model artifact: " + std::string(e.what()), 500, telemetry::obs::kErrModelLoadFailed, rid);
@@ -1633,6 +1684,7 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
             log.AddFields({{"inference_run_id", inference_id}});
             ctx.inference_run_id = inference_id;
             telemetry::obs::UpdateContext(ctx);
+            // Optional: Transition to RUNNING if CreateInferenceRun returns PENDING
         }
         int anomaly_count = 0;
         nlohmann::json results = nlohmann::json::array();
@@ -1644,7 +1696,7 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
             v.data[3] = s.value("network_rx_rate", 0.0);
             v.data[4] = s.value("network_tx_rate", 0.0);
 
-            auto score = pca.Score(v);
+            auto score = pca->Score(v);
             
             nlohmann::json r;
             r["is_anomaly"] = score.is_anomaly;
@@ -1828,6 +1880,10 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                 long last_record = job_info.value("last_record_id", 0L);
 
                 total = db_client_->GetDatasetRecordCount(dataset_id);
+                if (!db_client_->TryTransitionScoreJobStatus(job_id, "PENDING", "RUNNING")) {
+                    auto current_job_info = db_client_->GetScoreJob(job_id);
+                    if (current_job_info.value("status", "") != "RUNNING") return;
+                }
                 db_client_->UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
 
                 auto model_info = db_client_->GetModelRun(model_run_id);
@@ -1835,8 +1891,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                 if (artifact_path.empty()) {
                     throw std::runtime_error("Model artifact path missing");
                 }
-                telemetry::anomaly::PcaModel model;
-                model.Load(artifact_path);
+                auto model = model_cache_->GetOrCreate(model_run_id, artifact_path);
 
                 const int batch = 5000;
                 while (!stop_flag->load()) {
@@ -1851,7 +1906,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                         v.data[2] = r.disk;
                         v.data[3] = r.rx;
                         v.data[4] = r.tx;
-                        auto score = model.Score(v);
+                        auto score = model->Score(v);
                         scores.emplace_back(r.record_id, std::make_pair(score.reconstruction_error, score.is_anomaly));
                     }
                     db_client_->InsertDatasetScores(dataset_id, model_run_id, scores);
@@ -2086,8 +2141,8 @@ std::string ApiServer::GetStrParam(const httplib::Request& req, const std::strin
 void ApiServer::ValidateRoutes() {
     // Basic sanity check: ensure registry matches expected count
     // We don't do deep introspection of httplib because it's hard.
-    if (kRequiredRoutes.size() != 31) {
-        spdlog::warn("Route registry count mismatch! Expected 31, got {}", kRequiredRoutes.size());
+    if (kRequiredRoutes.size() != 35) {
+        spdlog::warn("Route registry count mismatch! Expected 35, got {}", kRequiredRoutes.size());
     } else {
         spdlog::info("Route registry validated ({} routes)", kRequiredRoutes.size());
     }

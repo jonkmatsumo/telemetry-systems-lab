@@ -52,29 +52,6 @@ struct RunningStats {
     }
 };
 
-static void stream_samples(const std::string& db_conn_str,
-                           const std::string& dataset_id,
-                           const std::function<void(const linalg::Vector&)>& on_sample) {
-    pqxx::connection conn(db_conn_str);
-    pqxx::nontransaction N(conn);
-
-    auto result = N.exec_params(
-        "SELECT cpu_usage, memory_usage, disk_utilization, "
-        "network_rx_rate, network_tx_rate "
-        "FROM host_telemetry_archival "
-        "WHERE run_id = $1 AND is_anomaly = false",
-        dataset_id);
-
-    for (const auto& row : result) {
-        linalg::Vector x(telemetry::anomaly::FeatureVector::kSize, 0.0);
-        x[0] = row[0].as<double>();
-        x[1] = row[1].as<double>();
-        x[2] = row[2].as<double>();
-        x[3] = row[3].as<double>();
-        x[4] = row[4].as<double>();
-        on_sample(x);
-    }
-}
 
 static linalg::Vector vec_sub(const linalg::Vector& a, const linalg::Vector& b) {
     if (a.size() != b.size()) throw std::runtime_error("vec_sub dimension mismatch");
@@ -140,8 +117,8 @@ static PcaArtifact TrainPcaFromStream(const std::function<void(const std::functi
                                       size_t dim,
                                       int n_components,
                                       double percentile) {
-    if (n_components <= 0) {
-        throw std::runtime_error("n_components must be positive");
+    if (n_components < 1 || n_components > static_cast<int>(dim)) {
+        throw std::invalid_argument("n_components must be between 1 and " + std::to_string(dim));
     }
 
     RunningStats stats(dim);
@@ -228,13 +205,13 @@ static PcaArtifact TrainPcaFromStream(const std::function<void(const std::functi
     return artifact;
 }
 
-PcaArtifact TrainPcaFromDbBatched(const std::string& db_conn_str,
+PcaArtifact TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,
                                   size_t batch_size) {
     auto start = std::chrono::steady_clock::now();
-    TelemetryBatchIterator iter(db_conn_str, dataset_id, batch_size);
+    TelemetryBatchIterator iter(manager, dataset_id, batch_size);
 
     auto for_each = [&](const std::function<void(const linalg::Vector&)>& cb) {
         iter.Reset();
@@ -260,7 +237,7 @@ PcaArtifact TrainPcaFromDbBatched(const std::string& db_conn_str,
     return artifact;
 }
 
-PcaArtifact TrainPcaFromDb(const std::string& db_conn_str,
+PcaArtifact TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
                            const std::string& dataset_id,
                            int n_components,
                            double percentile) {
@@ -278,7 +255,7 @@ PcaArtifact TrainPcaFromDb(const std::string& db_conn_str,
     spdlog::info("Starting PCA training: dataset_id={}, n_components={}, batch_size={}", 
                  dataset_id, n_components, batch_size);
     
-    return TrainPcaFromDbBatched(db_conn_str, dataset_id, n_components, percentile, batch_size);
+    return TrainPcaFromDbBatched(std::move(manager), dataset_id, n_components, percentile, batch_size);
 }
 
 PcaArtifact TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,

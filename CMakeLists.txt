@@ -5,6 +5,42 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Build Safety Nets: Warnings
+set(COMMON_WARNINGS -Wall -Wextra -Wpedantic -Wunused -Wshadow -Wconversion -Wcast-align -Woverloaded-virtual)
+add_compile_options(${COMMON_WARNINGS})
+
+option(TREAT_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+if(TREAT_WARNINGS_AS_ERRORS OR DEFINED ENV{CI})
+    add_compile_options(-Werror)
+    message(STATUS "Treating warnings as errors (-Werror)")
+endif()
+
+# Sanitizers
+option(ENABLE_ASAN "Enable Address Sanitizer" OFF)
+option(ENABLE_UBSAN "Enable Undefined Behavior Sanitizer" OFF)
+option(ENABLE_TSAN "Enable Thread Sanitizer" OFF)
+
+if(ENABLE_ASAN)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+    message(STATUS "Address Sanitizer enabled")
+endif()
+
+if(ENABLE_UBSAN)
+    add_compile_options(-fsanitize=undefined)
+    add_link_options(-fsanitize=undefined)
+    message(STATUS "Undefined Behavior Sanitizer enabled")
+endif()
+
+if(ENABLE_TSAN)
+    if(ENABLE_ASAN OR ENABLE_UBSAN)
+        message(FATAL_ERROR "Thread Sanitizer cannot be combined with ASAN/UBSAN")
+    endif()
+    add_compile_options(-fsanitize=thread)
+    add_link_options(-fsanitize=thread)
+    message(STATUS "Thread Sanitizer enabled")
+endif()
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GRPC REQUIRED IMPORTED_TARGET grpc++)
 pkg_check_modules(PROTOBUF REQUIRED IMPORTED_TARGET protobuf)
@@ -57,6 +93,8 @@ target_link_libraries(telemetry_proto
     PkgConfig::PROTOBUF
 )
 target_include_directories(telemetry_proto PUBLIC ${PROTO_GEN_DIR})
+# Suppress conversion warnings in generated protobuf code
+target_compile_options(telemetry_proto PRIVATE -Wno-conversion)
 
 # Linear algebra utilities (Eigen-free)
 add_library(telemetry_linalg
@@ -84,6 +122,8 @@ add_executable(telemetry-generator
     src/server.cpp
     src/generator.cpp
     src/db_client.cpp
+    src/db_connection_manager.cpp
+    src/job_manager.cpp
 )
 
 target_include_directories(telemetry-generator PRIVATE src)
@@ -101,6 +141,7 @@ target_link_libraries(telemetry-generator
 add_executable(telemetry-scorer
     src/scorer_main.cpp
     src/db_client.cpp
+    src/db_connection_manager.cpp
     src/preprocessing.cpp
     src/detectors/detector_a.cpp
     src/detectors/pca_model.cpp
@@ -127,6 +168,9 @@ add_executable(telemetry-api
     src/api_server.cpp
     src/route_registry.cpp
     src/db_client.cpp
+    src/db_connection_manager.cpp
+    src/pca_model_cache.cpp
+    src/job_state_machine.cpp
     src/preprocessing.cpp
     src/detectors/detector_a.cpp
     src/detectors/pca_model.cpp
@@ -203,12 +247,19 @@ add_executable(unit_tests
     tests/unit/test_hardening_scaffolding.cpp
     tests/unit/test_api_scoring.cpp
     tests/unit/test_time_parsing.cpp
+    tests/unit/test_db_connection_pool.cpp
+    tests/unit/test_pca_model_cache.cpp
+    tests/unit/test_job_state_machine.cpp
+    tests/unit/test_generator_lifecycle.cpp
     tests/unit/test_api_safety.cpp
     tests/unit/test_error_classification.cpp
     tests/unit/test_api_performance.cpp
     src/api_server.cpp
     src/generator.cpp
     src/db_client.cpp
+    src/db_connection_manager.cpp
+    src/pca_model_cache.cpp
+    src/job_state_machine.cpp
     src/route_registry.cpp
     src/server.cpp
     src/job_manager.cpp
@@ -255,6 +306,7 @@ target_link_libraries(test_client
 add_executable(db_integration_tests
     tests/integration/test_db_client.cpp
     src/db_client.cpp
+    src/db_connection_manager.cpp
 )
 target_include_directories(db_integration_tests PRIVATE src)
 target_link_libraries(db_integration_tests

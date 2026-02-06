@@ -6,8 +6,11 @@
 
 #include "linalg/matrix.h"
 
+#include "db_connection_manager.h"
+
 namespace telemetry {
 namespace training {
+// ... (skipping some parts if needed but replace needs context)
 
 struct TrainingConfig {
     std::string dataset_id;
@@ -66,12 +69,12 @@ struct PcaArtifact {
     int n_components = 0;
 };
 
-PcaArtifact TrainPcaFromDb(const std::string& db_conn_str,
+PcaArtifact TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
                            const std::string& dataset_id,
                            int n_components,
                            double percentile);
 
-PcaArtifact TrainPcaFromDbBatched(const std::string& db_conn_str,
+PcaArtifact TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,

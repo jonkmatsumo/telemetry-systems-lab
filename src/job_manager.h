@@ -10,7 +10,6 @@
 #include <atomic>
 
 namespace telemetry {
-namespace api {
 
 enum class JobStatus {
     PENDING,
@@ -65,5 +64,10 @@ private:
     size_t current_jobs_ = 0;
 };
 
-} // namespace api
+namespace api {
+    using JobStatus = ::telemetry::JobStatus;
+    using JobInfo = ::telemetry::JobInfo;
+    using JobManager = ::telemetry::JobManager;
+}
+
 } // namespace telemetry

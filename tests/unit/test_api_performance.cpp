@@ -38,12 +38,12 @@ TEST_F(ApiServerPerformanceTest, ListModelsUsesBulkFetch) {
     class TestMockDb : public MockDbClient {
     public:
         nlohmann::json list_models_result;
-        nlohmann::json ListModelRuns(int limit,
-                                     int offset,
-                                     const std::string& status = "",
-                                     const std::string& dataset_id = "",
-                                     const std::string& created_from = "",
-                                     const std::string& created_to = "") override {
+        nlohmann::json ListModelRuns(int /*limit*/,
+                                     int /*offset*/,
+                                     const std::string& /*status*/ = "",
+                                     const std::string& /*dataset_id*/ = "",
+                                     const std::string& /*created_from*/ = "",
+                                     const std::string& /*created_to*/ = "") override {
             return list_models_result;
         }
     };

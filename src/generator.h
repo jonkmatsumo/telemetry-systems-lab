@@ -13,11 +13,13 @@ public:
               std::shared_ptr<IDbClient> db_client);
 
     void Run();
+    void SetStopFlag(const std::atomic<bool>* stop_flag) { stop_flag_ = stop_flag; }
 
 protected:
     telemetry::GenerateRequest config_;
     std::string run_id_;
     std::shared_ptr<IDbClient> db_;
+    const std::atomic<bool>* stop_flag_ = nullptr;
 
     
     std::vector<HostProfile> hosts_;

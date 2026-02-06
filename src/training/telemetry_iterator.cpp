@@ -5,10 +5,10 @@
 namespace telemetry {
 namespace training {
 
-TelemetryBatchIterator::TelemetryBatchIterator(const std::string& db_conn_str,
+TelemetryBatchIterator::TelemetryBatchIterator(std::shared_ptr<DbConnectionManager> manager,
                                                const std::string& dataset_id,
                                                size_t batch_size)
-    : db_conn_str_(db_conn_str),
+    : manager_(std::move(manager)),
       dataset_id_(dataset_id),
       batch_size_(batch_size),
       last_record_id_(0),
@@ -17,7 +17,7 @@ TelemetryBatchIterator::TelemetryBatchIterator(const std::string& db_conn_str,
 bool TelemetryBatchIterator::NextBatch(std::vector<linalg::Vector>& out_batch) {
     out_batch.clear();
     try {
-        pqxx::connection C(db_conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::read_transaction R(C);
 
         // Using keyset pagination: ORDER BY record_id LIMIT N

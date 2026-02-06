@@ -16,8 +16,8 @@ TEST(RouteRegistryTest, BasicInvariants) {
 }
 
 TEST(RouteRegistryTest, ExpectedCount) {
-    // We identified 31 routes in ApiServer
-    EXPECT_EQ(kRequiredRoutes.size(), 31);
+    // We identified 35 routes in ApiServer
+    EXPECT_EQ(kRequiredRoutes.size(), 35);
 }
 
 } // namespace api

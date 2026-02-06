@@ -19,7 +19,7 @@ void DetectorA::UpdateRobustStats(MetricState& state) {
     size_t mid = n / 2;
     
     // 1. Median
-    std::nth_element(data.begin(), data.begin() + mid, data.end());
+    std::nth_element(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(mid), data.end());
     state.median = data[mid];
 
     // 2. MAD
@@ -28,7 +28,7 @@ void DetectorA::UpdateRobustStats(MetricState& state) {
     for (double val : data) {
         abs_diffs.push_back(std::abs(val - state.median));
     }
-    std::nth_element(abs_diffs.begin(), abs_diffs.begin() + mid, abs_diffs.end());
+    std::nth_element(abs_diffs.begin(), abs_diffs.begin() + static_cast<std::ptrdiff_t>(mid), abs_diffs.end());
     state.mad = abs_diffs[mid];
     
     // Avoid division by zero later

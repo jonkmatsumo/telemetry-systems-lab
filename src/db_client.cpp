@@ -12,7 +12,11 @@
 #include <unordered_set>
 
 
-DbClient::DbClient(const std::string& connection_string) : conn_str_(connection_string) {}
+DbClient::DbClient(const std::string& connection_string) 
+    : manager_(std::make_shared<SimpleDbConnectionManager>(connection_string)) {}
+
+DbClient::DbClient(std::shared_ptr<DbConnectionManager> manager) 
+    : manager_(std::move(manager)) {}
 
 // Static allowlist of valid metric column names from host_telemetry_archival schema.
 // This prevents SQL injection via metric parameter in analytics queries.
@@ -54,7 +58,7 @@ bool DbClient::IsValidAggregation(const std::string& agg) {
 
 void DbClient::ReconcileStaleJobs() {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
         // Use exec() instead of exec0() to avoid potential issues if libpqxx version varies, though exec0 is standard.
@@ -72,7 +76,7 @@ void DbClient::ReconcileStaleJobs() {
 
 void DbClient::RunRetentionCleanup(int retention_days) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         W.exec_params("CALL cleanup_old_telemetry($1)", retention_days);
         W.commit();
@@ -99,7 +103,7 @@ void DbClient::EnsurePartition(std::chrono::system_clock::time_point tp) {
         }
         std::string end_date = fmt::format("{:04d}-{:02d}-01", end_year, end_mon);
 
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
         std::string query = fmt::format(
@@ -120,11 +124,11 @@ void DbClient::CreateRun(const std::string& run_id,
                         const std::string& status,
                         const std::string& request_id) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
         std::string config_json;
-        google::protobuf::util::MessageToJsonString(config, &config_json);
+        (void)google::protobuf::util::MessageToJsonString(config, &config_json);
 
         W.exec_params("INSERT INTO generation_runs (run_id, tier, host_count, start_time, end_time, interval_seconds, seed, status, config, request_id) "
                      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
@@ -141,7 +145,7 @@ void DbClient::UpdateRunStatus(const std::string& run_id,
                               long inserted_rows,
                               const std::string& error) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         if (!error.empty()) {
              W.exec_params("UPDATE generation_runs SET status = $1, inserted_rows = $2, error = $3 WHERE run_id = $4",
@@ -160,7 +164,7 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
     if (records.empty()) return;
     
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
 #if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
@@ -233,7 +237,7 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
 
 void DbClient::InsertAlert(const Alert& alert) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
         auto to_iso = [](std::chrono::system_clock::time_point tp) {
@@ -255,7 +259,7 @@ telemetry::RunStatus DbClient::GetRunStatus(const std::string& run_id) {
     telemetry::RunStatus status;
     status.set_run_id(run_id);
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         auto res = N.exec_params("SELECT status, inserted_rows, error, request_id FROM generation_runs WHERE run_id = $1", run_id);
         if (!res.empty()) {
@@ -281,7 +285,7 @@ std::string DbClient::CreateModelRun(const std::string& dataset_id,
                                      const std::string& generator_version,
                                      std::optional<long long> seed_used) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
         std::string hpo_val_str;
@@ -314,7 +318,7 @@ std::string DbClient::CreateHpoTrialRun(const std::string& dataset_id,
                                         int trial_index,
                                         const nlohmann::json& trial_params) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, parent_run_id, trial_index, trial_params) "
                                  "VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7) RETURNING model_run_id",
@@ -334,7 +338,7 @@ void DbClient::UpdateModelRunStatus(const std::string& model_run_id,
                                     const std::string& error,
                                     const nlohmann::json& error_summary) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
         std::string summary_str;
@@ -366,7 +370,7 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
 
     try {
 
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
 
         pqxx::nontransaction N(C);
 
@@ -476,7 +480,7 @@ void DbClient::UpdateBestTrial(const std::string& parent_run_id,
                                const std::string& best_metric_direction,
                                const std::string& tie_break_basis) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         W.exec_params("UPDATE model_runs SET best_trial_run_id=$1, best_metric_value=$2, best_metric_name=$3, "
                      "selection_metric_direction=$4, tie_break_basis=$5 WHERE model_run_id=$6",
@@ -494,7 +498,7 @@ void DbClient::UpdateTrialEligibility(const std::string& model_run_id,
                                      double metric_value,
                                      const std::string& source) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
         const char* src_ptr = source.empty() ? nullptr : source.c_str();
@@ -512,7 +516,7 @@ void DbClient::UpdateTrialEligibility(const std::string& model_run_id,
 void DbClient::UpdateParentErrorAggregates(const std::string& parent_run_id,
                                            const nlohmann::json& error_aggregates) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         W.exec_params("UPDATE model_runs SET error_aggregates=$1 "
                      "WHERE model_run_id=$2",
@@ -532,7 +536,7 @@ std::map<std::string, nlohmann::json> DbClient::GetBulkHpoTrialSummaries(const s
     if (parent_run_ids.empty()) return summaries;
 
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         
         std::string in_clause = "";
@@ -574,7 +578,7 @@ std::map<std::string, nlohmann::json> DbClient::GetBulkHpoTrialSummaries(const s
 nlohmann::json DbClient::GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) {
     nlohmann::json out = nlohmann::json::array();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
             "SELECT model_run_id, status, trial_index, trial_params, created_at, completed_at, error, "
@@ -616,7 +620,7 @@ nlohmann::json DbClient::GetHpoTrialsPaginated(const std::string& parent_run_id,
 
 std::string DbClient::CreateInferenceRun(const std::string& model_run_id) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         auto res = W.exec_params("INSERT INTO inference_runs (model_run_id, status) "
                                  "VALUES ($1, 'RUNNING') RETURNING inference_id",
@@ -636,7 +640,7 @@ void DbClient::UpdateInferenceRunStatus(const std::string& inference_id,
                                         const nlohmann::json& details,
                                         double latency_ms) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         W.exec_params("UPDATE inference_runs SET status=$1, anomaly_count=$2, details=$3::jsonb, latency_ms=$4 WHERE inference_id=$5",
                      status, anomaly_count, details.dump(), latency_ms, inference_id);
@@ -653,7 +657,7 @@ nlohmann::json DbClient::ListGenerationRuns(int limit,
                                             const std::string& created_to) {
     nlohmann::json out = nlohmann::json::array();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         std::string query =
             "SELECT run_id, status, inserted_rows, created_at, start_time, end_time, interval_seconds, host_count, tier "
@@ -695,7 +699,7 @@ nlohmann::json DbClient::ListGenerationRuns(int limit,
 nlohmann::json DbClient::GetDatasetDetail(const std::string& run_id) {
     nlohmann::json j;
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
             "SELECT run_id, status, inserted_rows, created_at, start_time, end_time, interval_seconds, host_count, tier, error, request_id "
@@ -724,7 +728,7 @@ nlohmann::json DbClient::GetDatasetDetail(const std::string& run_id) {
 nlohmann::json DbClient::GetDatasetSamples(const std::string& run_id, int limit) {
     nlohmann::json out = nlohmann::json::array();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
             "SELECT cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate, metric_timestamp, host_id "
@@ -751,7 +755,7 @@ nlohmann::json DbClient::GetDatasetSamples(const std::string& run_id, int limit)
 nlohmann::json DbClient::GetDatasetRecord(const std::string& run_id, long record_id) {
     nlohmann::json j;
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
             "SELECT cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate, metric_timestamp, host_id, labels "
@@ -781,7 +785,7 @@ nlohmann::json DbClient::ListModelRuns(int limit,
                                        const std::string& created_to) {
     nlohmann::json out = nlohmann::json::array();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         std::string query =
             "SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, training_config, "
@@ -847,7 +851,7 @@ nlohmann::json DbClient::ListInferenceRuns(const std::string& dataset_id,
                                            const std::string& created_to) {
     nlohmann::json out = nlohmann::json::array();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         std::string base =
             "SELECT i.inference_id, i.model_run_id, m.dataset_id, i.status, i.anomaly_count, i.latency_ms, i.created_at "
@@ -888,7 +892,7 @@ nlohmann::json DbClient::ListInferenceRuns(const std::string& dataset_id,
 nlohmann::json DbClient::GetInferenceRun(const std::string& inference_id) {
     nlohmann::json j;
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
             "SELECT inference_id, model_run_id, status, anomaly_count, latency_ms, details, created_at "
@@ -912,7 +916,7 @@ nlohmann::json DbClient::GetInferenceRun(const std::string& inference_id) {
 nlohmann::json DbClient::GetModelsForDataset(const std::string& dataset_id) {
     nlohmann::json out = nlohmann::json::array();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
             "SELECT model_run_id, name, status, created_at FROM model_runs WHERE dataset_id = $1 ORDER BY created_at DESC",
@@ -934,7 +938,7 @@ nlohmann::json DbClient::GetModelsForDataset(const std::string& dataset_id) {
 nlohmann::json DbClient::GetScoredDatasetsForModel(const std::string& model_run_id) {
     nlohmann::json out = nlohmann::json::array();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         // We find unique datasets from dataset_scores for this model
         auto res = N.exec_params(
@@ -958,7 +962,7 @@ nlohmann::json DbClient::GetScoredDatasetsForModel(const std::string& model_run_
 nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) {
     nlohmann::json j;
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         auto res = W.exec_params(
             "SELECT COUNT(*), MIN(metric_timestamp), MAX(metric_timestamp), "
@@ -1069,7 +1073,7 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
     nlohmann::json out;
     out["items"] = nlohmann::json::array();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
         std::string filter = "WHERE run_id = " + W.quote(run_id);
@@ -1101,7 +1105,7 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
         bool truncated = false;
         size_t count = 0;
         for (const auto& row : res) {
-            if (count >= k) {
+            if (count >= static_cast<size_t>(k)) {
                 truncated = true;
                 break;
             }
@@ -1143,7 +1147,7 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
     }
     nlohmann::json out = nlohmann::json::array();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         std::string bucket_expr = "to_timestamp(floor(extract(epoch from metric_timestamp) / " +
                                   std::to_string(bucket_seconds) + ") * " + std::to_string(bucket_seconds) + ")";
@@ -1225,7 +1229,7 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
     out["edges"] = nlohmann::json::array();
     out["counts"] = nlohmann::json::array();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         if (max_val <= min_val) {
             auto res = W.exec_params(
@@ -1291,7 +1295,7 @@ nlohmann::json DbClient::GetMetricStats(const std::string& run_id, const std::st
     }
     nlohmann::json j;
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         auto res = W.exec_params(
             "SELECT COUNT(*), MIN(" + metric + "), MAX(" + metric + "), AVG(" + metric + "), "
@@ -1322,7 +1326,7 @@ nlohmann::json DbClient::GetDatasetMetricsSummary(const std::string& run_id) {
     };
     nlohmann::json out = nlohmann::json::object();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         std::string select;
         for (size_t i = 0; i < kMetrics.size(); ++i) {
@@ -1359,7 +1363,7 @@ std::string DbClient::CreateScoreJob(const std::string& dataset_id,
                                     const std::string& model_run_id,
                                     const std::string& request_id) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
         // Check if job already exists
@@ -1389,7 +1393,7 @@ void DbClient::UpdateScoreJob(const std::string& job_id,
                               long last_record_id,
                               const std::string& error) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         if (status == "COMPLETED") {
             W.exec_params(
@@ -1416,7 +1420,7 @@ void DbClient::UpdateScoreJob(const std::string& job_id,
 nlohmann::json DbClient::GetScoreJob(const std::string& job_id) {
     nlohmann::json j;
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
             "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, last_record_id, error, created_at, updated_at, completed_at, request_id "
@@ -1451,7 +1455,7 @@ nlohmann::json DbClient::ListScoreJobs(int limit,
                                        const std::string& created_to) {
     nlohmann::json out = nlohmann::json::array();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         std::string query =
             "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, last_record_id, error, created_at, updated_at, completed_at "
@@ -1498,7 +1502,7 @@ std::vector<IDbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const s
                                                                         int limit) {
     std::vector<IDbClient::ScoringRow> rows;
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
             "SELECT record_id, is_anomaly, cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate "
@@ -1529,7 +1533,7 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
     if (scores.empty()) return;
     auto start = std::chrono::steady_clock::now();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
 #if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
         auto stream = pqxx::stream_to::table(
@@ -1581,7 +1585,7 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
 
 long DbClient::GetDatasetRecordCount(const std::string& dataset_id) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
 #if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
         auto res = N.exec_params("SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1", dataset_id);
@@ -1606,7 +1610,7 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
     out["items"] = nlohmann::json::array();
     auto start = std::chrono::steady_clock::now();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         std::string where = "WHERE s.dataset_id = " + N.quote(dataset_id) + " AND s.model_run_id = " + N.quote(model_run_id);
         if (only_anomalies) {
@@ -1711,7 +1715,7 @@ nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
                                         int max_samples) {
     nlohmann::json out;
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         auto res = N.exec_params(
             "SELECT s.reconstruction_error, s.predicted_is_anomaly, h.is_anomaly "
@@ -1752,7 +1756,7 @@ nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
         nlohmann::json pr = nlohmann::json::array();
         if (!samples.empty()) {
             for (int i = 0; i < n_points; ++i) {
-                size_t idx = static_cast<size_t>((static_cast<double>(i) / (n_points - 1)) * (samples.size() - 1));
+                size_t idx = static_cast<size_t>((static_cast<double>(i) / (n_points - 1)) * static_cast<double>(samples.size() - 1));
                 double threshold = samples[idx].err;
                 long ttp = 0, tfp = 0, tfn = 0;
                 for (const auto& s : samples) {
@@ -1795,7 +1799,7 @@ nlohmann::json DbClient::GetErrorDistribution(const std::string& dataset_id,
     }
     nlohmann::json out = nlohmann::json::array();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         std::string col = group_by;
         std::string query =
@@ -1826,7 +1830,7 @@ nlohmann::json DbClient::GetErrorDistribution(const std::string& dataset_id,
 
 void DbClient::DeleteDatasetWithScores(const std::string& dataset_id) {
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
 
         // 1. Delete scores
@@ -1870,7 +1874,7 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
     nlohmann::json out = nlohmann::json::object();
     out["items"] = nlohmann::json::array();
     try {
-        pqxx::connection C(conn_str_);
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         
         std::string sort_column = "metric_timestamp";
@@ -1945,4 +1949,36 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
         throw;
     }
     return out;
+}
+
+bool DbClient::TryTransitionModelRunStatus(const std::string& model_run_id,
+                                           const std::string& expected_current,
+                                           const std::string& next_status) {
+    try {
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
+        pqxx::work W(C);
+        auto res = W.exec_params("UPDATE model_runs SET status = $1 WHERE model_run_id = $2 AND status = $3",
+                                 next_status, model_run_id, expected_current);
+        W.commit();
+        return res.affected_rows() > 0;
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to transition model run status: {}", e.what());
+        return false;
+    }
+}
+
+bool DbClient::TryTransitionScoreJobStatus(const std::string& job_id,
+                                           const std::string& expected_current,
+                                           const std::string& next_status) {
+    try {
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
+        pqxx::work W(C);
+        auto res = W.exec_params("UPDATE dataset_score_jobs SET status = $1, updated_at = NOW() WHERE job_id = $2 AND status = $3",
+                                 next_status, job_id, expected_current);
+        W.commit();
+        return res.affected_rows() > 0;
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to transition score job status: {}", e.what());
+        return false;
+    }
 }

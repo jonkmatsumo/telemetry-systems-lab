@@ -9,6 +9,7 @@
 #include "telemetry.grpc.pb.h"
 #include "db_client.h"
 #include "job_manager.h"
+#include "pca_model_cache.h"
 #include "training/pca_trainer.h"
 
 namespace telemetry {
@@ -35,6 +36,7 @@ private:
     };
 
     void OrchestrateTuning(TuningTask task);
+    void Initialize();
     // Route Handlers
     void HandleGenerateData(const httplib::Request& req, httplib::Response& res);
     void HandleListDatasets(const httplib::Request& req, httplib::Response& res);
@@ -85,11 +87,12 @@ private:
 
     httplib::Server svr_;
     std::unique_ptr<telemetry::TelemetryService::Stub> stub_;
-    std::shared_ptr<IDbClient> db_client_;
-    std::unique_ptr<JobManager> job_manager_;
-    
     std::string grpc_target_;
     std::string db_conn_str_;
+    std::shared_ptr<IDbClient> db_client_;
+    std::shared_ptr<DbConnectionManager> db_manager_;
+    std::unique_ptr<JobManager> job_manager_;
+    std::unique_ptr<telemetry::anomaly::PcaModelCache> model_cache_;
 };
 
 } // namespace api

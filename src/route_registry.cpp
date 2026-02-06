@@ -34,7 +34,11 @@ const std::vector<RouteSpec> kRequiredRoutes = {
     {"GET", "/schema/metrics", "GetMetricsSchema"},
     {"POST", "/train", "StartTrain"},
     {"GET", "/train/([a-zA-Z0-9-]+)", "GetTrainStatus"},
-    {"GET", "/models", "ListModels"}
+    {"DELETE", "/train/([a-zA-Z0-9-]+)", "CancelTrain"},
+    {"GET", "/models", "ListModels"},
+    {"GET", "/models/([a-zA-Z0-9-]+)/trials", "GetHpoTrials"},
+    {"POST", "/models/([a-zA-Z0-9-]+)/rerun_failed", "RerunFailedTrials"},
+    {"DELETE", "/jobs/([a-zA-Z0-9-]+)", "CancelJob"}
 };
 
 } // namespace api

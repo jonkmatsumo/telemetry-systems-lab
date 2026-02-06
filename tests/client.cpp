@@ -24,8 +24,6 @@ public:
         request.set_tier(tier);
         request.set_host_count(host_count);
         request.set_interval_seconds(10); // fast for testing
-        // Set short duration for test: now to now + 30s
-        auto now = std::chrono::system_clock::now();
         // naive iso string
         request.set_start_time_iso("2025-01-01T00:00:00Z");
         request.set_end_time_iso("2025-01-01T00:01:00Z"); // 60 seconds -> 6 points
@@ -58,7 +56,7 @@ private:
     std::unique_ptr<TelemetryService::Stub> stub_;
 };
 
-int main(int argc, char** argv) {
+int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
     TelemetryClient client(grpc::CreateChannel("localhost:52051", grpc::InsecureChannelCredentials()));
     std::string run_id = client.Generate("TEST", 5);
     std::cout << "Started Run ID: " << run_id << std::endl;

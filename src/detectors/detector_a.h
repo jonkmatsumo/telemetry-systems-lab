@@ -37,11 +37,11 @@ private:
         double mad = 0.0; // Median Absolute Deviation
         
         // Compute Mean/Std from sum/sum_sq
-        double Mean(size_t n) const { return n > 0 ? sum / n : 0.0; }
+        double Mean(size_t n) const { return n > 0 ? sum / static_cast<double>(n) : 0.0; }
         double Std(size_t n) const {
             if (n < 2) return 0.0;
             double mean = Mean(n);
-            double variance = (sum_sq / n) - (mean * mean);
+            double variance = (sum_sq / static_cast<double>(n)) - (mean * mean);
             return variance > 0 ? std::sqrt(variance) : 0.0;
         }
     };

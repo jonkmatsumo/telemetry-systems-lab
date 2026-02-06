@@ -74,16 +74,16 @@ void PcaModel::Load(const std::string& artifact_path) {
     // 2. PCA
     // Components are stored as list of lists (k x d)
     auto raw_components = j["model"]["components"].get<std::vector<std::vector<double>>>();
-    int k = raw_components.size();
+    int k = static_cast<int>(raw_components.size());
     if (k == 0) throw std::runtime_error("No PCA components found");
-    int d = raw_components[0].size();
+    int d = static_cast<int>(raw_components[0].size());
     if (d != FeatureVector::kSize) throw std::runtime_error("Dimension mismatch in PCA components");
 
     // Copy to matrix
     components_ = linalg::Matrix(static_cast<size_t>(k), static_cast<size_t>(d));
-    for (int i = 0; i < k; ++i) {
-        for (int c = 0; c < d; ++c) {
-            components_(static_cast<size_t>(i), static_cast<size_t>(c)) = raw_components[i][c];
+    for (size_t i = 0; i < static_cast<size_t>(k); ++i) {
+        for (size_t c = 0; c < static_cast<size_t>(d); ++c) {
+            components_(i, c) = raw_components[i][c];
         }
     }
 

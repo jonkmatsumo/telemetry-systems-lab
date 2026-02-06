@@ -71,7 +71,8 @@ int main(int argc, char** argv) {
                   << std::endl;
 
         auto train_start = std::chrono::steady_clock::now();
-        auto artifact = telemetry::training::TrainPcaFromDb(db_conn_str, dataset_id, n_components, percentile);
+        auto manager = std::make_shared<SimpleDbConnectionManager>(db_conn_str);
+        auto artifact = telemetry::training::TrainPcaFromDb(manager, dataset_id, n_components, percentile);
         auto train_end = std::chrono::steady_clock::now();
         telemetry::training::WriteArtifactJson(artifact, output_path);
         auto write_end = std::chrono::steady_clock::now();
