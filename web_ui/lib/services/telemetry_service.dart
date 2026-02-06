@@ -1046,6 +1046,16 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
+  Future<Map<String, dynamic>> getHpoTrials(String parentRunId, {int limit = 50, int offset = 0}) async {
+    final params = {'limit': '$limit', 'offset': '$offset'};
+    final response = await _client.get(_buildUri('/models/$parentRunId/trials', params));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    _handleError(response, 'Failed to get trials');
+    throw Exception('Unreachable');
+  }
+
   Future<List<InferenceRunSummary>> listInferenceRuns(
       {String? datasetId,
       String? modelRunId,

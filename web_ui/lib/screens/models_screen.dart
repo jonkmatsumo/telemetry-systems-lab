@@ -28,6 +28,13 @@ class _ModelsScreenState extends State<ModelsScreen> {
   bool _jobPollingInFlight = false;
   double? _currentThreshold;
 
+  // Trials Pagination State
+  final List<dynamic> _paginatedTrials = [];
+  int _trialsOffset = 0;
+  bool _hasMoreTrials = false;
+  bool _loadingMoreTrials = false;
+  static const int _trialsLimit = 50;
+
   // Filter State
   String _runTypeFilter = 'all'; // all, tuning, trial, single
   String _statusFilter = 'all'; // all, running, terminal
@@ -144,7 +151,12 @@ class _ModelsScreenState extends State<ModelsScreen> {
   Future<void> _selectById(String id, {TelemetryService? service}) async {
     final s = service ?? context.read<TelemetryService>();
     final appState = context.read<AppState>();
-    setState(() => _loadingDetail = true);
+    setState(() {
+      _loadingDetail = true;
+      _paginatedTrials.clear();
+      _trialsOffset = 0;
+      _hasMoreTrials = false;
+    });
     try {
       final detail = await s.getModelDetail(id);
       if (!mounted) return;
@@ -153,12 +165,41 @@ class _ModelsScreenState extends State<ModelsScreen> {
         _evalMetrics = null;
         _errorDist = [];
         _jobStatus = null;
+        
+        if (detail['hpo_config'] != null) {
+          _fetchTrialsPage(id);
+        }
       });
       appState.setModel(id);
     } finally {
       if (mounted) {
         setState(() => _loadingDetail = false);
       }
+    }
+  }
+
+  Future<void> _fetchTrialsPage(String parentId) async {
+    final service = context.read<TelemetryService>();
+    try {
+      final res = await service.getHpoTrials(parentId, limit: _trialsLimit, offset: _trialsOffset);
+      final List items = res['items'] ?? [];
+      setState(() {
+        _paginatedTrials.addAll(items);
+        _hasMoreTrials = items.length == _trialsLimit;
+        _trialsOffset += items.length;
+      });
+    } catch (e) {
+      debugPrint('Failed to fetch trials page: $e');
+    }
+  }
+
+  Future<void> _loadMoreTrials() async {
+    if (_loadingMoreTrials || !_hasMoreTrials || _selectedDetail == null) return;
+    setState(() => _loadingMoreTrials = true);
+    try {
+      await _fetchTrialsPage(_selectedDetail!['model_run_id']);
+    } finally {
+      setState(() => _loadingMoreTrials = false);
     }
   }
 
@@ -690,11 +731,22 @@ class _ModelsScreenState extends State<ModelsScreen> {
             _kv('Metric Value', _displayValue(detail['selection_metric_value'])),
           ],
 
-          if (isParent && detail['trials'] != null) ...[
+          if (isParent && _paginatedTrials.isNotEmpty) ...[
             const SizedBox(height: 24),
             const Text('Trials', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF38BDF8))),
             const SizedBox(height: 8),
-            _buildTrialsTable(detail['trials'], bestTrialId, detail['best_metric_name']),
+            _buildTrialsTable(_paginatedTrials, bestTrialId, detail['best_metric_name']),
+            if (_hasMoreTrials)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Center(
+                  child: TextButton.icon(
+                    onPressed: _loadingMoreTrials ? null : _loadMoreTrials,
+                    icon: _loadingMoreTrials ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.add),
+                    label: const Text('Load More Trials'),
+                  ),
+                ),
+              ),
           ],
 
           if (detail['artifact_error'] != null && detail['artifact_error'].toString().isNotEmpty)
