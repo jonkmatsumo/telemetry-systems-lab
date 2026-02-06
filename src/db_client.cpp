@@ -524,46 +524,51 @@ void DbClient::UpdateParentErrorAggregates(const std::string& parent_run_id,
 }
 
 nlohmann::json DbClient::GetHpoTrials(const std::string& parent_run_id) {
-    nlohmann::json out = nlohmann::json::array();
+    return GetHpoTrialsPaginated(parent_run_id, 1000, 0);
+}
+
+std::map<std::string, nlohmann::json> DbClient::GetBulkHpoTrialSummaries(const std::vector<std::string>& parent_run_ids) {
+    std::map<std::string, nlohmann::json> summaries;
+    if (parent_run_ids.empty()) return summaries;
+
     try {
         pqxx::connection C(conn_str_);
         pqxx::nontransaction N(C);
-        auto res = N.exec_params(
-            "SELECT model_run_id, status, trial_index, trial_params, created_at, completed_at, error, "
-            "is_eligible, eligibility_reason, selection_metric_value, selection_metric_source, error_summary, dataset_id, name, training_config "
-            "FROM model_runs WHERE parent_run_id = $1 ORDER BY trial_index ASC",
-            parent_run_id);
-        for (const auto& row : res) {
-            nlohmann::json j;
-            j["model_run_id"] = row[0].as<std::string>();
-            j["status"] = row[1].as<std::string>();
-            j["trial_index"] = row[2].as<int>();
-            j["trial_params"] = nlohmann::json::parse(row[3].as<std::string>());
-            j["created_at"] = row[4].as<std::string>();
-            j["completed_at"] = row[5].is_null() ? "" : row[5].as<std::string>();
-            j["error"] = row[6].is_null() ? "" : row[6].as<std::string>();
-            j["is_eligible"] = row[7].as<bool>();
-            j["eligibility_reason"] = row[8].is_null() ? nlohmann::json() : nlohmann::json(row[8].as<std::string>());
-            j["selection_metric_value"] = row[9].is_null() ? nlohmann::json() : nlohmann::json(row[9].as<double>());
-            j["selection_metric_source"] = row[10].is_null() ? nlohmann::json() : nlohmann::json(row[10].as<std::string>());
-            if (!row[11].is_null()) {
-                try {
-                    j["error_summary"] = nlohmann::json::parse(row[11].as<std::string>());
-                } catch (...) { j["error_summary"] = nlohmann::json::object(); }
-            } else { j["error_summary"] = nlohmann::json(); }
-            j["dataset_id"] = row[12].as<std::string>();
-            j["name"] = row[13].as<std::string>();
-            if (!row[14].is_null()) {
-                try {
-                    j["training_config"] = nlohmann::json::parse(row[14].as<std::string>());
-                } catch (...) { j["training_config"] = nlohmann::json::object(); }
-            } else { j["training_config"] = nlohmann::json::object(); }
-            out.push_back(j);
+        
+        std::string in_clause = "";
+        for (const auto& id : parent_run_ids) {
+            if (!in_clause.empty()) in_clause += ", ";
+            in_clause += N.quote(id);
         }
+        
+        std::string query = "SELECT parent_run_id, status, COUNT(*) FROM model_runs WHERE parent_run_id IN (" + in_clause + ") GROUP BY parent_run_id, status";
+        
+        auto res = N.exec(query); 
+        
+        for (const auto& row : res) {
+            std::string pid = row[0].as<std::string>();
+            std::string status = row[1].as<std::string>();
+            long count = row[2].as<long>();
+            
+            if (!summaries.count(pid)) {
+                 summaries[pid] = {
+                     {"trial_count", 0},
+                     {"completed_count", 0},
+                     {"status_counts", {{"PENDING", 0}, {"RUNNING", 0}, {"COMPLETED", 0}, {"FAILED", 0}, {"converted_FAIL", 0}}}
+                 };
+            }
+            
+            summaries[pid]["trial_count"] = summaries[pid]["trial_count"].get<long>() + count;
+            summaries[pid]["status_counts"][status] = summaries[pid]["status_counts"][status].get<long>() + count;
+            if (status == "COMPLETED") {
+                summaries[pid]["completed_count"] = summaries[pid]["completed_count"].get<long>() + count;
+            }
+        }
+        
     } catch (const std::exception& e) {
-        spdlog::error("Failed to get HPO trials for parent {}: {}", parent_run_id, e.what());
+        spdlog::error("Failed to bulk fetch hpo summaries: {}", e.what());
     }
-    return out;
+    return summaries;
 }
 
 nlohmann::json DbClient::GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) {

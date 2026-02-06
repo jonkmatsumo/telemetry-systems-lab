@@ -1308,42 +1308,50 @@ void ApiServer::HandleListModels(const httplib::Request& req, httplib::Response&
     try {
         auto models = db_client_->ListModelRuns(limit, offset, status, dataset_id, created_from, created_to);
         
-        // Ensure UI gets explicit nulls for consistency
+        std::vector<std::string> parent_run_ids;
         for (auto& m : models) {
             if (!m.contains("parent_run_id")) m["parent_run_id"] = nullptr;
             if (!m.contains("trial_index")) m["trial_index"] = nullptr;
             
-            // If it's a tuning run (has hpo_config), we want a summary
-            // For now, training_config might be empty for parent, let's check model_run_id
-            // Actually, we need to know if it's a parent. Parent has parent_run_id=null.
-            // Trial has parent_run_id!=null.
-            // But Single Run also has parent_run_id=null.
-            // We can check if it has trials.
+            // Identify potential parents (hpo_config is present and not null usually indicates intent, 
+            // but checking if it is a child is safer: parent_run_id is null)
+            // AND we only care if they are tuning runs.
+            // Tuning runs have hpo_config not null? Or we just try to fetch for all roots?
+            // To be efficient, we can fetch for all roots.
             if (m["parent_run_id"].is_null()) {
-                auto trials = db_client_->GetHpoTrials(m["model_run_id"]);
-                if (!trials.empty()) {
-                    int completed = 0;
-                    for (const auto& t : trials) {
-                        if (t["status"] == "COMPLETED") completed++;
+                parent_run_ids.push_back(m["model_run_id"]);
+            }
+        }
+
+        auto bulk_summaries = db_client_->GetBulkHpoTrialSummaries(parent_run_ids);
+
+        for (auto& m : models) {
+            if (m["parent_run_id"].is_null()) {
+                std::string mid = m["model_run_id"];
+                if (bulk_summaries.count(mid)) {
+                    auto& s = bulk_summaries[mid];
+                    if (s.contains("trial_count") && s["trial_count"].get<long>() > 0) {
+                        m["hpo_summary"] = {
+                            {"trial_count", s["trial_count"]},
+                            {"completed_count", s["completed_count"]},
+                            {"best_metric_value", m["best_metric_value"]},
+                            {"best_metric_name", m["best_metric_name"]}
+                        };
+                        
+                        // Infer aggregate status
+                        // API logic was: RUNNING if any RUNNING/PENDING
+                        // FAILED if all terminal and FAILED > 0 and COMPLETED == 0
+                        // COMPLETED if COMPLETED > 0
+                        auto& sc = s["status_counts"];
+                        long pending = sc.value("PENDING", 0);
+                        long running = sc.value("RUNNING", 0);
+                        long completed = sc.value("COMPLETED", 0);
+                        long failed = sc.value("FAILED", 0);
+                        
+                        if (running > 0 || pending > 0) m["status"] = "RUNNING";
+                        else if (completed > 0) m["status"] = "COMPLETED";
+                        else if (failed > 0) m["status"] = "FAILED";
                     }
-                    m["hpo_summary"] = {
-                        {"trial_count", trials.size()},
-                        {"completed_count", completed},
-                        {"best_metric_value", m["best_metric_value"]},
-                        {"best_metric_name", m["best_metric_name"]}
-                    };
-                    
-                    // Also aggregate status for list view
-                    int pending = 0, running = 0, failed = 0;
-                    for (const auto& t : trials) {
-                        std::string st = t["status"];
-                        if (st == "PENDING") pending++;
-                        else if (st == "RUNNING") running++;
-                        else if (st == "FAILED") failed++;
-                    }
-                    if (running > 0 || pending > 0) m["status"] = "RUNNING";
-                    else if (completed > 0) m["status"] = "COMPLETED";
-                    else if (failed > 0) m["status"] = "FAILED";
                 }
             }
         }

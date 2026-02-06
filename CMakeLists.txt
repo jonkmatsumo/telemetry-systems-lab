@@ -205,6 +205,7 @@ add_executable(unit_tests
     tests/unit/test_time_parsing.cpp
     tests/unit/test_api_safety.cpp
     tests/unit/test_error_classification.cpp
+    tests/unit/test_api_performance.cpp
     src/api_server.cpp
     src/generator.cpp
     src/db_client.cpp

@@ -80,12 +80,29 @@ public:
         return j;
     }
 
+    int get_hpo_trials_count = 0;
     nlohmann::json GetHpoTrials(const std::string& parent_run_id) override {
+        get_hpo_trials_count++;
         return nlohmann::json::array();
     }
 
     nlohmann::json GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) override {
         return nlohmann::json::array();
+    }
+
+    int get_bulk_hpo_count = 0;
+    std::map<std::string, nlohmann::json> GetBulkHpoTrialSummaries(const std::vector<std::string>& parent_run_ids) override {
+        get_bulk_hpo_count++;
+        std::map<std::string, nlohmann::json> ret;
+        for (const auto& id : parent_run_ids) {
+            // Return dummy summary for performance test
+             ret[id] = {
+                 {"trial_count", 10},
+                 {"completed_count", 10},
+                 {"status_counts", {{"COMPLETED", 10}}}
+             };
+        }
+        return ret;
     }
 
     void UpdateBestTrial(const std::string& parent_run_id,

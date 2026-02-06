@@ -69,6 +69,7 @@ public:
     nlohmann::json GetModelRun(const std::string& model_run_id) override;
     nlohmann::json GetHpoTrials(const std::string& parent_run_id) override;
     nlohmann::json GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) override;
+    std::map<std::string, nlohmann::json> GetBulkHpoTrialSummaries(const std::vector<std::string>& parent_run_ids) override;
     void UpdateBestTrial(const std::string& parent_run_id,
                          const std::string& best_trial_run_id,
                          double best_metric_value,
