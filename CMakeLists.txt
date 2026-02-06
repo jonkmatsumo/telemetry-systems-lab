@@ -93,6 +93,8 @@ target_link_libraries(telemetry_proto
     PkgConfig::PROTOBUF
 )
 target_include_directories(telemetry_proto PUBLIC ${PROTO_GEN_DIR})
+# Suppress conversion warnings in generated protobuf code
+target_compile_options(telemetry_proto PRIVATE -Wno-conversion)
 
 # Linear algebra utilities (Eigen-free)
 add_library(telemetry_linalg
@@ -121,6 +123,7 @@ add_executable(telemetry-generator
     src/generator.cpp
     src/db_client.cpp
     src/db_connection_manager.cpp
+    src/job_manager.cpp
 )
 
 target_include_directories(telemetry-generator PRIVATE src)

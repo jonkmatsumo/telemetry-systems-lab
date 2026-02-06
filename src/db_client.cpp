@@ -1105,7 +1105,7 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
         bool truncated = false;
         size_t count = 0;
         for (const auto& row : res) {
-            if (count >= k) {
+            if (count >= static_cast<size_t>(k)) {
                 truncated = true;
                 break;
             }
@@ -1756,7 +1756,7 @@ nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
         nlohmann::json pr = nlohmann::json::array();
         if (!samples.empty()) {
             for (int i = 0; i < n_points; ++i) {
-                size_t idx = static_cast<size_t>((static_cast<double>(i) / (n_points - 1)) * (samples.size() - 1));
+                size_t idx = static_cast<size_t>((static_cast<double>(i) / (n_points - 1)) * static_cast<double>(samples.size() - 1));
                 double threshold = samples[idx].err;
                 long ttp = 0, tfp = 0, tfn = 0;
                 for (const auto& s : samples) {

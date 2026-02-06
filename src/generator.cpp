@@ -70,7 +70,7 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
     
     // Time since epoch in hours for seasonality
     auto duration = timestamp.time_since_epoch();
-    double hours = std::chrono::duration_cast<std::chrono::seconds>(duration).count() / 3600.0;
+    double hours = static_cast<double>(std::chrono::duration_cast<std::chrono::seconds>(duration).count()) / 3600.0;
     
     // Seasonality
     double daily = 10.0 * std::sin((2 * M_PI * hours / 24.0) + host.phase_shift);
@@ -120,7 +120,7 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
 
     // 3. Contextual Anomaly (Time based: 1AM-5AM UTC)
     // Simple check: hours mod 24. Assuming simplified UTC.
-    int hour_of_day = (long)hours % 24;
+    int hour_of_day = static_cast<int>(static_cast<long>(hours) % 24);
     // Check constraint if provided in config, otherwise default 1-5am logic check only if rate > 0
     if (config_.has_anomaly_config() && config_.anomaly_config().contextual_rate() > 0) {
         // Only trigger if random check passes AND we are in the window

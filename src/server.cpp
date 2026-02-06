@@ -15,7 +15,7 @@ std::string GenerateUUID() {
     return std::string(uuid);
 }
 
-Status TelemetryServiceImpl::GenerateTelemetry(ServerContext* context, const GenerateRequest* request,
+Status TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* context, const GenerateRequest* request,
                                               GenerateResponse* response) {
     std::string run_id = GenerateUUID();
     spdlog::info("Received GenerateTelemetry request. Tier: {}, HostCount: {}, RunID: {}", 
@@ -49,7 +49,7 @@ Status TelemetryServiceImpl::GenerateTelemetry(ServerContext* context, const Gen
 }
 
 
-Status TelemetryServiceImpl::GetRun(ServerContext* context, const GetRunRequest* request,
+Status TelemetryServiceImpl::GetRun([[maybe_unused]] ServerContext* context, const GetRunRequest* request,
                                    RunStatus* response) {
     spdlog::info("Received GetRun request for RunID: {}", request->run_id());
     
