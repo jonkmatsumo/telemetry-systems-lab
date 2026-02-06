@@ -57,6 +57,34 @@ std::string GetRequestId(const httplib::Request& req) {
     return GenerateUuid();
 }
 
+static const char* ClassifyHttpError(const std::exception& e) {
+    auto msg = std::string(e.what());
+    try {
+        throw; // Re-throw to check type
+    } catch (const nlohmann::json::parse_error&) {
+        return telemetry::obs::kErrHttpJsonParseError;
+    } catch (const nlohmann::json::out_of_range&) {
+        // e.g. "key 'x' not found"
+        return telemetry::obs::kErrHttpMissingField;
+    } catch (const std::invalid_argument&) {
+         return telemetry::obs::kErrHttpInvalidArgument;
+    } catch (const std::out_of_range&) {
+         return telemetry::obs::kErrHttpInvalidArgument;
+    } catch (const pqxx::broken_connection&) {
+         return telemetry::obs::kErrDbConnectFailed;
+    } catch (const pqxx::sql_error&) {
+         return telemetry::obs::kErrDbQueryFailed;
+    } catch (...) {
+        // Fallback for generic messages if identifiable
+        if (msg.find("count must be") != std::string::npos || 
+            msg.find("Must be") != std::string::npos ||
+            msg.find("Too many") != std::string::npos) {
+            return telemetry::obs::kErrHttpInvalidArgument;
+        }
+        return telemetry::obs::kErrInternal;
+    }
+}
+
 static const char* ClassifyTrainError(const std::string& msg) {
     if (msg.find("Cancelled") != std::string::npos) {
         return "E_CANCELLED";
@@ -455,8 +483,19 @@ void ApiServer::HandleGenerateData(const httplib::Request& req, httplib::Respons
             SendError(res, "gRPC Error: " + status.error_message(), 500, telemetry::obs::kErrHttpGrpcError, rid);
         }
     } catch (const std::exception& e) {
-        log.RecordError(telemetry::obs::kErrHttpBadRequest, e.what(), 400);
-        SendError(res, std::string("Error: ") + e.what(), 400, telemetry::obs::kErrHttpBadRequest, rid);
+        auto code = ClassifyHttpError(e);
+        int status = 500;
+        if (code == telemetry::obs::kErrHttpJsonParseError || 
+            code == telemetry::obs::kErrHttpMissingField ||
+            code == telemetry::obs::kErrHttpInvalidArgument ||
+            code == telemetry::obs::kErrHttpBadRequest) {
+            status = 400;
+        }
+
+        telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "generate_error", "api",
+                                 {{"request_id", rid}, {"error_code", code}, {"error", e.what()}});
+        log.RecordError(code, e.what(), status);
+        SendError(res, std::string("Generate failed: ") + e.what(), status, code, rid);
     }
 }
 
@@ -1222,14 +1261,24 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
         }
         SendJson(res, resp, 202, rid);
     } catch (const std::exception& e) {
+        auto code = ClassifyHttpError(e);
+        int status = 500;
         std::string err = e.what();
+
         if (err.find("Job queue full") != std::string::npos) {
-            log.RecordError(telemetry::obs::kErrHttpResourceExhausted, err, 503);
-            SendError(res, err, 503, telemetry::obs::kErrHttpResourceExhausted, rid);
-        } else {
-            log.RecordError(telemetry::obs::kErrHttpBadRequest, err, 400);
-            SendError(res, std::string("Error: ") + err, 400, telemetry::obs::kErrHttpBadRequest, rid);
+            code = telemetry::obs::kErrHttpResourceExhausted;
+            status = 503;
+        } else if (code == telemetry::obs::kErrHttpJsonParseError || 
+            code == telemetry::obs::kErrHttpMissingField ||
+            code == telemetry::obs::kErrHttpInvalidArgument ||
+            code == telemetry::obs::kErrHttpBadRequest) {
+            status = 400;
         }
+
+        telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "train_submit_error", "api",
+                                 {{"request_id", rid}, {"error_code", code}, {"error", err}});
+        log.RecordError(code, err, status);
+        SendError(res, std::string("Error: ") + err, status, code, rid);
     }
 }
 
@@ -1622,11 +1671,24 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
         resp["anomaly_count"] = anomaly_count;
         SendJson(res, resp, 200, rid);
 
+        SendJson(res, resp, 200, rid);
+
     } catch (const std::exception& e) {
+        auto code = ClassifyHttpError(e);
+        int status = 500;
+        if (code == telemetry::obs::kErrHttpJsonParseError || 
+            code == telemetry::obs::kErrHttpMissingField ||
+            code == telemetry::obs::kErrHttpInvalidArgument ||
+            code == telemetry::obs::kErrHttpBadRequest) {
+            status = 400;
+        } else if (code == telemetry::obs::kErrHttpNotFound) { // unlikely here but possible
+            status = 404;
+        }
+        
         telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "infer_error", "model",
-                                 {{"request_id", rid}, {"error_code", telemetry::obs::kErrHttpBadRequest}, {"error", e.what()}});
-        log.RecordError(telemetry::obs::kErrHttpBadRequest, e.what(), 400);
-        SendError(res, std::string("Error: ") + e.what(), 400, telemetry::obs::kErrHttpBadRequest, rid);
+                                 {{"request_id", rid}, {"error_code", code}, {"error", e.what()}});
+        log.RecordError(code, e.what(), status);
+        SendError(res, std::string("Error: ") + e.what(), status, code, rid);
     }
 }
 
