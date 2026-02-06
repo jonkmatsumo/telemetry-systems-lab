@@ -43,7 +43,8 @@ public:
     virtual void UpdateModelRunStatus(const std::string& model_run_id, 
                                       const std::string& status, 
                                       const std::string& artifact_path = "", 
-                                      const std::string& error = "") = 0;
+                                      const std::string& error = "",
+                                      const nlohmann::json& error_summary = nlohmann::json()) = 0;
     virtual nlohmann::json GetModelRun(const std::string& model_run_id) = 0;
     virtual nlohmann::json GetHpoTrials(const std::string& parent_run_id) = 0;
     virtual void UpdateBestTrial(const std::string& parent_run_id,
@@ -64,4 +65,7 @@ public:
                                         bool is_eligible,
                                         const std::string& reason,
                                         double metric_value) = 0;
+
+    virtual void UpdateParentErrorAggregates(const std::string& parent_run_id,
+                                             const nlohmann::json& error_aggregates) = 0;
 };

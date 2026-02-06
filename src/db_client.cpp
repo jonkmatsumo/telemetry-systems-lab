@@ -331,16 +331,28 @@ std::string DbClient::CreateHpoTrialRun(const std::string& dataset_id,
 void DbClient::UpdateModelRunStatus(const std::string& model_run_id, 
                                     const std::string& status, 
                                     const std::string& artifact_path, 
-                                    const std::string& error) {
+                                    const std::string& error,
+                                    const nlohmann::json& error_summary) {
     try {
         pqxx::connection C(conn_str_);
         pqxx::work W(C);
+        
+        std::string summary_str;
+        const char* summary_ptr = nullptr;
+        if (!error_summary.is_null() && !error_summary.empty()) {
+            summary_str = error_summary.dump();
+            summary_ptr = summary_str.c_str();
+        }
+
         if (status == "COMPLETED") {
              W.exec_params("UPDATE model_runs SET status=$1, artifact_path=$2, completed_at=NOW() WHERE model_run_id=$3",
                           status, artifact_path, model_run_id);
+        } else if (status == "FAILED" || status == "CANCELLED" || status == "CANCELED") {
+             W.exec_params("UPDATE model_runs SET status=$1, error=$2, error_summary=$3, completed_at=NOW() WHERE model_run_id=$4",
+                          status, error, summary_ptr, model_run_id);
         } else {
-             W.exec_params("UPDATE model_runs SET status=$1, error=$2 WHERE model_run_id=$3",
-                          status, error, model_run_id);
+             W.exec_params("UPDATE model_runs SET status=$1 WHERE model_run_id=$2",
+                          status, model_run_id);
         }
         W.commit();
     } catch (const std::exception& e) {
@@ -362,7 +374,8 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
                                  "hpo_config, parent_run_id, trial_index, trial_params, "
                                  "best_trial_run_id, best_metric_value, best_metric_name, "
                                  "selection_metric_direction, tie_break_basis, is_eligible, eligibility_reason, selection_metric_value, "
-                                 "candidate_fingerprint, generator_version, seed_used "
+                                 "candidate_fingerprint, generator_version, seed_used, "
+                                 "error_summary, error_aggregates "
                                  "FROM model_runs WHERE model_run_id = $1", model_run_id);
 
         if (!res.empty()) {
@@ -423,6 +436,26 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
             j["candidate_fingerprint"] = res[0][22].is_null() ? nlohmann::json() : nlohmann::json(res[0][22].as<std::string>());
             j["generator_version"] = res[0][23].is_null() ? nlohmann::json() : nlohmann::json(res[0][23].as<std::string>());
             j["seed_used"] = res[0][24].is_null() ? nlohmann::json() : nlohmann::json(res[0][24].as<long long>());
+
+            if (!res[0][25].is_null()) {
+                try {
+                    j["error_summary"] = nlohmann::json::parse(res[0][25].as<std::string>());
+                } catch (...) {
+                    j["error_summary"] = nlohmann::json::object();
+                }
+            } else {
+                j["error_summary"] = nlohmann::json();
+            }
+
+            if (!res[0][26].is_null()) {
+                try {
+                    j["error_aggregates"] = nlohmann::json::parse(res[0][26].as<std::string>());
+                } catch (...) {
+                    j["error_aggregates"] = nlohmann::json::object();
+                }
+            } else {
+                j["error_aggregates"] = nlohmann::json();
+            }
         }
 
     } catch (const std::exception& e) {
@@ -463,6 +496,20 @@ void DbClient::UpdateTrialEligibility(const std::string& model_run_id,
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to update trial eligibility for {}: {}", model_run_id, e.what());
+    }
+}
+
+void DbClient::UpdateParentErrorAggregates(const std::string& parent_run_id,
+                                           const nlohmann::json& error_aggregates) {
+    try {
+        pqxx::connection C(conn_str_);
+        pqxx::work W(C);
+        W.exec_params("UPDATE model_runs SET error_aggregates=$1 "
+                     "WHERE model_run_id=$2",
+                     error_aggregates.dump(), parent_run_id);
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to update error aggregates for {}: {}", parent_run_id, e.what());
     }
 }
 

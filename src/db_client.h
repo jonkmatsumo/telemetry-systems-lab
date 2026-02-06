@@ -64,7 +64,8 @@ public:
     void UpdateModelRunStatus(const std::string& model_run_id, 
                                       const std::string& status, 
                                       const std::string& artifact_path = "", 
-                                      const std::string& error = "") override;
+                                      const std::string& error = "",
+                                      const nlohmann::json& error_summary = nlohmann::json()) override;
     nlohmann::json GetModelRun(const std::string& model_run_id) override;
     nlohmann::json GetHpoTrials(const std::string& parent_run_id) override;
     void UpdateBestTrial(const std::string& parent_run_id,
@@ -85,6 +86,9 @@ public:
                                 bool is_eligible,
                                 const std::string& reason,
                                 double metric_value) override;
+
+    void UpdateParentErrorAggregates(const std::string& parent_run_id,
+                                     const nlohmann::json& error_aggregates) override;
 
     void InsertAlert(const Alert& alert);
 

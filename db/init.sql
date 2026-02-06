@@ -110,6 +110,8 @@ CREATE TABLE IF NOT EXISTS model_runs (
     candidate_fingerprint TEXT NULL,
     generator_version TEXT NULL,
     seed_used BIGINT NULL,
+    error_summary JSONB NULL,
+    error_aggregates JSONB NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ NULL
 );

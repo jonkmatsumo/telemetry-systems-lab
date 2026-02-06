@@ -972,6 +972,12 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
             auto train_end = std::chrono::steady_clock::now();
             double duration_ms = std::chrono::duration<double, std::milli>(train_end - train_start).count();
             const char* error_code = ClassifyTrainError(e.what());
+            
+            nlohmann::json error_summary;
+            error_summary["code"] = error_code;
+            error_summary["message"] = std::string(e.what()).substr(0, 200); // Truncate long messages
+            error_summary["stage"] = "train";
+
             telemetry::obs::LogEvent(telemetry::obs::LogLevel::Error, "train_error", "trainer",
                                         {{"request_id", rid},
                                         {"dataset_id", dataset_id},
@@ -980,7 +986,7 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
                                         {"error", e.what()},
                                         {"duration_ms", duration_ms}});
                             spdlog::error("Training failed for model {}: {}", model_run_id, e.what());
-                            db_client_->UpdateModelRunStatus(model_run_id, "FAILED", "", e.what());
+                            db_client_->UpdateModelRunStatus(model_run_id, "FAILED", "", e.what(), error_summary);
                             db_client_->UpdateTrialEligibility(model_run_id, false, "FAILED", 0.0);
                             throw; // JobManager will catch and log it too
                         }
@@ -1229,12 +1235,21 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
             j["trials"] = trials;
             
             int pending = 0, running = 0, completed = 0, failed = 0;
+            std::map<std::string, int> error_counts;
             for (const auto& t : trials) {
                 std::string st = t["status"];
                 if (st == "PENDING") pending++;
                 else if (st == "RUNNING") running++;
                 else if (st == "COMPLETED") completed++;
-                else if (st == "FAILED") failed++;
+                else if (st == "FAILED") {
+                    failed++;
+                    if (t.contains("error_summary") && !t["error_summary"].is_null() && t["error_summary"].contains("code")) {
+                        std::string code = t["error_summary"]["code"];
+                        error_counts[code]++;
+                    } else if (!t["error"].is_null() && !t["error"].get<std::string>().empty()) {
+                        error_counts["UNKNOWN"]++;
+                    }
+                }
             }
             j["trial_counts"] = {
                 {"total", trials.size()},
@@ -1243,6 +1258,12 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
                 {"completed", completed},
                 {"failed", failed}
             };
+            j["error_aggregates"] = error_counts;
+
+            // Persist aggregates if they changed and the run is terminal
+            if ((running == 0 && pending == 0) && (j["error_aggregates_db"].is_null() || j["error_aggregates_db"] != error_counts)) {
+                db_client_->UpdateParentErrorAggregates(model_run_id, error_counts);
+            }
 
             // Aggregate Status:
             // RUNNING if any trial is RUNNING or PENDING
