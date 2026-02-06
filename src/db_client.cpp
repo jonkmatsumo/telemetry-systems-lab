@@ -128,7 +128,7 @@ void DbClient::CreateRun(const std::string& run_id,
         pqxx::work W(C);
         
         std::string config_json;
-        google::protobuf::util::MessageToJsonString(config, &config_json);
+        (void)google::protobuf::util::MessageToJsonString(config, &config_json);
 
         W.exec_params("INSERT INTO generation_runs (run_id, tier, host_count, start_time, end_time, interval_seconds, seed, status, config, request_id) "
                      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",

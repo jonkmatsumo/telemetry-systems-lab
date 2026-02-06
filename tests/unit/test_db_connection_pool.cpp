@@ -64,7 +64,7 @@ TEST(DbConnectionPoolTest, ConcurrentStress) {
         PooledDbConnectionManager pool(db_url, 5, std::chrono::seconds(2));
         
         std::atomic<int> success_count{0};
-        auto worker = [&](int id) {
+        auto worker = [&](int /*id*/) {
             for (int i = 0; i < 10; ++i) {
                 try {
                     auto conn = pool.GetConnection();

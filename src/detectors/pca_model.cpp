@@ -81,9 +81,9 @@ void PcaModel::Load(const std::string& artifact_path) {
 
     // Copy to matrix
     components_ = linalg::Matrix(static_cast<size_t>(k), static_cast<size_t>(d));
-    for (int i = 0; i < k; ++i) {
-        for (int c = 0; c < d; ++c) {
-            components_(static_cast<size_t>(i), static_cast<size_t>(c)) = raw_components[i][c];
+    for (size_t i = 0; i < static_cast<size_t>(k); ++i) {
+        for (size_t c = 0; c < static_cast<size_t>(d); ++c) {
+            components_(i, c) = raw_components[i][c];
         }
     }
 

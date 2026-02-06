@@ -32,8 +32,6 @@ std::vector<Alert> AlertManager::Evaluate(const std::string& host_id,
     }
 
     // Check Cooldown
-    auto now_since_epoch = ts.time_since_epoch();
-    auto last_since_epoch = state.last_alert_time.time_since_epoch();
     if (state.last_alert_time.time_since_epoch().count() > 0) {
         if ((ts - state.last_alert_time) < cooldown_s_) {
             return alerts; // In cooldown
