@@ -20,13 +20,13 @@ public:
     static bool IsValidAggregation(const std::string& agg);
 
     // Marks any 'RUNNING' jobs as 'FAILED' (called on startup).
-    void ReconcileStaleJobs();
+    void ReconcileStaleJobs() override;
 
     // Runs the retention cleanup procedure.
     void RunRetentionCleanup(int retention_days);
 
     // Ensures a partition exists for the given timestamp.
-    void EnsurePartition(std::chrono::system_clock::time_point tp);
+    void EnsurePartition(std::chrono::system_clock::time_point tp) override;
 
     void DeleteDatasetWithScores(const std::string& dataset_id);
 
@@ -98,9 +98,9 @@ public:
                                       int offset,
                                       const std::string& status = "",
                                       const std::string& created_from = "",
-                                      const std::string& created_to = "");
-    nlohmann::json GetDatasetDetail(const std::string& run_id);
-    nlohmann::json GetDatasetSamples(const std::string& run_id, int limit);
+                                      const std::string& created_to = "") override;
+    nlohmann::json GetDatasetDetail(const std::string& run_id) override;
+    nlohmann::json GetDatasetSamples(const std::string& run_id, int limit) override;
     nlohmann::json SearchDatasetRecords(const std::string& run_id,
                                         int limit,
                                         int offset,
@@ -112,27 +112,27 @@ public:
                                         const std::string& region,
                                         const std::string& sort_by,
                                         const std::string& sort_order,
-                                        const std::string& anchor_time);
-    nlohmann::json GetDatasetRecord(const std::string& run_id, long record_id);
+                                        const std::string& anchor_time) override;
+    nlohmann::json GetDatasetRecord(const std::string& run_id, long record_id) override;
     nlohmann::json ListModelRuns(int limit,
                                  int offset,
                                  const std::string& status = "",
                                  const std::string& dataset_id = "",
                                  const std::string& created_from = "",
-                                 const std::string& created_to = "");
+                                 const std::string& created_to = "") override;
     nlohmann::json ListInferenceRuns(const std::string& dataset_id,
                                      const std::string& model_run_id,
                                      int limit,
                                      int offset,
                                      const std::string& status = "",
                                      const std::string& created_from = "",
-                                     const std::string& created_to = "");
-    nlohmann::json GetInferenceRun(const std::string& inference_id);
+                                     const std::string& created_to = "") override;
+    nlohmann::json GetInferenceRun(const std::string& inference_id) override;
 
-    nlohmann::json GetModelsForDataset(const std::string& dataset_id);
-    nlohmann::json GetScoredDatasetsForModel(const std::string& model_run_id);
+    nlohmann::json GetModelsForDataset(const std::string& dataset_id) override;
+    nlohmann::json GetScoredDatasetsForModel(const std::string& model_run_id) override;
 
-    nlohmann::json GetDatasetSummary(const std::string& run_id, int topk);
+    nlohmann::json GetDatasetSummary(const std::string& run_id, int topk) override;
     nlohmann::json GetTopK(const std::string& run_id,
                            const std::string& column,
                            int k,
@@ -141,7 +141,7 @@ public:
                            const std::string& anomaly_type,
                            const std::string& start_time,
                            const std::string& end_time,
-                           bool include_total_distinct = false);
+                           bool include_total_distinct = false) override;
     nlohmann::json GetTimeSeries(const std::string& run_id,
                                  const std::vector<std::string>& metrics,
                                  const std::vector<std::string>& aggs,
@@ -150,7 +150,7 @@ public:
                                  const std::string& is_anomaly,
                                  const std::string& anomaly_type,
                                  const std::string& start_time,
-                                 const std::string& end_time);
+                                 const std::string& end_time) override;
     nlohmann::json GetHistogram(const std::string& run_id,
                                 const std::string& metric,
                                 int bins,
@@ -160,43 +160,36 @@ public:
                                 const std::string& is_anomaly,
                                 const std::string& anomaly_type,
                                 const std::string& start_time,
-                                const std::string& end_time);
-    nlohmann::json GetMetricStats(const std::string& run_id, const std::string& metric);
-    nlohmann::json GetDatasetMetricsSummary(const std::string& run_id);
+                                const std::string& end_time) override;
+    nlohmann::json GetMetricStats(const std::string& run_id, const std::string& metric) override;
+    nlohmann::json GetDatasetMetricsSummary(const std::string& run_id) override;
 
     std::string CreateScoreJob(const std::string& dataset_id, 
                                const std::string& model_run_id,
-                               const std::string& request_id = "");
+                               const std::string& request_id = "") override;
     void UpdateScoreJob(const std::string& job_id,
                         const std::string& status,
                         long total_rows,
                         long processed_rows,
                         long last_record_id = 0,
-                        const std::string& error = "");
-    nlohmann::json GetScoreJob(const std::string& job_id);
+                        const std::string& error = "") override;
+    nlohmann::json GetScoreJob(const std::string& job_id) override;
     nlohmann::json ListScoreJobs(int limit,
                                  int offset,
                                  const std::string& status = "",
                                  const std::string& dataset_id = "",
                                  const std::string& model_run_id = "",
                                  const std::string& created_from = "",
-                                 const std::string& created_to = "");
+                                 const std::string& created_to = "") override;
 
-    struct ScoringRow {
-        long record_id = 0;
-        bool is_anomaly = false;
-        double cpu = 0.0;
-        double mem = 0.0;
-        double disk = 0.0;
-        double rx = 0.0;
-        double tx = 0.0;
-    };
-    std::vector<ScoringRow> FetchScoringRowsAfterRecord(const std::string& dataset_id,
+    std::vector<IDbClient::ScoringRow> FetchScoringRowsAfterRecord(const std::string& dataset_id,
                                                         long last_record_id,
-                                                        int limit);
+                                                        int limit) override;
     void InsertDatasetScores(const std::string& dataset_id,
                              const std::string& model_run_id,
-                             const std::vector<std::pair<long, std::pair<double, bool>>>& scores);
+                             const std::vector<std::pair<long, std::pair<double, bool>>>& scores) override;
+
+    long GetDatasetRecordCount(const std::string& dataset_id) override;
 
     nlohmann::json GetScores(const std::string& dataset_id,
                              const std::string& model_run_id,
@@ -204,15 +197,15 @@ public:
                              int offset,
                              bool only_anomalies,
                              double min_score,
-                             double max_score);
+                             double max_score) override;
 
     nlohmann::json GetEvalMetrics(const std::string& dataset_id,
                                   const std::string& model_run_id,
                                   int points,
-                                  int max_samples);
+                                  int max_samples) override;
     nlohmann::json GetErrorDistribution(const std::string& dataset_id,
                                         const std::string& model_run_id,
-                                        const std::string& group_by);
+                                        const std::string& group_by) override;
 
 private:
     std::string conn_str_;

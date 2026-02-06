@@ -16,7 +16,9 @@ namespace api {
 
 class ApiServer {
 public:
+    friend class ApiServerTestPeer;
     ApiServer(const std::string& grpc_target, const std::string& db_conn_str);
+    ApiServer(const std::string& grpc_target, std::shared_ptr<IDbClient> db_client);
     ~ApiServer();
 
     void Start(const std::string& host, int port);
@@ -83,7 +85,7 @@ private:
 
     httplib::Server svr_;
     std::unique_ptr<telemetry::TelemetryService::Stub> stub_;
-    std::unique_ptr<DbClient> db_client_;
+    std::shared_ptr<IDbClient> db_client_;
     std::unique_ptr<JobManager> job_manager_;
     
     std::string grpc_target_;

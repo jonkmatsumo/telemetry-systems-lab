@@ -9,6 +9,9 @@ class IDbClient {
 public:
     virtual ~IDbClient() = default;
 
+    virtual void ReconcileStaleJobs() = 0;
+    virtual void EnsurePartition(std::chrono::system_clock::time_point tp) = 0;
+
     virtual void CreateRun(const std::string& run_id, 
                            const telemetry::GenerateRequest& config, 
                            const std::string& status,
@@ -70,4 +73,123 @@ public:
 
     virtual void UpdateParentErrorAggregates(const std::string& parent_run_id,
                                              const nlohmann::json& error_aggregates) = 0;
+
+    virtual void InsertDatasetScores(const std::string& dataset_id,
+                                     const std::string& model_run_id,
+                                     const std::vector<std::pair<long, std::pair<double, bool>>>& scores) = 0;
+
+    virtual long GetDatasetRecordCount(const std::string& dataset_id) = 0;
+
+    virtual nlohmann::json ListGenerationRuns(int limit,
+                                              int offset,
+                                              const std::string& status = "",
+                                              const std::string& created_from = "",
+                                              const std::string& created_to = "") = 0;
+    virtual nlohmann::json GetDatasetDetail(const std::string& run_id) = 0;
+    virtual nlohmann::json GetDatasetSamples(const std::string& run_id, int limit) = 0;
+    virtual nlohmann::json GetDatasetSummary(const std::string& run_id, int topk) = 0;
+    virtual nlohmann::json GetTopK(const std::string& run_id,
+                                   const std::string& column,
+                                   int k,
+                                   const std::string& region,
+                                   const std::string& is_anomaly,
+                                   const std::string& anomaly_type,
+                                   const std::string& start_time,
+                                   const std::string& end_time,
+                                   bool include_total_distinct = false) = 0;
+    virtual nlohmann::json GetTimeSeries(const std::string& run_id,
+                                         const std::vector<std::string>& metrics,
+                                         const std::vector<std::string>& aggs,
+                                         int bucket_seconds,
+                                         const std::string& region,
+                                         const std::string& is_anomaly,
+                                         const std::string& anomaly_type,
+                                         const std::string& start_time,
+                                         const std::string& end_time) = 0;
+    virtual nlohmann::json GetHistogram(const std::string& run_id,
+                                        const std::string& metric,
+                                        int bins,
+                                        double min_val,
+                                        double max_val,
+                                        const std::string& region,
+                                        const std::string& is_anomaly,
+                                        const std::string& anomaly_type,
+                                        const std::string& start_time,
+                                        const std::string& end_time) = 0;
+    virtual nlohmann::json SearchDatasetRecords(const std::string& run_id,
+                                                int limit,
+                                                int offset,
+                                                const std::string& start_time,
+                                                const std::string& end_time,
+                                                const std::string& is_anomaly,
+                                                const std::string& anomaly_type,
+                                                const std::string& host_id,
+                                                const std::string& region,
+                                                const std::string& sort_by,
+                                                const std::string& sort_order,
+                                                const std::string& anchor_time) = 0;
+    virtual nlohmann::json GetDatasetRecord(const std::string& run_id, long record_id) = 0;
+    virtual nlohmann::json GetMetricStats(const std::string& run_id, const std::string& metric) = 0;
+    virtual nlohmann::json GetDatasetMetricsSummary(const std::string& run_id) = 0;
+    virtual nlohmann::json GetModelsForDataset(const std::string& dataset_id) = 0;
+    virtual nlohmann::json ListModelRuns(int limit,
+                                         int offset,
+                                         const std::string& status = "",
+                                         const std::string& dataset_id = "",
+                                         const std::string& created_from = "",
+                                         const std::string& created_to = "") = 0;
+    virtual nlohmann::json GetScoredDatasetsForModel(const std::string& model_run_id) = 0;
+    virtual nlohmann::json GetScores(const std::string& dataset_id,
+                                     const std::string& model_run_id,
+                                     int limit,
+                                     int offset,
+                                     bool only_anomalies,
+                                     double min_score,
+                                     double max_score) = 0;
+    virtual nlohmann::json ListInferenceRuns(const std::string& dataset_id,
+                                             const std::string& model_run_id,
+                                             int limit,
+                                             int offset,
+                                             const std::string& status = "",
+                                             const std::string& created_from = "",
+                                             const std::string& created_to = "") = 0;
+    virtual nlohmann::json GetInferenceRun(const std::string& inference_id) = 0;
+    virtual nlohmann::json GetEvalMetrics(const std::string& dataset_id,
+                                          const std::string& model_run_id,
+                                          int points,
+                                          int max_samples) = 0;
+    virtual nlohmann::json GetErrorDistribution(const std::string& dataset_id,
+                                                const std::string& model_run_id,
+                                                const std::string& group_by) = 0;
+
+    virtual std::string CreateScoreJob(const std::string& dataset_id, 
+                                       const std::string& model_run_id,
+                                       const std::string& request_id = "") = 0;
+    virtual void UpdateScoreJob(const std::string& job_id,
+                                const std::string& status,
+                                long total_rows,
+                                long processed_rows,
+                                long last_record_id = 0,
+                                const std::string& error = "") = 0;
+    virtual nlohmann::json GetScoreJob(const std::string& job_id) = 0;
+    virtual nlohmann::json ListScoreJobs(int limit,
+                                         int offset,
+                                         const std::string& status = "",
+                                         const std::string& dataset_id = "",
+                                         const std::string& model_run_id = "",
+                                         const std::string& created_from = "",
+                                         const std::string& created_to = "") = 0;
+
+    struct ScoringRow {
+        long record_id = 0;
+        bool is_anomaly = false;
+        double cpu = 0.0;
+        double mem = 0.0;
+        double disk = 0.0;
+        double rx = 0.0;
+        double tx = 0.0;
+    };
+    virtual std::vector<ScoringRow> FetchScoringRowsAfterRecord(const std::string& dataset_id,
+                                                                long last_record_id,
+                                                                int limit) = 0;
 };
