@@ -227,9 +227,18 @@ class _ModelsScreenState extends State<ModelsScreen> {
             final isBest = t['model_run_id'] == bestTrialId;
             final trialId = t['model_run_id'];
             final isEligible = t['is_eligible'] ?? true;
+            final isRerun = (t['name'] ?? '').toString().contains('_rerun_');
             return TableRow(
               children: [
-                Padding(padding: const EdgeInsets.all(8), child: Text(t['trial_index']?.toString() ?? 'N/A', style: const TextStyle(fontSize: 12))),
+                Padding(
+                  padding: const EdgeInsets.all(8), 
+                  child: Column(
+                    children: [
+                      Text(t['trial_index']?.toString() ?? 'N/A', style: const TextStyle(fontSize: 12)),
+                      if (isRerun) _badge('RERUN', Colors.orange),
+                    ],
+                  )
+                ),
                 Padding(
                   padding: const EdgeInsets.all(8), 
                   child: Row(
@@ -336,6 +345,38 @@ class _ModelsScreenState extends State<ModelsScreen> {
     if (_jobStatus == null) return;
     final status = await context.read<TelemetryService>().getJobProgress(_jobStatus!.jobId);
     setState(() => _jobStatus = status);
+  }
+
+  Future<void> _rerunFailed(String modelRunId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rerun Failed Trials?'),
+        content: const Text('This will attempt to rerun up to 10 failed or cancelled trials using their original parameters.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Yes, Rerun'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final service = context.read<TelemetryService>();
+    final sm = ScaffoldMessenger.of(context);
+    try {
+      final res = await service.rerunFailedTrials(modelRunId);
+      final count = res['rerun_count'] ?? 0;
+      if (!mounted) return;
+      sm.showSnackBar(SnackBar(content: Text('Dispatched $count reruns.')));
+      _selectById(modelRunId, service: service);
+    } catch (e) {
+      if (!mounted) return;
+      sm.showSnackBar(SnackBar(content: Text('Failed to rerun: $e'), backgroundColor: Colors.red));
+    }
   }
 
   Future<void> _loadEval(String datasetId, String modelRunId) async {
@@ -623,6 +664,16 @@ class _ModelsScreenState extends State<ModelsScreen> {
               children: [
                 ...(detail['error_aggregates'] as Map).entries.map((e) => _kv(e.key, e.value.toString())),
               ],
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              onPressed: () => _rerunFailed(modelRunId),
+              icon: const Icon(Icons.replay_rounded),
+              label: const Text('Rerun Failed Trials'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple.withValues(alpha: 0.2),
+                foregroundColor: Colors.purpleAccent,
+              ),
             ),
           ],
 

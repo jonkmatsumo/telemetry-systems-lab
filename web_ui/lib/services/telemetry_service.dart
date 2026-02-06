@@ -691,6 +691,18 @@ class TelemetryService {
     _handleError(response, 'Failed to cancel training run');
   }
 
+  Future<Map<String, dynamic>> rerunFailedTrials(String modelRunId) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/models/$modelRunId/rerun_failed'),
+      headers: {'Content-Type': 'application/json'},
+    );
+    if (response.statusCode == 200 || response.statusCode == 202) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    _handleError(response, 'Failed to rerun failed trials');
+    throw Exception('Unreachable');
+  }
+
   Future<InferenceResponse> runInference(String modelId, List<Map<String, dynamic>> samples) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/inference'),
