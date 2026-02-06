@@ -100,18 +100,44 @@ static const char* ClassifyTrainError(const std::string& msg) {
 }
 
 ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_str)
-    : ApiServer(grpc_target, std::make_shared<DbClient>(std::make_shared<SimpleDbConnectionManager>(db_conn_str)))
 {
+    size_t pool_size = 5;
+    const char* env_pool_size = std::getenv("DB_POOL_SIZE");
+    if (env_pool_size) {
+        try {
+            pool_size = std::stoul(env_pool_size);
+        } catch (...) {}
+    }
+
+    int timeout_ms = 5000;
+    const char* env_timeout = std::getenv("DB_ACQUIRE_TIMEOUT_MS");
+    if (env_timeout) {
+        try {
+            timeout_ms = std::stoi(env_timeout);
+        } catch (...) {}
+    }
+
+    auto manager = std::make_shared<PooledDbConnectionManager>(
+        db_conn_str, pool_size, std::chrono::milliseconds(timeout_ms));
+    
+    db_client_ = std::make_shared<DbClient>(manager);
+    db_manager_ = manager;
+    grpc_target_ = grpc_target;
     db_conn_str_ = db_conn_str;
+
+    Initialize();
 }
 
 ApiServer::ApiServer(const std::string& grpc_target, std::shared_ptr<IDbClient> db_client)
     : grpc_target_(grpc_target), db_client_(db_client)
 {
     db_manager_ = db_client_->GetConnectionManager();
+    Initialize();
+}
 
+void ApiServer::Initialize() {
     // Initialize gRPC Stub
-    auto channel = grpc::CreateChannel(grpc_target, grpc::InsecureChannelCredentials());
+    auto channel = grpc::CreateChannel(grpc_target_, grpc::InsecureChannelCredentials());
     stub_ = telemetry::TelemetryService::NewStub(channel);
 
     db_client_->ReconcileStaleJobs();
@@ -336,7 +362,7 @@ ApiServer::ApiServer(const std::string& grpc_target, std::shared_ptr<IDbClient> 
         std::string rid = GetRequestId(req);
         telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
         try {
-            pqxx::connection C(db_conn_str_);
+            auto C = db_manager_->GetConnection();
             res.status = 200;
             res.set_content("{\"status\":\"READY\"}", "application/json");
         } catch (const std::exception& e) {

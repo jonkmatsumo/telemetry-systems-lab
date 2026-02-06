@@ -35,6 +35,7 @@ private:
     };
 
     void OrchestrateTuning(TuningTask task);
+    void Initialize();
     // Route Handlers
     void HandleGenerateData(const httplib::Request& req, httplib::Response& res);
     void HandleListDatasets(const httplib::Request& req, httplib::Response& res);
