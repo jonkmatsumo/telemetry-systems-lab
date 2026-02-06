@@ -54,6 +54,19 @@ TEST(PcaTrainerTest, ArtifactLoadsInPcaModel) {
     ASSERT_NO_THROW(model.Load(path));
 }
 
+TEST(PcaTrainerTest, ValidatesNComponents) {
+    std::vector<telemetry::linalg::Vector> samples = {telemetry::linalg::Vector(5, 1.0), telemetry::linalg::Vector(5, 2.0)};
+    
+    // n_components = 0
+    EXPECT_THROW(telemetry::training::TrainPcaFromSamples(samples, 0, 99.5), std::invalid_argument);
+    
+    // n_components = 6 (more than 5 features)
+    EXPECT_THROW(telemetry::training::TrainPcaFromSamples(samples, 6, 99.5), std::invalid_argument);
+    
+    // n_components = -1
+    EXPECT_THROW(telemetry::training::TrainPcaFromSamples(samples, -1, 99.5), std::invalid_argument);
+}
+
 TEST(HpoContractTest, ValidatesInvalidAlgorithm) {
     telemetry::training::HpoConfig config;
     config.algorithm = "unsupported";

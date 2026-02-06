@@ -52,8 +52,6 @@ struct RunningStats {
     }
 };
 
-    }
-}
 
 static linalg::Vector vec_sub(const linalg::Vector& a, const linalg::Vector& b) {
     if (a.size() != b.size()) throw std::runtime_error("vec_sub dimension mismatch");
@@ -119,8 +117,8 @@ static PcaArtifact TrainPcaFromStream(const std::function<void(const std::functi
                                       size_t dim,
                                       int n_components,
                                       double percentile) {
-    if (n_components <= 0) {
-        throw std::runtime_error("n_components must be positive");
+    if (n_components < 1 || n_components > static_cast<int>(dim)) {
+        throw std::invalid_argument("n_components must be between 1 and " + std::to_string(dim));
     }
 
     RunningStats stats(dim);
