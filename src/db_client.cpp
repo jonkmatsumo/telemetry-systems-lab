@@ -1950,3 +1950,35 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
     }
     return out;
 }
+
+bool DbClient::TryTransitionModelRunStatus(const std::string& model_run_id,
+                                           const std::string& expected_current,
+                                           const std::string& next_status) {
+    try {
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
+        pqxx::work W(C);
+        auto res = W.exec_params("UPDATE model_runs SET status = $1 WHERE model_run_id = $2 AND status = $3",
+                                 next_status, model_run_id, expected_current);
+        W.commit();
+        return res.affected_rows() > 0;
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to transition model run status: {}", e.what());
+        return false;
+    }
+}
+
+bool DbClient::TryTransitionScoreJobStatus(const std::string& job_id,
+                                           const std::string& expected_current,
+                                           const std::string& next_status) {
+    try {
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
+        pqxx::work W(C);
+        auto res = W.exec_params("UPDATE dataset_score_jobs SET status = $1, updated_at = NOW() WHERE job_id = $2 AND status = $3",
+                                 next_status, job_id, expected_current);
+        W.commit();
+        return res.affected_rows() > 0;
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to transition score job status: {}", e.what());
+        return false;
+    }
+}

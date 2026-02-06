@@ -76,6 +76,17 @@ public:
         model_run_statuses[model_run_id] = status;
     }
 
+    bool TryTransitionModelRunStatus(const std::string& model_run_id,
+                                     const std::string& expected_current,
+                                     const std::string& next_status) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (model_run_statuses[model_run_id] == expected_current || (model_run_statuses[model_run_id].empty() && expected_current == "PENDING")) {
+            model_run_statuses[model_run_id] = next_status;
+            return true;
+        }
+        return false;
+    }
+
     nlohmann::json GetModelRun(const std::string& model_run_id) override {
         nlohmann::json j;
         j["model_run_id"] = model_run_id;
@@ -267,6 +278,18 @@ public:
         last_job_id = job_id;
         last_job_status = status;
         last_job_error = error;
+        job_statuses[job_id] = status;
+    }
+
+    bool TryTransitionScoreJobStatus(const std::string& job_id,
+                                     const std::string& expected_current,
+                                     const std::string& next_status) override {
+        if (job_statuses[job_id] == expected_current || (job_statuses[job_id].empty() && expected_current == "PENDING")) {
+            job_statuses[job_id] = next_status;
+            last_job_status = next_status;
+            return true;
+        }
+        return false;
     }
 
     nlohmann::json GetScoreJob(const std::string& job_id) override {
@@ -321,6 +344,7 @@ public:
     std::string last_model_run_id;
     std::string last_model_run_status;
     std::map<std::string, std::string> model_run_statuses; // Store status per ID
+    std::map<std::string, std::string> job_statuses;
     std::mutex mutex_;
     size_t last_batch_size = 0;
     TelemetryRecord last_record;

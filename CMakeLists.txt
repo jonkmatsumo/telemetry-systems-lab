@@ -131,6 +131,7 @@ add_executable(telemetry-api
     src/db_client.cpp
     src/db_connection_manager.cpp
     src/pca_model_cache.cpp
+    src/job_state_machine.cpp
     src/preprocessing.cpp
     src/detectors/detector_a.cpp
     src/detectors/pca_model.cpp
@@ -217,6 +218,7 @@ add_executable(unit_tests
     src/db_client.cpp
     src/db_connection_manager.cpp
     src/pca_model_cache.cpp
+    src/job_state_machine.cpp
     src/route_registry.cpp
     src/server.cpp
     src/job_manager.cpp

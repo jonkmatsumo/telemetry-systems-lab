@@ -73,6 +73,11 @@ public:
                                       const std::string& artifact_path = "", 
                                       const std::string& error = "",
                                       const nlohmann::json& error_summary = nlohmann::json()) override;
+    
+    bool TryTransitionModelRunStatus(const std::string& model_run_id,
+                                     const std::string& expected_current,
+                                     const std::string& next_status) override;
+
     nlohmann::json GetModelRun(const std::string& model_run_id) override;
     nlohmann::json GetHpoTrials(const std::string& parent_run_id) override;
     nlohmann::json GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) override;
@@ -181,6 +186,11 @@ public:
                         long processed_rows,
                         long last_record_id = 0,
                         const std::string& error = "") override;
+
+    bool TryTransitionScoreJobStatus(const std::string& job_id,
+                                     const std::string& expected_current,
+                                     const std::string& next_status) override;
+
     nlohmann::json GetScoreJob(const std::string& job_id) override;
     nlohmann::json ListScoreJobs(int limit,
                                  int offset,
