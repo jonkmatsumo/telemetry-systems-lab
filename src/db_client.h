@@ -25,6 +25,10 @@ public:
     // Marks any 'RUNNING' jobs as 'FAILED' (called on startup).
     void ReconcileStaleJobs() override;
 
+    std::shared_ptr<DbConnectionManager> GetConnectionManager() override {
+        return manager_;
+    }
+
     // Runs the retention cleanup procedure.
     void RunRetentionCleanup(int retention_days);
 

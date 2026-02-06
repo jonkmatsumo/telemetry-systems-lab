@@ -7,6 +7,10 @@
 
 class MockDbClient : public IDbClient {
 public:
+    std::shared_ptr<DbConnectionManager> GetConnectionManager() override {
+        return std::make_shared<SimpleDbConnectionManager>("dummy");
+    }
+
     void ReconcileStaleJobs() override {}
     void EnsurePartition(std::chrono::system_clock::time_point tp) override {}
 

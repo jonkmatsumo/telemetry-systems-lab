@@ -1,5 +1,6 @@
 #pragma once
 #include "types.h"
+#include "db_connection_manager.h"
 #include <vector>
 #include <string>
 #include <optional>
@@ -9,6 +10,8 @@
 class IDbClient {
 public:
     virtual ~IDbClient() = default;
+
+    virtual std::shared_ptr<DbConnectionManager> GetConnectionManager() = 0;
 
     virtual void ReconcileStaleJobs() = 0;
     virtual void EnsurePartition(std::chrono::system_clock::time_point tp) = 0;

@@ -86,6 +86,7 @@ private:
     httplib::Server svr_;
     std::unique_ptr<telemetry::TelemetryService::Stub> stub_;
     std::shared_ptr<IDbClient> db_client_;
+    std::shared_ptr<DbConnectionManager> db_manager_;
     std::unique_ptr<JobManager> job_manager_;
     
     std::string grpc_target_;

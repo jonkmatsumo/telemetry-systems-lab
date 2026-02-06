@@ -228,13 +228,13 @@ static PcaArtifact TrainPcaFromStream(const std::function<void(const std::functi
     return artifact;
 }
 
-PcaArtifact TrainPcaFromDbBatched(const std::string& db_conn_str,
+PcaArtifact TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,
                                   size_t batch_size) {
     auto start = std::chrono::steady_clock::now();
-    TelemetryBatchIterator iter(db_conn_str, dataset_id, batch_size);
+    TelemetryBatchIterator iter(manager, dataset_id, batch_size);
 
     auto for_each = [&](const std::function<void(const linalg::Vector&)>& cb) {
         iter.Reset();
@@ -260,7 +260,7 @@ PcaArtifact TrainPcaFromDbBatched(const std::string& db_conn_str,
     return artifact;
 }
 
-PcaArtifact TrainPcaFromDb(const std::string& db_conn_str,
+PcaArtifact TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
                            const std::string& dataset_id,
                            int n_components,
                            double percentile) {
@@ -278,7 +278,7 @@ PcaArtifact TrainPcaFromDb(const std::string& db_conn_str,
     spdlog::info("Starting PCA training: dataset_id={}, n_components={}, batch_size={}", 
                  dataset_id, n_components, batch_size);
     
-    return TrainPcaFromDbBatched(db_conn_str, dataset_id, n_components, percentile, batch_size);
+    return TrainPcaFromDbBatched(std::move(manager), dataset_id, n_components, percentile, batch_size);
 }
 
 PcaArtifact TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,

@@ -100,7 +100,7 @@ static const char* ClassifyTrainError(const std::string& msg) {
 }
 
 ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_str)
-    : ApiServer(grpc_target, std::make_shared<DbClient>(db_conn_str))
+    : ApiServer(grpc_target, std::make_shared<DbClient>(std::make_shared<SimpleDbConnectionManager>(db_conn_str)))
 {
     db_conn_str_ = db_conn_str;
 }
@@ -108,6 +108,8 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
 ApiServer::ApiServer(const std::string& grpc_target, std::shared_ptr<IDbClient> db_client)
     : grpc_target_(grpc_target), db_client_(db_client)
 {
+    db_manager_ = db_client_->GetConnectionManager();
+
     // Initialize gRPC Stub
     auto channel = grpc::CreateChannel(grpc_target, grpc::InsecureChannelCredentials());
     stub_ = telemetry::TelemetryService::NewStub(channel);
@@ -1064,7 +1066,7 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
 
                                     std::filesystem::create_directories(output_dir);
 
-                                    auto artifact = telemetry::training::TrainPcaFromDb(db_conn_str_, dataset_id, n_components, percentile);
+                                    auto artifact = telemetry::training::TrainPcaFromDb(db_manager_, dataset_id, n_components, percentile);
 
                                     
 
