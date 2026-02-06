@@ -1,16 +1,10 @@
 #include <gtest/gtest.h>
-#include <gmock/gmock.h>
 #include "api_server.h"
 #include "mocks/mock_db_client.h"
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 #include <thread>
 #include <chrono>
-
-using ::testing::_;
-using ::testing::Return;
-// using ::testing::NiceMock; // Not using NiceMock anymore
-using ::testing::Invoke;
 
 namespace telemetry {
 namespace api {
