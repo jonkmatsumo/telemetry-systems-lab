@@ -150,6 +150,9 @@ void ApiServer::Initialize() {
     // Initialize JobManager
     job_manager_ = std::make_unique<JobManager>();
 
+    // Initialize Model Cache (100 entries, 1 hour TTL)
+    model_cache_ = std::make_unique<anomaly::PcaModelCache>(100, 3600);
+
     // Configure HTTP Server Limits
     svr_.set_payload_max_length(1024 * 1024 * 50); // 50MB
     svr_.set_read_timeout(5, 0); // 5 seconds
@@ -1645,10 +1648,10 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
             return;
         }
 
-        // 2. Load Model
-        telemetry::anomaly::PcaModel pca;
+        // 2. Load Model (with cache)
+        std::shared_ptr<telemetry::anomaly::PcaModel> pca;
         try {
-            pca.Load(artifact_path);
+            pca = model_cache_->GetOrCreate(model_run_id, artifact_path);
         } catch (const std::exception& e) {
             log.RecordError(telemetry::obs::kErrModelLoadFailed, e.what(), 500);
             SendError(res, "Failed to load PCA model artifact: " + std::string(e.what()), 500, telemetry::obs::kErrModelLoadFailed, rid);
@@ -1672,7 +1675,7 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
             v.data[3] = s.value("network_rx_rate", 0.0);
             v.data[4] = s.value("network_tx_rate", 0.0);
 
-            auto score = pca.Score(v);
+            auto score = pca->Score(v);
             
             nlohmann::json r;
             r["is_anomaly"] = score.is_anomaly;
@@ -1863,8 +1866,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                 if (artifact_path.empty()) {
                     throw std::runtime_error("Model artifact path missing");
                 }
-                telemetry::anomaly::PcaModel model;
-                model.Load(artifact_path);
+                auto model = model_cache_->GetOrCreate(model_run_id, artifact_path);
 
                 const int batch = 5000;
                 while (!stop_flag->load()) {
@@ -1879,7 +1881,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                         v.data[2] = r.disk;
                         v.data[3] = r.rx;
                         v.data[4] = r.tx;
-                        auto score = model.Score(v);
+                        auto score = model->Score(v);
                         scores.emplace_back(r.record_id, std::make_pair(score.reconstruction_error, score.is_anomaly));
                     }
                     db_client_->InsertDatasetScores(dataset_id, model_run_id, scores);
