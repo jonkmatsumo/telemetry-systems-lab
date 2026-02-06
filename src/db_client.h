@@ -1,5 +1,6 @@
 #pragma once
 #include "idb_client.h"
+#include "db_connection_manager.h"
 #include <pqxx/pqxx>
 #include <optional>
 #include <string>
@@ -8,6 +9,7 @@
 class DbClient : public IDbClient {
 public:
     DbClient(const std::string& connection_string);
+    DbClient(std::shared_ptr<DbConnectionManager> manager);
     ~DbClient() override = default;
 
     // Validates that a metric name is a known telemetry column.
@@ -210,5 +212,5 @@ public:
                                         const std::string& group_by) override;
 
 private:
-    std::string conn_str_;
+    std::shared_ptr<DbConnectionManager> manager_;
 };

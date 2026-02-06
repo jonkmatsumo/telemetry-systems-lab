@@ -84,6 +84,7 @@ add_executable(telemetry-generator
     src/server.cpp
     src/generator.cpp
     src/db_client.cpp
+    src/db_connection_manager.cpp
 )
 
 target_include_directories(telemetry-generator PRIVATE src)
@@ -101,6 +102,7 @@ target_link_libraries(telemetry-generator
 add_executable(telemetry-scorer
     src/scorer_main.cpp
     src/db_client.cpp
+    src/db_connection_manager.cpp
     src/preprocessing.cpp
     src/detectors/detector_a.cpp
     src/detectors/pca_model.cpp
@@ -127,6 +129,7 @@ add_executable(telemetry-api
     src/api_server.cpp
     src/route_registry.cpp
     src/db_client.cpp
+    src/db_connection_manager.cpp
     src/preprocessing.cpp
     src/detectors/detector_a.cpp
     src/detectors/pca_model.cpp
@@ -209,6 +212,7 @@ add_executable(unit_tests
     src/api_server.cpp
     src/generator.cpp
     src/db_client.cpp
+    src/db_connection_manager.cpp
     src/route_registry.cpp
     src/server.cpp
     src/job_manager.cpp
@@ -255,6 +259,7 @@ target_link_libraries(test_client
 add_executable(db_integration_tests
     tests/integration/test_db_client.cpp
     src/db_client.cpp
+    src/db_connection_manager.cpp
 )
 target_include_directories(db_integration_tests PRIVATE src)
 target_link_libraries(db_integration_tests
