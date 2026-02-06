@@ -206,6 +206,7 @@ add_executable(unit_tests
     tests/unit/test_hardening_scaffolding.cpp
     tests/unit/test_api_scoring.cpp
     tests/unit/test_time_parsing.cpp
+    tests/unit/test_db_connection_pool.cpp
     tests/unit/test_api_safety.cpp
     tests/unit/test_error_classification.cpp
     tests/unit/test_api_performance.cpp

@@ -48,6 +48,8 @@ DbConnectionPtr PooledDbConnectionManager::GetConnection() {
             conn = std::make_unique<pqxx::connection>(conn_str_);
         } catch (const std::exception& e) {
             spdlog::error("Failed to create new DB connection: {}", e.what());
+            // If we fail here, we don't increment in_use_count_
+            cv_.notify_one(); // Wake up anyone waiting for space
             throw;
         }
     }
