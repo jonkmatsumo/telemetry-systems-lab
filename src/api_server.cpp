@@ -1881,8 +1881,8 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
 
                 total = db_client_->GetDatasetRecordCount(dataset_id);
                 if (!db_client_->TryTransitionScoreJobStatus(job_id, "PENDING", "RUNNING")) {
-                    auto job_info = db_client_->GetScoreJob(job_id);
-                    if (job_info.value("status", "") != "RUNNING") return;
+                    auto current_job_info = db_client_->GetScoreJob(job_id);
+                    if (current_job_info.value("status", "") != "RUNNING") return;
                 }
                 db_client_->UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
 
