@@ -1021,10 +1021,12 @@ class _ControlPanelState extends State<ControlPanel> {
           ),
           if (_hpoEnabled) ...[
             const SizedBox(height: 12),
-            Row(
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 12,
               children: [
                 const Text('Algorithm: ', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
-                const SizedBox(width: 8),
                 DropdownButton<String>(
                   value: _hpoAlgorithm,
                   dropdownColor: const Color(0xFF020617),
@@ -1035,7 +1037,6 @@ class _ControlPanelState extends State<ControlPanel> {
                     _hpoChanged();
                   },
                 ),
-                const Spacer(),
                 SizedBox(
                   width: 80,
                   child: _buildTextField('Max Trials', _hpoMaxTrialsController, onChanged: (_) => _hpoChanged()),

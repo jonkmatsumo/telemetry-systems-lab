@@ -330,7 +330,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
                 ),
                 Padding(
                   padding: const EdgeInsets.all(4), 
-                  child: Row(
+                  child: Wrap(
                     children: [
                       TextButton(
                         onPressed: () => _selectById(trialId), 
