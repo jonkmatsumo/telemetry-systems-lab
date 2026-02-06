@@ -60,6 +60,13 @@ TEST(DbConnectionPoolTest, ConcurrentStress) {
         db_url = "postgresql://postgres:password@postgres:5432/telemetry";
     }
     
+    // Verify reachability first
+    try {
+        pqxx::connection conn(db_url);
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "Database not reachable: " << e.what();
+    }
+    
     try {
         PooledDbConnectionManager pool(db_url, 5, std::chrono::seconds(2));
         
