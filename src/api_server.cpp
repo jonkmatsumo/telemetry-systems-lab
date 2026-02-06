@@ -197,6 +197,74 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
         HandleModelErrorDistribution(req, res);
     });
 
+    svr_.Post("/models/([a-zA-Z0-9-]+)/rerun_failed", [this](const httplib::Request& req, httplib::Response& res) {
+        std::string rid = GetRequestId(req);
+        telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
+        std::string model_run_id = req.matches[1];
+        log.AddFields({{"model_run_id", model_run_id}});
+
+        auto j = db_client_->GetModelRun(model_run_id);
+        if (j.empty()) {
+            SendError(res, "Model run not found", 404, telemetry::obs::kErrHttpNotFound, rid);
+            return;
+        }
+
+        if (j["hpo_config"].is_null()) {
+            SendError(res, "Not a tuning run", 400, "E_NOT_TUNING", rid);
+            return;
+        }
+
+        auto trials = db_client_->GetHpoTrials(model_run_id);
+        std::vector<nlohmann::json> failed_trials;
+        for (const auto& t : trials) {
+            if (t["status"] == "FAILED" || t["status"] == "CANCELLED") {
+                failed_trials.push_back(t);
+            }
+        }
+
+        if (failed_trials.empty()) {
+            SendError(res, "No failed or cancelled trials to rerun", 400, "E_NO_FAILED_TRIALS", rid);
+            return;
+        }
+
+        // Bounded rerun (max 10 at a time)
+        int rerun_limit = 10;
+        int count = 0;
+        std::vector<std::string> new_trial_ids;
+        for (const auto& t : failed_trials) {
+            if (count >= rerun_limit) break;
+
+            std::string trial_name = t["name"];
+            if (trial_name.find("_rerun_") == std::string::npos) {
+                trial_name += "_rerun_" + GenerateUuid().substr(0, 4);
+            }
+
+            std::string new_tid = db_client_->CreateHpoTrialRun(
+                t["dataset_id"],
+                trial_name,
+                t["training_config"],
+                rid,
+                model_run_id,
+                t["trial_index"], // Keep same index for linking
+                t["trial_params"]
+            );
+
+            if (!new_tid.empty()) {
+                new_trial_ids.push_back(new_tid);
+                
+                // Dispatch it
+                auto t_cfg = t["training_config"];
+                RunPcaTraining(new_tid, t["dataset_id"], t_cfg["n_components"], t_cfg["percentile"], rid);
+            }
+            count++;
+        }
+
+        nlohmann::json resp;
+        resp["rerun_count"] = count;
+        resp["new_trial_ids"] = new_trial_ids;
+        SendJson(res, resp, 202, rid);
+    });
+
     svr_.Get("/healthz", [](const httplib::Request& req, httplib::Response& res) {
         std::string rid = GetRequestId(req);
         telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
