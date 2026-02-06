@@ -41,6 +41,45 @@ class _ControlPanelState extends State<ControlPanel> {
   String? _selectionWarning;
   String? _pendingInferenceMessage;
 
+  void _hpoChanged() {
+    setState(() {}); // Trigger rebuild for preflight update
+  }
+
+  Map<String, dynamic> _calculatePreflight() {
+    final nSpace = _hpoNComponentsSpaceController.text.split(',').map((e) => int.tryParse(e.trim())).whereType<int>().toList();
+    final pSpace = _hpoPercentileSpaceController.text.split(',').map((e) => double.tryParse(e.trim())).whereType<double>().toList();
+    final maxTrials = int.tryParse(_hpoMaxTrialsController.text) ?? 10;
+
+    int estimated = 0;
+    int effective = 0;
+    String cappedBy = 'NONE';
+
+    if (_hpoAlgorithm == 'grid') {
+      final nLen = nSpace.isEmpty ? 1 : nSpace.length;
+      final pLen = pSpace.isEmpty ? 1 : pSpace.length;
+      estimated = nLen * pLen;
+      
+      if (estimated > 100) {
+        effective = 100;
+        cappedBy = 'GRID_CAP';
+      } else if (estimated > maxTrials) {
+        effective = maxTrials;
+        cappedBy = 'MAX_TRIALS';
+      } else {
+        effective = estimated;
+      }
+    } else {
+      estimated = maxTrials;
+      effective = maxTrials;
+    }
+
+    return {
+      'estimated': estimated,
+      'effective': effective,
+      'capped_by': cappedBy,
+    };
+  }
+
   @override
   void initState() {
     super.initState();
@@ -737,7 +776,61 @@ class _ControlPanelState extends State<ControlPanel> {
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller) {
+  Widget _buildHpoPreflightSummary() {
+    final preflight = _calculatePreflight();
+    final estimated = preflight['estimated'];
+    final effective = preflight['effective'];
+    final cappedBy = preflight['capped_by'];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Estimated Candidates:', style: TextStyle(color: Colors.white54, fontSize: 12)),
+            Text('$estimated', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Trials to Run:', style: TextStyle(color: Colors.white54, fontSize: 12)),
+            Text('$effective', style: TextStyle(color: cappedBy != 'NONE' ? Colors.amberAccent : Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+          ],
+        ),
+        if (cappedBy != 'NONE')
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.amber.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.amberAccent, size: 14),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      cappedBy == 'GRID_CAP' 
+                        ? 'Capped by server limit (max 100 combinations).'
+                        : 'Capped by Max Trials limit.',
+                      style: const TextStyle(color: Colors.amberAccent, fontSize: 11),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildTextField(String label, TextEditingController controller, {ValueChanged<String>? onChanged}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -745,6 +838,7 @@ class _ControlPanelState extends State<ControlPanel> {
         const SizedBox(height: 8),
         TextField(
           controller: controller,
+          onChanged: onChanged,
           decoration: InputDecoration(
             filled: true,
             fillColor: const Color(0xFF020617),
@@ -936,21 +1030,29 @@ class _ControlPanelState extends State<ControlPanel> {
                   dropdownColor: const Color(0xFF020617),
                   style: const TextStyle(fontSize: 13, color: Colors.white),
                   items: ['grid', 'random'].map((a) => DropdownMenuItem(value: a, child: Text(a.toUpperCase()))).toList(),
-                  onChanged: (val) => setState(() => _hpoAlgorithm = val!),
+                  onChanged: (val) {
+                    setState(() => _hpoAlgorithm = val!);
+                    _hpoChanged();
+                  },
                 ),
                 const Spacer(),
                 SizedBox(
                   width: 80,
-                  child: _buildTextField('Max Trials', _hpoMaxTrialsController),
+                  child: _buildTextField('Max Trials', _hpoMaxTrialsController, onChanged: (_) => _hpoChanged()),
                 ),
               ],
             ),
             const SizedBox(height: 12),
-            _buildTextField('N Components Search Space (csv)', _hpoNComponentsSpaceController),
+            _buildTextField('N Components Search Space (csv)', _hpoNComponentsSpaceController, onChanged: (_) => _hpoChanged()),
             const SizedBox(height: 12),
-            _buildTextField('Percentile Search Space (csv)', _hpoPercentileSpaceController),
+            _buildTextField('Percentile Search Space (csv)', _hpoPercentileSpaceController, onChanged: (_) => _hpoChanged()),
             const SizedBox(height: 8),
             const Text('Example: 2, 3, 4', style: TextStyle(color: Colors.white24, fontSize: 11)),
+            
+            const SizedBox(height: 16),
+            const Divider(color: Colors.white10),
+            const SizedBox(height: 12),
+            _buildHpoPreflightSummary(),
           ],
         ],
       ),
