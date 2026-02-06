@@ -100,7 +100,8 @@ public:
     void UpdateTrialEligibility(const std::string& model_run_id,
                                 bool is_eligible,
                                 const std::string& reason,
-                                double metric_value) override {
+                                double metric_value,
+                                const std::string& source = "") override {
         // No-op
     }
 

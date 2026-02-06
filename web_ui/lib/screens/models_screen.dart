@@ -254,6 +254,11 @@ class _ModelsScreenState extends State<ModelsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(_displayValue(t['selection_metric_value']), style: const TextStyle(fontSize: 11)),
+                      if (t['selection_metric_source'] != null)
+                        Text(
+                          t['selection_metric_source'].toString().replaceAll('evaluation_artifact_', 'v'),
+                          style: const TextStyle(fontSize: 8, color: Colors.white38),
+                        ),
                       if (!isEligible) 
                         Padding(
                           padding: const EdgeInsets.only(top: 2),
