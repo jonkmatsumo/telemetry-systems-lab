@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <httplib.h>
+#include <nlohmann/json.hpp>
 #include "route_registry.h"
 #include <spdlog/spdlog.h>
 #include <cstdlib>
@@ -32,30 +33,41 @@ TEST_F(ApiRouteTest, ProbesAllRequiredRoutes) {
         
         // Use a dummy ID for patterns with groups
         std::string path = route.pattern;
-        // Replace regex groups with a simple ID "123" or similar
-        // This is a crude replacement just to avoid 404
-        size_t pos;
-        while ((pos = path.find("([a-zA-Z0-9-]+)")) != std::string::npos) {
-            path.replace(pos, 15, "123");
-        }
-        while ((pos = path.find("([0-9]+)")) != std::string::npos) {
-            path.replace(pos, 8, "1");
-        }
-        while ((pos = path.find("([a-zA-Z0-9_]+)")) != std::string::npos) {
-            path.replace(pos, 15, "cpu_usage");
-        }
+        
+        auto replace_all = [](std::string& str, const std::string& from, const std::string& to) {
+            size_t start_pos = 0;
+            while((start_pos = str.find(from, start_pos)) != std::string::npos) {
+                str.replace(start_pos, from.length(), to);
+                start_pos += to.length();
+            }
+        };
+
+        replace_all(path, "([a-zA-Z0-9-]+)", "00000000-0000-0000-0000-000000000000");
+        replace_all(path, "([0-9]+)", "1");
+        replace_all(path, "([a-zA-Z0-9_]+)", "cpu_usage");
 
         if (route.method == "GET") {
             res = client->Get(path.c_str());
         } else if (route.method == "POST") {
             res = client->Post(path.c_str(), "{}", "application/json");
+        } else if (route.method == "DELETE") {
+            res = client->Delete(path.c_str());
         } else {
             FAIL() << "Unsupported method " << route.method << " for route " << path;
             continue;
         }
 
         if (*res) {
-            EXPECT_NE((*res)->status, 404) << "Route " << route.method << " " << path << " returned 404";
+            if ((*res)->status == 404) {
+                // If it's a 404, check if it's a "Resource not found" JSON error vs a "Route not found" 404.
+                // Our API returns JSON errors for resource misses.
+                try {
+                    auto j = nlohmann::json::parse((*res)->body);
+                    EXPECT_TRUE(j.contains("error")) << "404 for " << route.method << " " << path << " is not a structured error: " << (*res)->body;
+                } catch (...) {
+                    FAIL() << "Route " << route.method << " " << path << " returned 404 with non-JSON body: " << (*res)->body;
+                }
+            }
         } else {
             // If we can't connect, skip instead of failing if not in CI?
             // For now, fail to be strict.
