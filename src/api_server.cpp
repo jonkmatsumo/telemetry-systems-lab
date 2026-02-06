@@ -150,8 +150,20 @@ void ApiServer::Initialize() {
     // Initialize JobManager
     job_manager_ = std::make_unique<JobManager>();
 
-    // Initialize Model Cache (100 entries, 1 hour TTL)
-    model_cache_ = std::make_unique<anomaly::PcaModelCache>(100, 3600);
+    // Initialize Model Cache (defaults: 100 entries, 1 hour TTL)
+    size_t cache_size = 100;
+    const char* env_cache_size = std::getenv("MODEL_CACHE_SIZE");
+    if (env_cache_size) {
+        try { cache_size = std::stoul(env_cache_size); } catch (...) {}
+    }
+
+    int cache_ttl = 3600;
+    const char* env_cache_ttl = std::getenv("MODEL_CACHE_TTL_SECONDS");
+    if (env_cache_ttl) {
+        try { cache_ttl = std::stoi(env_cache_ttl); } catch (...) {}
+    }
+
+    model_cache_ = std::make_unique<telemetry::anomaly::PcaModelCache>(cache_size, cache_ttl);
 
     // Configure HTTP Server Limits
     svr_.set_payload_max_length(1024 * 1024 * 50); // 50MB
