@@ -32,4 +32,6 @@ protected:
     std::mt19937_64 rng_;
 };
 
+std::chrono::system_clock::time_point ParseTime(const std::string& iso);
+
 
