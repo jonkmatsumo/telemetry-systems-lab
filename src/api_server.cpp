@@ -118,7 +118,10 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
     }
 
     auto manager = std::make_shared<PooledDbConnectionManager>(
-        db_conn_str, pool_size, std::chrono::milliseconds(timeout_ms));
+        db_conn_str, pool_size, std::chrono::milliseconds(timeout_ms),
+        [](pqxx::connection& C) {
+            DbClient::PrepareStatements(C);
+        });
     
     db_client_ = std::make_shared<DbClient>(manager);
     db_manager_ = manager;

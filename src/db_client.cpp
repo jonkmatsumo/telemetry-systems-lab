@@ -13,10 +13,27 @@
 
 
 DbClient::DbClient(const std::string& connection_string) 
-    : manager_(std::make_shared<SimpleDbConnectionManager>(connection_string)) {}
+    : manager_(std::make_shared<SimpleDbConnectionManager>(connection_string, [](pqxx::connection& C) {
+        DbClient::PrepareStatements(C);
+    })) {}
 
 DbClient::DbClient(std::shared_ptr<DbConnectionManager> manager) 
     : manager_(std::move(manager)) {}
+
+void DbClient::PrepareStatements(pqxx::connection& C) {
+    C.prepare("insert_generation_run",
+              "INSERT INTO generation_runs (run_id, tier, host_count, start_time, end_time, interval_seconds, seed, status, config, request_id) "
+              "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)");
+    
+    C.prepare("update_generation_run",
+              "UPDATE generation_runs SET status = $1, inserted_rows = $2 WHERE run_id = $3");
+              
+    C.prepare("update_generation_run_error",
+              "UPDATE generation_runs SET status = $1, inserted_rows = $2, error = $3 WHERE run_id = $4");
+              
+    C.prepare("get_run_status",
+              "SELECT status, inserted_rows, error, request_id FROM generation_runs WHERE run_id = $1");
+}
 
 // Static allowlist of valid metric column names from host_telemetry_archival schema.
 // This prevents SQL injection via metric parameter in analytics queries.

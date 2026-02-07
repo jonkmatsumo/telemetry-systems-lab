@@ -37,10 +37,17 @@ public:
  */
 class SimpleDbConnectionManager : public DbConnectionManager {
 public:
-    explicit SimpleDbConnectionManager(const std::string& conn_str) : conn_str_(conn_str) {}
+    using ConnectionInitializer = std::function<void(pqxx::connection&)>;
+
+    explicit SimpleDbConnectionManager(const std::string& conn_str, ConnectionInitializer initializer = nullptr) 
+        : conn_str_(conn_str), initializer_(initializer) {}
 
     DbConnectionPtr GetConnection() override {
-        return DbConnectionPtr(new pqxx::connection(conn_str_), 
+        auto conn = new pqxx::connection(conn_str_);
+        if (initializer_) {
+            initializer_(*conn);
+        }
+        return DbConnectionPtr(conn, 
                               [](pqxx::connection* c) { delete c; });
     }
 
@@ -50,6 +57,7 @@ public:
 
 private:
     std::string conn_str_;
+    ConnectionInitializer initializer_;
 };
 
 /**
@@ -57,9 +65,12 @@ private:
  */
 class PooledDbConnectionManager : public DbConnectionManager {
 public:
+    using ConnectionInitializer = std::function<void(pqxx::connection&)>;
+
     PooledDbConnectionManager(const std::string& conn_str, 
                                size_t pool_size, 
-                               std::chrono::milliseconds acquire_timeout = std::chrono::seconds(5));
+                               std::chrono::milliseconds acquire_timeout = std::chrono::seconds(5),
+                               ConnectionInitializer initializer = nullptr);
     ~PooledDbConnectionManager() override;
 
     DbConnectionPtr GetConnection() override;
@@ -81,6 +92,7 @@ private:
     std::string conn_str_;
     size_t pool_size_;
     std::chrono::milliseconds acquire_timeout_;
+    ConnectionInitializer initializer_;
 
     mutable std::mutex mutex_;
     std::condition_variable cv_;

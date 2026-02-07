@@ -22,6 +22,9 @@ public:
     // Validates that an aggregation function is allowed.
     static bool IsValidAggregation(const std::string& agg);
 
+    // Prepares named statements for a connection.
+    static void PrepareStatements(pqxx::connection& C);
+
     // Marks any 'RUNNING' jobs as 'FAILED' (called on startup).
     void ReconcileStaleJobs() override;
 

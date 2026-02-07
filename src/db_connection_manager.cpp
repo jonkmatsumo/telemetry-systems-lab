@@ -2,13 +2,14 @@
 #include <spdlog/spdlog.h>
 #include "obs/metrics.h"
 
-PooledDbConnectionManager::PooledDbConnectionManager(const std::string& conn_str,  
+PooledDbConnectionManager::PooledDbConnectionManager(const std::string& conn_str, 
                                                      size_t pool_size, 
-                                                     std::chrono::milliseconds acquire_timeout)
+                                                     std::chrono::milliseconds acquire_timeout,
+                                                     ConnectionInitializer initializer)
     : conn_str_(conn_str), 
       pool_size_(pool_size), 
-      acquire_timeout_(acquire_timeout) {
-    
+      acquire_timeout_(acquire_timeout),
+      initializer_(initializer) {    
     spdlog::info("Initializing DB connection pool with size {}", pool_size_);
 }
 
@@ -48,6 +49,9 @@ DbConnectionPtr PooledDbConnectionManager::GetConnection() {
         // Create new connection if pool is not full
         try {
             conn = std::make_unique<pqxx::connection>(conn_str_);
+            if (initializer_) {
+                initializer_(*conn);
+            }
         } catch (const std::exception& e) {
             spdlog::error("Failed to create new DB connection: {}", e.what());
             // If we fail here, we don't increment in_use_count_
