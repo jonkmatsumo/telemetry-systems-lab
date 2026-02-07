@@ -8,6 +8,7 @@
 
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
+#include "context.h"
 
 namespace telemetry {
 namespace obs {
@@ -57,6 +58,17 @@ inline void LogEvent(LogLevel level,
     j["level"] = LevelToString(level);
     j["event"] = event;
     j["component"] = component;
+
+    if (HasContext()) {
+        const auto& ctx = GetContext();
+        if (!ctx.request_id.empty()) j["request_id"] = ctx.request_id;
+        if (!ctx.trace_id.empty()) j["trace_id"] = ctx.trace_id;
+        if (!ctx.user_id.empty()) j["user_id"] = ctx.user_id;
+        if (!ctx.dataset_id.empty()) j["dataset_id"] = ctx.dataset_id;
+        if (!ctx.model_run_id.empty()) j["model_run_id"] = ctx.model_run_id;
+        if (!ctx.inference_run_id.empty()) j["inference_run_id"] = ctx.inference_run_id;
+        if (!ctx.score_job_id.empty()) j["score_job_id"] = ctx.score_job_id;
+    }
 
     switch (level) {
         case LogLevel::Info:

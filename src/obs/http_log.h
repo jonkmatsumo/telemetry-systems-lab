@@ -21,7 +21,12 @@ public:
         : res_(&res),
           component_(component),
           request_id_(request_id),
-          start_(std::chrono::steady_clock::now()) {
+          start_(std::chrono::steady_clock::now()),
+          ctx_scope_([request_id]() {
+              Context c;
+              c.request_id = request_id;
+              return c;
+          }()) {
         fields_["route"] = req.path;
         fields_["method"] = req.method;
         if (!request_id.empty()) {
@@ -71,6 +76,7 @@ private:
     nlohmann::json fields_ = nlohmann::json::object();
     std::chrono::steady_clock::time_point start_;
     bool error_logged_ = false;
+    ScopedContext ctx_scope_;
 };
 
 } // namespace obs
