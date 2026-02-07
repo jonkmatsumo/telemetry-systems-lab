@@ -25,8 +25,54 @@ Generator::Generator(const telemetry::GenerateRequest& request,
                      std::string run_id, 
                      std::shared_ptr<IDbClient> db_client)
     : config_(request), run_id_(run_id), db_(db_client), rng_(static_cast<unsigned long long>(request.seed())) {
+    
+    const char* env_queue_size = std::getenv("GENERATOR_WRITE_QUEUE_SIZE");
+    if (env_queue_size) {
+        try { max_queue_size_ = std::stoul(env_queue_size); } catch (...) {}
+    }
 }
 
+Generator::~Generator() {
+    writer_running_ = false;
+    queue_cv_.notify_all();
+    if (writer_thread_ && writer_thread_->joinable()) {
+        writer_thread_->join();
+    }
+}
+
+void Generator::EnqueueBatch(std::vector<TelemetryRecord> batch) {
+    std::unique_lock<std::mutex> lock(queue_mutex_);
+    if (write_queue_.size() >= max_queue_size_) {
+        telemetry::obs::EmitCounter("generator_dropped_batches", 1, "batches", "generator");
+        spdlog::warn("Generator write queue full ({} batches). Dropping batch.", write_queue_.size());
+        return;
+    }
+    write_queue_.push(std::move(batch));
+    queue_cv_.notify_one();
+}
+
+void Generator::WriterLoop() {
+    spdlog::info("Generator writer thread started for run {}", run_id_);
+    while (writer_running_) {
+        std::vector<TelemetryRecord> batch;
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex_);
+            queue_cv_.wait(lock, [this]() { return !write_queue_.empty() || !writer_running_; });
+            if (!writer_running_ && write_queue_.empty()) break;
+            if (write_queue_.empty()) continue;
+            batch = std::move(write_queue_.front());
+            write_queue_.pop();
+        }
+        
+        try {
+            db_->BatchInsertTelemetry(batch);
+            telemetry::obs::EmitGauge("generator_write_queue_size", static_cast<double>(write_queue_.size()), "batches", "generator");
+        } catch (const std::exception& e) {
+            spdlog::error("Async DB write failed for run {}: {}", run_id_, e.what());
+        }
+    }
+    spdlog::info("Generator writer thread stopped for run {}", run_id_);
+}
 
 void Generator::InitializeHosts() {
     // Make a copy of the RNG for init so we don't advance the main sequence
@@ -200,6 +246,9 @@ void Generator::Run() {
     try {
         db_->CreateRun(run_id_, config_, "RUNNING", config_.request_id());
         
+        writer_running_ = true;
+        writer_thread_ = std::make_unique<std::thread>(&Generator::WriterLoop, this);
+
         InitializeHosts();
         
         auto start = ParseTime(config_.start_time_iso());
@@ -221,11 +270,12 @@ void Generator::Run() {
             for (const auto& host : hosts_) {
                 batch.push_back(GenerateRecord(host, t));
                 if (batch.size() >= BATCH_SIZE) {
-                    db_->BatchInsertTelemetry(batch);
-                    write_batches += 1;
-                    total_rows += batch.size();
-                    db_->UpdateRunStatus(run_id_, "RUNNING", total_rows);
+                    EnqueueBatch(std::move(batch));
                     batch.clear();
+                    
+                    write_batches += 1;
+                    total_rows += BATCH_SIZE;
+                    db_->UpdateRunStatus(run_id_, "RUNNING", total_rows);
                     
                     if (stop_flag_ && stop_flag_->load()) {
                         spdlog::info("Generation run {} cancelled by request.", run_id_);
@@ -238,11 +288,20 @@ void Generator::Run() {
         
         // Final batch
         if (!batch.empty()) {
-            db_->BatchInsertTelemetry(batch);
+            total_rows += static_cast<long>(batch.size());
+            EnqueueBatch(std::move(batch));
             write_batches += 1;
-            total_rows += batch.size();
         }
         
+        // Wait for writer to finish before marking SUCCEEDED
+        while (true) {
+            {
+                std::lock_guard<std::mutex> lock(queue_mutex_);
+                if (write_queue_.empty()) break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
         spdlog::info("Generation run {} complete. Total rows: {}", run_id_, total_rows);
         db_->UpdateRunStatus(run_id_, "SUCCEEDED", total_rows);
         auto end_time = std::chrono::steady_clock::now();
