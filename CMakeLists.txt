@@ -171,6 +171,7 @@ add_executable(telemetry-api
     src/db_connection_manager.cpp
     src/pca_model_cache.cpp
     src/job_state_machine.cpp
+    src/job_reconciler.cpp
     src/preprocessing.cpp
     src/detectors/detector_a.cpp
     src/detectors/pca_model.cpp
@@ -250,6 +251,7 @@ add_executable(unit_tests
     tests/unit/test_db_connection_pool.cpp
     tests/unit/test_pca_model_cache.cpp
     tests/unit/test_job_state_machine.cpp
+    tests/unit/test_job_reconciler.cpp
     tests/unit/test_generator_lifecycle.cpp
     tests/unit/test_api_safety.cpp
     tests/unit/test_error_classification.cpp
@@ -260,6 +262,7 @@ add_executable(unit_tests
     src/db_connection_manager.cpp
     src/pca_model_cache.cpp
     src/job_state_machine.cpp
+    src/job_reconciler.cpp
     src/route_registry.cpp
     src/server.cpp
     src/job_manager.cpp
@@ -274,6 +277,7 @@ target_compile_definitions(unit_tests PRIVATE TELEMETRY_SOURCE_DIR="${CMAKE_SOUR
 target_link_libraries(unit_tests
     GTest::GTest
     GTest::Main
+    GTest::gmock
     telemetry_proto
     telemetry_linalg
     telemetry_trainer

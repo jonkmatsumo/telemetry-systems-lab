@@ -9,6 +9,7 @@
 #include "telemetry.grpc.pb.h"
 #include "db_client.h"
 #include "job_manager.h"
+#include "job_reconciler.h"
 #include "pca_model_cache.h"
 #include "training/pca_trainer.h"
 
@@ -92,6 +93,7 @@ private:
     std::shared_ptr<IDbClient> db_client_;
     std::shared_ptr<DbConnectionManager> db_manager_;
     std::unique_ptr<JobManager> job_manager_;
+    std::unique_ptr<JobReconciler> job_reconciler_;
     std::unique_ptr<telemetry::anomaly::PcaModelCache> model_cache_;
 };
 
