@@ -1,7 +1,8 @@
 #include "db_connection_manager.h"
 #include <spdlog/spdlog.h>
+#include "obs/metrics.h"
 
-PooledDbConnectionManager::PooledDbConnectionManager(const std::string& conn_str, 
+PooledDbConnectionManager::PooledDbConnectionManager(const std::string& conn_str,  
                                                      size_t pool_size, 
                                                      std::chrono::milliseconds acquire_timeout)
     : conn_str_(conn_str), 
@@ -29,6 +30,7 @@ DbConnectionPtr PooledDbConnectionManager::GetConnection() {
         return !pool_.empty() || in_use_count_ < pool_size_ || shutdown_;
     })) {
         total_timeouts_++;
+        telemetry::obs::EmitCounter("db_pool_timeouts_total", 1, "timeouts", "db_pool");
         spdlog::error("Timeout acquiring DB connection after {}ms. Pool size: {}, In-use: {}", 
                      acquire_timeout_.count(), pool_size_, in_use_count_);
         throw std::runtime_error("DB connection acquisition timeout");
@@ -61,8 +63,13 @@ DbConnectionPtr PooledDbConnectionManager::GetConnection() {
     auto wait_ms = std::chrono::duration<double, std::milli>(end - start).count();
     total_wait_ms_ += wait_ms;
     
+    telemetry::obs::EmitGauge("db_pool_size", static_cast<double>(pool_size_), "connections", "db_pool");
+    telemetry::obs::EmitGauge("db_pool_in_use", static_cast<double>(in_use_count_), "connections", "db_pool");
+    telemetry::obs::EmitHistogram("db_pool_wait_time_ms", wait_ms, "ms", "db_pool");
+
     if (wait_ms > 100.0) {
-        spdlog::warn("DB connection acquisition took {}ms", wait_ms);
+        spdlog::warn("DB connection acquisition took {}ms. Stats: Size={}, InUse={}, Available={}", 
+                     wait_ms, pool_size_, in_use_count_, pool_.size());
     }
 
     // Return with custom deleter that returns to pool
