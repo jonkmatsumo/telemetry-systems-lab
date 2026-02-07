@@ -40,6 +40,8 @@ private:
     std::chrono::seconds stale_ttl_;
     
     std::atomic<bool> running_{false};
+    std::mutex cv_m_;
+    std::condition_variable cv_;
     std::unique_ptr<std::thread> sweeper_thread_;
 };
 
