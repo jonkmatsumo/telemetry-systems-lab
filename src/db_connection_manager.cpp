@@ -59,6 +59,7 @@ DbConnectionPtr PooledDbConnectionManager::GetConnection() {
     
     auto end = std::chrono::steady_clock::now();
     auto wait_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    total_wait_ms_ += wait_ms;
     
     if (wait_ms > 100.0) {
         spdlog::warn("DB connection acquisition took {}ms", wait_ms);
@@ -93,6 +94,7 @@ PooledDbConnectionManager::PoolStats PooledDbConnectionManager::GetStats() const
         in_use_count_,
         pool_.size(),
         total_acquires_,
-        total_timeouts_
+        total_timeouts_,
+        total_wait_ms_
     };
 }

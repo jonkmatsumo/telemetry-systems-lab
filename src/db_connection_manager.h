@@ -71,6 +71,7 @@ public:
         size_t available;
         long long total_acquires;
         long long total_timeouts;
+        double total_wait_ms;
     };
     PoolStats GetStats() const;
 
@@ -88,6 +89,7 @@ private:
     
     long long total_acquires_ = 0;
     long long total_timeouts_ = 0;
+    double total_wait_ms_ = 0.0;
 
     bool shutdown_ = false;
 };
