@@ -94,7 +94,7 @@ target_link_libraries(telemetry_proto
 )
 target_include_directories(telemetry_proto PUBLIC ${PROTO_GEN_DIR})
 # Suppress conversion warnings in generated protobuf code
-target_compile_options(telemetry_proto PRIVATE -Wno-conversion)
+target_compile_options(telemetry_proto PRIVATE -Wno-conversion -Wno-nullability-extension)
 
 # Linear algebra utilities (Eigen-free)
 add_library(telemetry_linalg

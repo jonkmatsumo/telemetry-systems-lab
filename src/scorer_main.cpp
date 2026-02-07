@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
         for (const auto& host : hosts) {
             // Sharding Check
             size_t h = std::hash<std::string>{}(host);
-            if ((h % num_shards) != (size_t)shard_id) {
+            if ((h % static_cast<size_t>(num_shards)) != static_cast<size_t>(shard_id)) {
                 continue; // Not my shard
             }
 

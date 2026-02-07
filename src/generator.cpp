@@ -24,7 +24,7 @@ std::chrono::system_clock::time_point ParseTime(const std::string& iso) {
 Generator::Generator(const telemetry::GenerateRequest& request, 
                      std::string run_id, 
                      std::shared_ptr<IDbClient> db_client)
-    : config_(request), run_id_(run_id), db_(db_client), rng_(request.seed()) {
+    : config_(request), run_id_(run_id), db_(db_client), rng_(static_cast<unsigned long long>(request.seed())) {
 }
 
 
@@ -43,7 +43,7 @@ void Generator::InitializeHosts() {
         HostProfile h;
         h.host_id = fmt::format("host-{}-{}", config_.tier(), i);
         h.project_id = "proj-" + config_.tier(); // keeping simple
-        h.region = regions[i % regions.size()];
+        h.region = regions[static_cast<size_t>(i) % regions.size()];
         h.cpu_base = cpu_dist(rng_);
         h.mem_base = h.cpu_base * 0.8 + 10.0; // simple correlation for base
         h.phase_shift = phase_dist(rng_);

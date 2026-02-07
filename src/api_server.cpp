@@ -879,7 +879,7 @@ void ApiServer::HandleDatasetHistogram(const httplib::Request& req, httplib::Res
         data["meta"]["request_id"] = rid;
         
         if (debug) {
-            long row_count = data.value("counts", nlohmann::json::array()).size();
+            long row_count = static_cast<long>(data.value("counts", nlohmann::json::array()).size());
             nlohmann::json resolved;
             resolved["metric"] = metric;
             resolved["bins"] = bins;
@@ -2037,7 +2037,7 @@ void ApiServer::HandleModelEval(const httplib::Request& req, httplib::Response& 
         auto end = std::chrono::steady_clock::now();
         if (debug) {
             double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
-            long row_count = eval.value("roc", nlohmann::json::array()).size();
+            long row_count = static_cast<long>(eval.value("roc", nlohmann::json::array()).size());
             nlohmann::json resolved;
             resolved["points"] = points;
             resolved["max_samples"] = max_samples;

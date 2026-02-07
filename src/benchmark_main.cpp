@@ -16,9 +16,10 @@ using namespace telemetry::anomaly;
 
 // Mock Data Generator
 std::vector<TelemetryRecord> GenerateMockData(int count) {
-    std::vector<TelemetryRecord> records;
-    records.reserve(count);
-    for (int i = 0; i < count; ++i) {
+        std::vector<TelemetryRecord> records;
+        records.reserve(static_cast<size_t>(count));
+        
+        for (int i = 0; i < count; ++i) {
         TelemetryRecord r;
         r.host_id = "bench-host-1";
         r.run_id = "bench-run";
