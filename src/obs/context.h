@@ -7,6 +7,8 @@ namespace obs {
 
 struct Context {
     std::string request_id;
+    std::string trace_id;
+    std::string user_id;
     std::string dataset_id;
     std::string model_run_id;
     std::string inference_run_id;
