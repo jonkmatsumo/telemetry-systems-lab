@@ -1,6 +1,7 @@
 #include "server.h"
 #include "generator.h"
 #include "db_client.h"
+#include "obs/context.h"
 
 #include <uuid/uuid.h>
 #include <thread>
@@ -27,7 +28,12 @@ Status TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* c
     auto factory = db_factory_;
     
     try {
-        job_manager_->StartJob("gen-" + run_id, "", [run_id, req_copy, factory](const std::atomic<bool>* stop_flag) {
+        job_manager_->StartJob("gen-" + run_id, req_copy.request_id(), [run_id, req_copy, factory](const std::atomic<bool>* stop_flag) {
+            telemetry::obs::Context ctx;
+            ctx.request_id = req_copy.request_id();
+            ctx.dataset_id = run_id;
+            telemetry::obs::ScopedContext scope(ctx);
+            
             spdlog::info("Background generation for run {} started...", run_id);
             try {
                 auto db = factory();

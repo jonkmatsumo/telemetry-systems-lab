@@ -1018,6 +1018,12 @@ void ApiServer::HandleGetDatasetModels(const httplib::Request& req, httplib::Res
 
 void ApiServer::OrchestrateTuning(TuningTask task) {
     job_manager_->StartJob("tuning-" + task.parent_run_id, task.rid, [this, task](const std::atomic<bool>* stop_flag) {
+        telemetry::obs::Context ctx;
+        ctx.request_id = task.rid;
+        ctx.dataset_id = task.dataset_id;
+        ctx.model_run_id = task.parent_run_id;
+        telemetry::obs::ScopedContext scope(ctx);
+
         spdlog::info("Tuning orchestration started for model_run_id: {} with {} trials (max_concurrency: {})", 
                      task.parent_run_id, task.trials.size(), task.max_concurrency);
         
