@@ -155,5 +155,14 @@ PcaScore PcaModel::Score(const FeatureVector& vec) const {
     return result;
 }
 
+size_t PcaModel::EstimateMemoryUsage() const {
+    size_t usage = sizeof(PcaModel);
+    usage += cur_mean_.size() * sizeof(double);
+    usage += cur_scale_.size() * sizeof(double);
+    usage += components_.data.size() * sizeof(double);
+    usage += pca_mean_.size() * sizeof(double);
+    return usage;
+}
+
 } // namespace anomaly
 } // namespace telemetry

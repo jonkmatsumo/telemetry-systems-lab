@@ -29,6 +29,11 @@ public:
     double GetThreshold() const { return threshold_; }
     bool IsLoaded() const { return loaded_; }
 
+    /**
+     * @brief Estimates the memory footprint of the model in bytes.
+     */
+    size_t EstimateMemoryUsage() const;
+
 private:
     bool loaded_ = false;
     
