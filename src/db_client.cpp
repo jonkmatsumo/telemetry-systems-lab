@@ -26,13 +26,17 @@ void DbClient::PrepareStatements(pqxx::connection& C) {
               "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)");
     
     C.prepare("update_generation_run",
-              "UPDATE generation_runs SET status = $1, inserted_rows = $2 WHERE run_id = $3");
+              "UPDATE generation_runs SET status = $1, inserted_rows = $2, updated_at = NOW() WHERE run_id = $3");
               
     C.prepare("update_generation_run_error",
-              "UPDATE generation_runs SET status = $1, inserted_rows = $2, error = $3 WHERE run_id = $4");
+              "UPDATE generation_runs SET status = $1, inserted_rows = $2, error = $3, updated_at = NOW() WHERE run_id = $4");
               
     C.prepare("get_run_status",
               "SELECT status, inserted_rows, error, request_id FROM generation_runs WHERE run_id = $1");
+
+    C.prepare("heartbeat_generation", "UPDATE generation_runs SET updated_at = NOW() WHERE run_id = $1");
+    C.prepare("heartbeat_model_run", "UPDATE model_runs SET updated_at = NOW() WHERE model_run_id = $1");
+    C.prepare("heartbeat_score_job", "UPDATE dataset_score_jobs SET updated_at = NOW() WHERE job_id = $1");
 
     C.prepare("insert_alert",
               "INSERT INTO alerts (host_id, run_id, timestamp, severity, detector_source, score, details) "
@@ -47,13 +51,13 @@ void DbClient::PrepareStatements(pqxx::connection& C) {
               "VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7) RETURNING model_run_id");
 
     C.prepare("update_model_run_completed",
-              "UPDATE model_runs SET status=$1, artifact_path=$2, completed_at=NOW() WHERE model_run_id=$3");
+              "UPDATE model_runs SET status=$1, artifact_path=$2, completed_at=NOW(), updated_at=NOW() WHERE model_run_id=$3");
 
     C.prepare("update_model_run_failed",
-              "UPDATE model_runs SET status=$1, error=$2, error_summary=$3, completed_at=NOW() WHERE model_run_id=$4");
+              "UPDATE model_runs SET status=$1, error=$2, error_summary=$3, completed_at=NOW(), updated_at=NOW() WHERE model_run_id=$4");
 
     C.prepare("update_model_run_status",
-              "UPDATE model_runs SET status=$1 WHERE model_run_id=$2");
+              "UPDATE model_runs SET status=$1, updated_at=NOW() WHERE model_run_id=$2");
 
     C.prepare("get_model_run",
               "SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id, training_config, "
@@ -219,19 +223,24 @@ bool DbClient::IsValidAggregation(const std::string& agg) {
     return kAllowedAggs.count(agg) > 0;
 }
 
-void DbClient::ReconcileStaleJobs() {
+void DbClient::ReconcileStaleJobs(std::optional<std::chrono::seconds> stale_ttl) {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
-        // Use exec() instead of exec0() to avoid potential issues if libpqxx version varies, though exec0 is standard.
-        // Actually exec0 returns void, exec returns result.
-        W.exec("UPDATE dataset_score_jobs SET status='FAILED', error='System restart/recovery' WHERE status='RUNNING'");
-        W.exec("UPDATE model_runs SET status='FAILED', error='System restart/recovery' WHERE status='RUNNING'");
-        W.exec("UPDATE generation_runs SET status='FAILED', error='System restart/recovery' WHERE status='RUNNING'");
+        std::string condition = "status IN ('RUNNING', 'PENDING')";
+        if (stale_ttl.has_value()) {
+            condition += " AND updated_at < NOW() - INTERVAL '" + std::to_string(stale_ttl->count()) + " seconds'";
+        }
+
+        std::string error_msg = stale_ttl.has_value() ? "Stale job detected (heartbeat timeout)" : "System restart/recovery";
+
+        W.exec("UPDATE dataset_score_jobs SET status='FAILED', error=" + W.quote(error_msg) + ", updated_at=NOW() WHERE " + condition);
+        W.exec("UPDATE model_runs SET status='FAILED', error=" + W.quote(error_msg) + ", updated_at=NOW() WHERE " + condition);
+        W.exec("UPDATE generation_runs SET status='FAILED', error=" + W.quote(error_msg) + ", updated_at=NOW() WHERE " + condition);
         
         W.commit();
-        spdlog::info("Reconciled stale RUNNING jobs to FAILED.");
+        spdlog::info("Reconciled stale jobs (TTL={}).", stale_ttl.has_value() ? std::to_string(stale_ttl->count()) + "s" : "all");
     } catch (const std::exception& e) {
         spdlog::error("Failed to reconcile stale jobs: {}", e.what());
     }
@@ -394,6 +403,23 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
     } catch (const std::exception& e) {
         spdlog::error("Batch insert failed: {}", e.what());
         throw;
+    }
+}
+
+void DbClient::Heartbeat(JobType type, const std::string& job_id) {
+    try {
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
+        pqxx::work W(C);
+        std::string stmt;
+        switch (type) {
+            case JobType::Generation: stmt = "heartbeat_generation"; break;
+            case JobType::ModelRun: stmt = "heartbeat_model_run"; break;
+            case JobType::ScoreJob: stmt = "heartbeat_score_job"; break;
+        }
+        W.exec(pqxx::prepped{stmt}, pqxx::params{job_id});
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to send heartbeat for job {}: {}", job_id, e.what());
     }
 }
 

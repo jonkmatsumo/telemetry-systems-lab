@@ -13,7 +13,11 @@ public:
 
     virtual std::shared_ptr<DbConnectionManager> GetConnectionManager() = 0;
 
-    virtual void ReconcileStaleJobs() = 0;
+    // Marks any 'RUNNING' or 'PENDING' jobs as 'FAILED' if they are stale.
+    // If stale_ttl is provided, only jobs not updated within that time are reconciled.
+    // If nullopt, all non-terminal jobs are reconciled (useful on startup).
+    virtual void ReconcileStaleJobs(std::optional<std::chrono::seconds> stale_ttl = std::nullopt) = 0;
+    
     virtual void EnsurePartition(std::chrono::system_clock::time_point tp) = 0;
 
     virtual void CreateRun(const std::string& run_id, 
@@ -27,6 +31,13 @@ public:
                                  const std::string& error = "") = 0;
 
     virtual void BatchInsertTelemetry(const std::vector<TelemetryRecord>& records) = 0;
+
+    enum class JobType {
+        Generation,
+        ModelRun,
+        ScoreJob
+    };
+    virtual void Heartbeat(JobType type, const std::string& job_id) = 0;
 
     virtual telemetry::RunStatus GetRunStatus(const std::string& run_id) = 0;
 

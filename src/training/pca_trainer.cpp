@@ -209,7 +209,8 @@ PcaArtifact TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,
-                                  size_t batch_size) {
+                                  size_t batch_size,
+                                  std::function<void()> heartbeat) {
     auto start = std::chrono::steady_clock::now();
     TelemetryBatchIterator iter(manager, dataset_id, batch_size);
 
@@ -221,6 +222,7 @@ PcaArtifact TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
             batch_count++;
             if (batch_count % 10 == 0) {
                 spdlog::debug("Processed {} batches ({} rows)", batch_count, iter.TotalRowsProcessed());
+                if (heartbeat) heartbeat();
             }
             for (const auto& v : batch) {
                 cb(v);
@@ -240,7 +242,8 @@ PcaArtifact TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
 PcaArtifact TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
                            const std::string& dataset_id,
                            int n_components,
-                           double percentile) {
+                           double percentile,
+                           std::function<void()> heartbeat) {
     size_t batch_size = 10000;
     const char* env_batch_size = std::getenv("PCA_TRAIN_BATCH_SIZE");
     if (env_batch_size) {
@@ -255,7 +258,7 @@ PcaArtifact TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
     spdlog::info("Starting PCA training: dataset_id={}, n_components={}, batch_size={}", 
                  dataset_id, n_components, batch_size);
     
-    return TrainPcaFromDbBatched(std::move(manager), dataset_id, n_components, percentile, batch_size);
+    return TrainPcaFromDbBatched(std::move(manager), dataset_id, n_components, percentile, batch_size, std::move(heartbeat));
 }
 
 PcaArtifact TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,

@@ -25,8 +25,8 @@ public:
     // Prepares named statements for a connection.
     static void PrepareStatements(pqxx::connection& C);
 
-    // Marks any 'RUNNING' jobs as 'FAILED' (called on startup).
-    void ReconcileStaleJobs() override;
+    // Marks any 'RUNNING' or 'PENDING' jobs as 'FAILED' if they are stale.
+    void ReconcileStaleJobs(std::optional<std::chrono::seconds> stale_ttl = std::nullopt) override;
 
     std::shared_ptr<DbConnectionManager> GetConnectionManager() override {
         return manager_;
@@ -51,6 +51,8 @@ public:
                          const std::string& error = "") override;
 
     void BatchInsertTelemetry(const std::vector<TelemetryRecord>& records) override;
+    
+    void Heartbeat(JobType type, const std::string& job_id) override;
     
     telemetry::RunStatus GetRunStatus(const std::string& run_id) override;
 

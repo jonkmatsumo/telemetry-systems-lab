@@ -72,13 +72,15 @@ struct PcaArtifact {
 PcaArtifact TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
                            const std::string& dataset_id,
                            int n_components,
-                           double percentile);
+                           double percentile,
+                           std::function<void()> heartbeat = nullptr);
 
 PcaArtifact TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,
-                                  size_t batch_size);
+                                  size_t batch_size,
+                                  std::function<void()> heartbeat = nullptr);
 
 PcaArtifact TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
                                 int n_components,

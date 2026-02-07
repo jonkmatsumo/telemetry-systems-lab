@@ -143,15 +143,15 @@ void ApiServer::Initialize() {
     auto channel = grpc::CreateChannel(grpc_target_, grpc::InsecureChannelCredentials());
     stub_ = telemetry::TelemetryService::NewStub(channel);
 
-    db_client_->ReconcileStaleJobs();
-    
-    // Ensure partitions for current and next month
-    auto now = std::chrono::system_clock::now();
-    db_client_->EnsurePartition(now);
-    db_client_->EnsurePartition(now + std::chrono::hours(24 * 31));
-
     // Initialize JobManager
     job_manager_ = std::make_unique<JobManager>();
+
+    // Initialize JobReconciler
+    job_reconciler_ = std::make_unique<JobReconciler>(db_client_);
+    job_reconciler_->ReconcileStartup();
+    job_reconciler_->Start(std::chrono::minutes(1));
+    
+    // Ensure partitions for current and next month
 
     // Initialize Model Cache (defaults: 100 entries, 1 hour TTL)
     size_t cache_size = 100;
@@ -484,7 +484,9 @@ void ApiServer::Initialize() {
     });
 }
 
-ApiServer::~ApiServer() {}
+ApiServer::~ApiServer() {
+    Stop();
+}
 
 void ApiServer::Start(const std::string& host, int port) {
     ValidateRoutes();
@@ -493,6 +495,9 @@ void ApiServer::Start(const std::string& host, int port) {
 }
 
 void ApiServer::Stop() {
+    if (job_reconciler_) {
+        job_reconciler_->Stop();
+    }
     svr_.stop();
 }
 
@@ -1069,6 +1074,7 @@ void ApiServer::OrchestrateTuning(TuningTask task) {
             }
 
             // Wait and check for trial completions
+            db_client_->Heartbeat(IDbClient::JobType::ModelRun, task.parent_run_id);
             std::this_thread::sleep_for(std::chrono::seconds(2));
             
             auto it = active_trials.begin();
@@ -1118,7 +1124,9 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
 
                                     std::filesystem::create_directories(output_dir);
 
-                                    auto artifact = telemetry::training::TrainPcaFromDb(db_manager_, dataset_id, n_components, percentile);
+                                    auto artifact = telemetry::training::TrainPcaFromDb(db_manager_, dataset_id, n_components, percentile, [this, model_run_id]() {
+                                        db_client_->Heartbeat(IDbClient::JobType::ModelRun, model_run_id);
+                                    });
 
                                     
 
