@@ -17,9 +17,12 @@ class PcaModelCache {
 public:
     /**
      * @param max_entries Maximum number of models to keep in memory.
+     * @param max_bytes Maximum total memory footprint in bytes.
      * @param ttl_seconds Time-to-live for cache entries (fallback invalidation).
      */
-    explicit PcaModelCache(size_t max_entries = 100, int ttl_seconds = 3600);
+    explicit PcaModelCache(size_t max_entries = 100, 
+                           size_t max_bytes = 512 * 1024 * 1024, // 512MB default
+                           int ttl_seconds = 3600);
 
     /**
      * @brief Gets a model from cache or loads it from artifact_path if missing.
@@ -39,6 +42,8 @@ public:
 
     struct CacheStats {
         size_t size;
+        size_t bytes_used;
+        size_t max_bytes;
         long long hits;
         long long misses;
         long long evictions;
@@ -50,11 +55,15 @@ private:
         std::shared_ptr<PcaModel> model;
         std::chrono::steady_clock::time_point last_access;
         std::string artifact_path;
+        size_t memory_usage = 0;
     };
 
     void EvictLru();
+    void EnsureCapacity(size_t additional_bytes);
 
     size_t max_entries_;
+    size_t max_bytes_;
+    size_t current_bytes_ = 0;
     std::chrono::seconds ttl_;
     mutable std::mutex mutex_;
     std::unordered_map<std::string, CacheEntry> cache_;

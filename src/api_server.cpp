@@ -166,7 +166,13 @@ void ApiServer::Initialize() {
         try { cache_ttl = std::stoi(env_cache_ttl); } catch (...) {}
     }
 
-    model_cache_ = std::make_unique<telemetry::anomaly::PcaModelCache>(cache_size, cache_ttl);
+    size_t cache_max_bytes = 512 * 1024 * 1024; // 512MB default
+    const char* env_cache_bytes = std::getenv("MODEL_CACHE_MAX_BYTES");
+    if (env_cache_bytes) {
+        try { cache_max_bytes = std::stoul(env_cache_bytes); } catch (...) {}
+    }
+
+    model_cache_ = std::make_unique<telemetry::anomaly::PcaModelCache>(cache_size, cache_max_bytes, cache_ttl);
 
     // Configure HTTP Server Limits
     svr_.set_payload_max_length(1024 * 1024 * 50); // 50MB
