@@ -30,7 +30,7 @@ TEST(PcaModelCacheTest, HitMissLogic) {
     std::string path = "tmp/test_cache_model.json";
     CreateDummyModel(path);
 
-    PcaModelCache cache(2, 60);
+    PcaModelCache cache(2, 1024 * 1024, 60);
     EXPECT_EQ(cache.GetStats().misses, 0);
     EXPECT_EQ(cache.GetStats().hits, 0);
 
@@ -58,7 +58,7 @@ TEST(PcaModelCacheTest, EvictionLogic) {
     std::string path = "tmp/test_cache_model_evict.json";
     CreateDummyModel(path);
 
-    PcaModelCache cache(2, 60); // Max 2 entries
+    PcaModelCache cache(2, 1024 * 1024, 60); // Max 2 entries
 
     cache.GetOrCreate("m1", path);
     cache.GetOrCreate("m2", path);
@@ -78,11 +78,35 @@ TEST(PcaModelCacheTest, EvictionLogic) {
     std::filesystem::remove_all("tmp");
 }
 
+TEST(PcaModelCacheTest, ByteLimitEviction) {
+    std::string path = "tmp/test_cache_model_bytes.json";
+    CreateDummyModel(path);
+
+    // Get size of one model
+    PcaModel temp;
+    temp.Load(path);
+    size_t model_size = temp.EstimateMemoryUsage();
+
+    // Set cache limit to just enough for 1 model
+    PcaModelCache cache(10, model_size + 10, 60);
+
+    cache.GetOrCreate("m1", path);
+    EXPECT_EQ(cache.GetStats().size, 1);
+    EXPECT_GT(cache.GetStats().bytes_used, 0);
+
+    // Add m2, should evict m1
+    cache.GetOrCreate("m2", path);
+    EXPECT_EQ(cache.GetStats().size, 1);
+    EXPECT_EQ(cache.GetStats().evictions, 1);
+
+    std::filesystem::remove_all("tmp");
+}
+
 TEST(PcaModelCacheTest, InvalidationAndTtl) {
     std::string path = "tmp/test_cache_model_ttl.json";
     CreateDummyModel(path);
 
-    PcaModelCache cache(10, 0); // 0 TTL means everything expires immediately
+    PcaModelCache cache(10, 1024 * 1024, 0); // 0 TTL means everything expires immediately
 
     cache.GetOrCreate("m1", path);
     // Next access should be a miss due to 0 TTL
@@ -90,7 +114,7 @@ TEST(PcaModelCacheTest, InvalidationAndTtl) {
     EXPECT_EQ(cache.GetStats().misses, 2);
 
     // Explicit invalidation
-    PcaModelCache cache2(10, 60);
+    PcaModelCache cache2(10, 1024 * 1024, 60);
     cache2.GetOrCreate("m1", path);
     cache2.Invalidate("m1");
     cache2.GetOrCreate("m1", path);
