@@ -245,6 +245,7 @@ add_executable(unit_tests
     tests/unit/test_db_client_security.cpp
     tests/unit/test_job_manager.cpp
     tests/unit/test_obs_metrics.cpp
+    tests/unit/test_obs_context.cpp
     tests/unit/test_hardening_scaffolding.cpp
     tests/unit/test_api_scoring.cpp
     tests/unit/test_time_parsing.cpp
