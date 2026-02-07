@@ -22,15 +22,10 @@ bool TelemetryBatchIterator::NextBatch(std::vector<linalg::Vector>& out_batch) {
 
         // Using keyset pagination: ORDER BY record_id LIMIT N
         // We filter by run_id (dataset_id) and record_id > last_record_id_
-        pqxx::result res = R.exec_params(
-            "SELECT record_id, cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate "
-            "FROM host_telemetry_archival "
-            "WHERE run_id = $1 AND record_id > $2 "
-            "ORDER BY record_id "
-            "LIMIT $3",
-            dataset_id_,
+        pqxx::result res = R.exec(pqxx::prepped{"get_telemetry_batch"},
+            pqxx::params{dataset_id_,
             last_record_id_,
-            batch_size_
+            batch_size_}
         );
 
         if (res.empty()) {

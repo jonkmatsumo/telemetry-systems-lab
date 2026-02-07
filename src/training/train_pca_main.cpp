@@ -54,9 +54,9 @@ int main(int argc, char** argv) {
         {
             pqxx::connection conn(db_conn_str);
             pqxx::work txn(conn);
-            auto res = txn.exec_params(
+            auto res = txn.exec(
                 "SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1 AND is_anomaly = false",
-                dataset_id
+                pqxx::params{dataset_id}
             );
             if (!res.empty()) {
                 row_count = res[0][0].as<size_t>();
