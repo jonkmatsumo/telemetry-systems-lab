@@ -6,7 +6,12 @@
 #include <chrono>
 
 TEST(ServerTest, GenerateTelemetryReturnsUUID) {
-    auto factory = []() { return std::make_shared<MockDbClient>(); };
+    auto mock_db = std::make_shared<MockDbClient>();
+    EXPECT_CALL(*mock_db, CreateRun(testing::_, testing::_, testing::_, testing::_)).Times(testing::AtLeast(0));
+    EXPECT_CALL(*mock_db, UpdateRunStatus(testing::_, testing::_, testing::_, testing::_)).Times(testing::AtLeast(0));
+    EXPECT_CALL(*mock_db, Heartbeat(testing::_, testing::_)).Times(testing::AtLeast(0));
+
+    auto factory = [mock_db]() { return mock_db; };
     TelemetryServiceImpl service(factory);
     
     telemetry::GenerateRequest req;
@@ -23,7 +28,15 @@ TEST(ServerTest, GenerateTelemetryReturnsUUID) {
 }
 
 TEST(ServerTest, GetRunReturnsStatus) {
-    auto factory = []() { return std::make_shared<MockDbClient>(); };
+    auto mock_db = std::make_shared<MockDbClient>();
+    telemetry::RunStatus status_resp;
+    status_resp.set_run_id("test-id");
+    status_resp.set_status("RUNNING");
+    
+    EXPECT_CALL(*mock_db, GetRunStatus("test-id"))
+        .WillOnce(testing::Return(status_resp));
+
+    auto factory = [mock_db]() { return mock_db; };
     TelemetryServiceImpl service(factory);
     
     telemetry::GetRunRequest req;

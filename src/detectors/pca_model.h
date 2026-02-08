@@ -5,8 +5,7 @@
 #include "linalg/matrix.h"
 #include "../contract.h"
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 struct PcaScore {
     bool is_anomaly = false;
@@ -23,11 +22,16 @@ public:
     void Load(const std::string& artifact_path);
 
     // Score a vector
-    PcaScore Score(const FeatureVector& vec) const;
+    [[nodiscard]] auto Score(const FeatureVector& vec) const -> PcaScore;
 
     // Accessors for testing
-    double GetThreshold() const { return threshold_; }
-    bool IsLoaded() const { return loaded_; }
+    [[nodiscard]] auto GetThreshold() const -> double { return threshold_; }
+    [[nodiscard]] auto IsLoaded() const -> bool { return loaded_; }
+
+    /**
+     * @brief Estimates the memory footprint of the model in bytes.
+     */
+    [[nodiscard]] auto EstimateMemoryUsage() const -> size_t;
 
 private:
     bool loaded_ = false;
@@ -45,5 +49,4 @@ private:
     double threshold_ = 0.0;
 };
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly

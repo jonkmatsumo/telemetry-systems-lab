@@ -1,13 +1,16 @@
 #include "db_connection_manager.h"
 #include <spdlog/spdlog.h>
+#include "obs/metrics.h"
 
-PooledDbConnectionManager::PooledDbConnectionManager(const std::string& conn_str, 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+PooledDbConnectionManager::PooledDbConnectionManager(std::string conn_str, 
                                                      size_t pool_size, 
-                                                     std::chrono::milliseconds acquire_timeout)
-    : conn_str_(conn_str), 
+                                                     std::chrono::milliseconds acquire_timeout,
+                                                     ConnectionInitializer initializer)
+    : conn_str_(std::move(conn_str)), 
       pool_size_(pool_size), 
-      acquire_timeout_(acquire_timeout) {
-    
+      acquire_timeout_(acquire_timeout),
+      initializer_(std::move(initializer)) {    
     spdlog::info("Initializing DB connection pool with size {}", pool_size_);
 }
 
@@ -19,7 +22,7 @@ PooledDbConnectionManager::~PooledDbConnectionManager() {
     }
 }
 
-DbConnectionPtr PooledDbConnectionManager::GetConnection() {
+auto PooledDbConnectionManager::GetConnection() -> DbConnectionPtr {
     std::unique_lock<std::mutex> lock(mutex_);
     
     auto start = std::chrono::steady_clock::now();
@@ -29,6 +32,7 @@ DbConnectionPtr PooledDbConnectionManager::GetConnection() {
         return !pool_.empty() || in_use_count_ < pool_size_ || shutdown_;
     })) {
         total_timeouts_++;
+        telemetry::obs::EmitCounter("db_pool_timeouts_total", 1, "timeouts", "db_pool");
         spdlog::error("Timeout acquiring DB connection after {}ms. Pool size: {}, In-use: {}", 
                      acquire_timeout_.count(), pool_size_, in_use_count_);
         throw std::runtime_error("DB connection acquisition timeout");
@@ -46,6 +50,9 @@ DbConnectionPtr PooledDbConnectionManager::GetConnection() {
         // Create new connection if pool is not full
         try {
             conn = std::make_unique<pqxx::connection>(conn_str_);
+            if (initializer_) {
+                initializer_(*conn);
+            }
         } catch (const std::exception& e) {
             spdlog::error("Failed to create new DB connection: {}", e.what());
             // If we fail here, we don't increment in_use_count_
@@ -59,18 +66,24 @@ DbConnectionPtr PooledDbConnectionManager::GetConnection() {
     
     auto end = std::chrono::steady_clock::now();
     auto wait_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    total_wait_ms_ += wait_ms;
     
+    telemetry::obs::EmitGauge("db_pool_size", static_cast<double>(pool_size_), "connections", "db_pool");
+    telemetry::obs::EmitGauge("db_pool_in_use", static_cast<double>(in_use_count_), "connections", "db_pool");
+    telemetry::obs::EmitHistogram("db_pool_wait_time_ms", wait_ms, "ms", "db_pool");
+
     if (wait_ms > 100.0) {
-        spdlog::warn("DB connection acquisition took {}ms", wait_ms);
+        spdlog::warn("DB connection acquisition took {}ms. Stats: Size={}, InUse={}, Available={}", 
+                     wait_ms, pool_size_, in_use_count_, pool_.size());
     }
 
     // Return with custom deleter that returns to pool
-    return DbConnectionPtr(conn.release(), [this](pqxx::connection* c) {
+    return {conn.release(), [this](pqxx::connection* c) {
         this->ReleaseConnection(c);
-    });
+    }};
 }
 
-void PooledDbConnectionManager::ReleaseConnection(pqxx::connection* conn) {
+auto PooledDbConnectionManager::ReleaseConnection(pqxx::connection* conn) -> void {
     std::unique_lock<std::mutex> lock(mutex_);
     in_use_count_--;
 
@@ -86,13 +99,14 @@ void PooledDbConnectionManager::ReleaseConnection(pqxx::connection* conn) {
     cv_.notify_one();
 }
 
-PooledDbConnectionManager::PoolStats PooledDbConnectionManager::GetStats() const {
+auto PooledDbConnectionManager::GetStats() const -> PoolStats {
     std::unique_lock<std::mutex> lock(mutex_);
     return {
         pool_size_,
         in_use_count_,
         pool_.size(),
         total_acquires_,
-        total_timeouts_
+        total_timeouts_,
+        total_wait_ms_
     };
 }

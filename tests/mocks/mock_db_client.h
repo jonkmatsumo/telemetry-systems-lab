@@ -1,5 +1,6 @@
 #pragma once
 #include "idb_client.h"
+#include <gmock/gmock.h>
 #include <vector>
 #include <string>
 #include <mutex>
@@ -11,39 +12,16 @@ public:
         return std::make_shared<SimpleDbConnectionManager>("dummy");
     }
 
-    void ReconcileStaleJobs() override {}
-    void EnsurePartition(std::chrono::system_clock::time_point /*tp*/) override {}
+    MOCK_METHOD(void, ReconcileStaleJobs, (std::optional<std::chrono::seconds> stale_ttl), (override));
+    MOCK_METHOD(void, EnsurePartition, (std::chrono::system_clock::time_point tp), (override));
+    MOCK_METHOD(void, CreateRun, (const std::string& run_id, const telemetry::GenerateRequest& config, const std::string& status, const std::string& request_id), (override));
+    MOCK_METHOD(void, UpdateRunStatus, (const std::string& run_id, const std::string& status, long inserted_rows, const std::string& error), (override));
+    MOCK_METHOD(void, BatchInsertTelemetry, (const std::vector<TelemetryRecord>& records), (override));
+    MOCK_METHOD(void, Heartbeat, (JobType type, const std::string& job_id), (override));
+    MOCK_METHOD(telemetry::RunStatus, GetRunStatus, (const std::string& run_id), (override));
 
-    void CreateRun(const std::string& /*run_id*/, 
-                   const telemetry::GenerateRequest& /*config*/, 
-                   const std::string& /*status*/,
-                   const std::string& /*request_id*/ = "") override {
-        // No-op or record call
-    }
-                   
-    void UpdateRunStatus(const std::string& /*run_id*/, 
-                         const std::string& /*status*/, 
-                         long /*inserted_rows*/,
-                         const std::string& /*error*/ = "") override {
-        // No-op
-    }
-
-    void BatchInsertTelemetry(const std::vector<TelemetryRecord>& records) override {
-        // No-op or capture records for verification
-        last_batch_size = records.size();
-        if (!records.empty()) {
-            last_record = records.back();
-        }
-    }
-
-    telemetry::RunStatus GetRunStatus(const std::string& run_id) override {
-        telemetry::RunStatus status;
-        status.set_run_id(run_id);
-        status.set_status("RUNNING"); // Match previous dummy behavior for tests
-        status.set_inserted_rows(12345);
-        return status;
-    }
-
+    // Keep some manual implementations if needed for other tests, or convert all.
+    
     std::string CreateModelRun(const std::string& /*dataset_id*/, 
                                const std::string& /*name*/,
                                const nlohmann::json& /*training_config*/ = {},

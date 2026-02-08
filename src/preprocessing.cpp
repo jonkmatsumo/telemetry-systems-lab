@@ -1,7 +1,6 @@
 #include "preprocessing.h"
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 void Preprocessor::Apply(FeatureVector& vec) const {
     // 1. Clamp all values to be non-negative (sanity check)
@@ -24,5 +23,4 @@ void Preprocessor::Apply(FeatureVector& vec) const {
     }
 }
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly

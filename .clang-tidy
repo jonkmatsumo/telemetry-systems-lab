@@ -1,0 +1,9 @@
+---
+Checks: 'modernize-*,bugprone-*,readability-braces-around-statements,readability-redundant-smartptr-get,performance-*'
+WarningsAsErrors: 'bugprone-*,performance-*'
+HeaderFilterRegex: 'src/.*'
+AnalyzeTemporaryDtors: false
+CheckOptions:
+  - key:             modernize-use-trailing-return-type.IgnoreMacros
+    value:           '1'
+...

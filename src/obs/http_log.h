@@ -8,52 +8,66 @@
 
 #include "obs/logging.h"
 
-namespace telemetry {
-namespace obs {
+namespace telemetry::obs {
+
+struct HttpRequestLogArgs {
+    const httplib::Request& req;
+    httplib::Response& res;
+    std::string component;
+    std::string request_id;
+    nlohmann::json fields = nlohmann::json::object();
+};
+
+struct HttpErrorArgs {
+    std::string error_code;
+    std::string message;
+    int status_code;
+};
 
 class HttpRequestLogScope {
 public:
-    HttpRequestLogScope(const httplib::Request& req,
-                        httplib::Response& res,
-                        const std::string& component,
-                        const std::string& request_id,
-                        nlohmann::json fields = nlohmann::json::object())
-        : res_(&res),
-          component_(component),
-          request_id_(request_id),
-          start_(std::chrono::steady_clock::now()) {
-        fields_["route"] = req.path;
-        fields_["method"] = req.method;
-        if (!request_id.empty()) {
-            fields_["request_id"] = request_id;
+    explicit HttpRequestLogScope(const HttpRequestLogArgs& args)
+        : res_(&args.res),
+          component_(args.component),
+          request_id_(args.request_id),
+          start_(std::chrono::steady_clock::now()),
+          ctx_scope_([rid = args.request_id]() {
+              Context c;
+              c.request_id = rid;
+              return c;
+          }()) {
+        fields_["route"] = args.req.path;
+        fields_["method"] = args.req.method;
+        if (!args.request_id.empty()) {
+            fields_["request_id"] = args.request_id;
         }
-        for (auto it = fields.begin(); it != fields.end(); ++it) {
+        for (auto it = args.fields.begin(); it != args.fields.end(); ++it) {
             fields_[it.key()] = it.value();
         }
         LogEvent(LogLevel::Info, "http_request_start", component_, fields_);
     }
 
-    void AddFields(const nlohmann::json& extra) {
+    auto AddFields(const nlohmann::json& extra) -> void {
         for (auto it = extra.begin(); it != extra.end(); ++it) {
             fields_[it.key()] = it.value();
         }
     }
 
-    void RecordError(const std::string& error_code, const std::string& message, int status_code) {
-        if (error_logged_) return;
+    auto RecordError(const HttpErrorArgs& args) -> void {
+        if (error_logged_) { return; }
         auto duration_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - start_).count();
         nlohmann::json payload = fields_;
-        payload["status_code"] = status_code;
+        payload["status_code"] = args.status_code;
         payload["duration_ms"] = duration_ms;
-        payload["error_code"] = error_code;
-        payload["error"] = message;
+        payload["error_code"] = args.error_code;
+        payload["error"] = args.message;
         LogEvent(LogLevel::Error, "http_request_error", component_, payload);
         error_logged_ = true;
     }
 
     ~HttpRequestLogScope() {
-        if (error_logged_) return;
+        if (error_logged_) { return; }
         auto duration_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - start_).count();
         nlohmann::json payload = fields_;
@@ -71,7 +85,7 @@ private:
     nlohmann::json fields_ = nlohmann::json::object();
     std::chrono::steady_clock::time_point start_;
     bool error_logged_ = false;
+    ScopedContext ctx_scope_;
 };
 
-} // namespace obs
-} // namespace telemetry
+} // namespace telemetry::obs

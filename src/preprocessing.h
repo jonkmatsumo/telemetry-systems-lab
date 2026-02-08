@@ -4,8 +4,7 @@
 #include <cmath>
 #include <algorithm>
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 struct PreprocessingConfig {
     bool log1p_network = false;
@@ -23,5 +22,4 @@ private:
     PreprocessingConfig config_;
 };
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly

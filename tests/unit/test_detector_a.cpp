@@ -44,7 +44,7 @@ TEST_F(DetectorATest, FlagsAnomalyOnHighZ) {
     v.data.fill(10.0);
 
     // Warmup
-    for (int i=0; i<8; ++i) detector.Update(v);
+    for (int i=0; i<8; ++i) { detector.Update(v); }
 
     // Inject variance so MAD isn't 0
     v.cpu_usage() = 11.0;

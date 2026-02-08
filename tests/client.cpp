@@ -16,10 +16,10 @@ using telemetry::RunStatus;
 
 class TelemetryClient {
 public:
-    TelemetryClient(std::shared_ptr<Channel> channel)
-        : stub_(TelemetryService::NewStub(channel)) {}
+    explicit TelemetryClient(std::shared_ptr<Channel> channel)
+        : stub_(TelemetryService::NewStub(std::move(channel))) {}
 
-    std::string Generate(const std::string& tier, int host_count) {
+    auto Generate(const std::string& tier, int host_count) -> std::string {
         GenerateRequest request;
         request.set_tier(tier);
         request.set_host_count(host_count);
@@ -41,7 +41,7 @@ public:
         }
     }
     
-    void GetRun(const std::string& id) {
+    auto GetRun(const std::string& id) -> void {
         GetRunRequest request;
         request.set_run_id(id);
         RunStatus response;
@@ -56,12 +56,12 @@ private:
     std::unique_ptr<TelemetryService::Stub> stub_;
 };
 
-int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
+auto main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) -> int {
     TelemetryClient client(grpc::CreateChannel("localhost:52051", grpc::InsecureChannelCredentials()));
-    std::string run_id = client.Generate("TEST", 5);
+    auto run_id = client.Generate("TEST", 5);
     std::cout << "Started Run ID: " << run_id << std::endl;
     
-    if (run_id.empty()) return 1;
+    if (run_id.empty()) { return 1; }
     
     // Poll for a bit
     for(int i=0; i<5; ++i) {

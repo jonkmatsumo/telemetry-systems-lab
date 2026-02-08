@@ -6,6 +6,16 @@
 
 namespace {
 
+TEST(DbConnectionPoolTest, InitialStats) {
+    PooledDbConnectionManager pool("host=dummy", 5, std::chrono::seconds(1));
+    auto stats = pool.GetStats();
+    EXPECT_EQ(stats.size, 5);
+    EXPECT_EQ(stats.in_use, 0);
+    EXPECT_EQ(stats.total_acquires, 0);
+    EXPECT_EQ(stats.total_timeouts, 0);
+    EXPECT_EQ(stats.total_wait_ms, 0.0);
+}
+
 TEST(DbConnectionPoolTest, EnforcesMaxSize) {
     // Using a non-existent connection to test pool state management
     std::string conn_str = "host=invalid_host_for_testing";
@@ -85,6 +95,7 @@ TEST(DbConnectionPoolTest, ConcurrentStress) {
         };
         
         std::vector<std::thread> threads;
+        threads.reserve(10);
         for (int i = 0; i < 10; ++i) {
             threads.emplace_back(worker, i);
         }

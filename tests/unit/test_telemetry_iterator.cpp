@@ -1,8 +1,7 @@
 #include <gtest/gtest.h>
 #include "training/telemetry_iterator.h"
 
-namespace telemetry {
-namespace training {
+namespace telemetry::training {
 
 TEST(TelemetryIteratorTest, InitialState) {
     auto manager = std::make_shared<SimpleDbConnectionManager>("dbname=test");
@@ -24,5 +23,4 @@ TEST(TelemetryIteratorTest, ResetState) {
     EXPECT_EQ(iter.TotalRowsProcessed(), 0);
 }
 
-} // namespace training
-} // namespace telemetry
+} // namespace telemetry::training

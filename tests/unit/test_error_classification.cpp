@@ -8,8 +8,7 @@
 #include <chrono>
 #include <string>
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
 class ApiServerErrorTest : public ::testing::Test {
 protected:
@@ -85,7 +84,10 @@ TEST_F(ApiServerErrorTest, ReturnsInvalidArgument) {
     nlohmann::json body;
     body["model_run_id"] = "test";
     std::vector<nlohmann::json> samples;
-    for(int i=0; i<1001; ++i) samples.push_back({});
+    samples.reserve(1001);
+    for(int i=0; i<1001; ++i) {
+        samples.emplace_back();
+    }
     body["samples"] = samples;
 
     auto res = cli.Post("/inference", body.dump(), "application/json");
@@ -96,5 +98,4 @@ TEST_F(ApiServerErrorTest, ReturnsInvalidArgument) {
     EXPECT_EQ(j["error"]["code"], "E_HTTP_INVALID_ARGUMENT");
 }
 
-} // namespace api
-} // namespace telemetry
+} // namespace telemetry::api

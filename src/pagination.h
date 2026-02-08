@@ -2,15 +2,13 @@
 
 #include <optional>
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
-inline bool HasMore(int limit, int offset, int returned, std::optional<long> total) {
+inline auto HasMore(int limit, int offset, int returned, std::optional<long> total) -> bool { // NOLINT(bugprone-easily-swappable-parameters)
     if (total.has_value()) {
         return offset + returned < total.value();
     }
     return returned >= limit;
 }
 
-}  // namespace api
-}  // namespace telemetry
+}  // namespace telemetry::api

@@ -4,8 +4,7 @@
 #include <vector>
 #include "preprocessing.h"
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 struct WindowConfig {
     int size = 60; // default window size (e.g. 60 samples)
@@ -35,5 +34,4 @@ struct DetectorConfig {
     GatingConfig gating;
 };
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly

@@ -4,10 +4,9 @@
 #include <optional>
 #include <string>
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
-inline bool IsTruncated(int returned, int limit, const std::optional<long>& total_distinct) {
+inline auto IsTruncated(int returned, int limit, const std::optional<long>& total_distinct) -> bool {
     if (returned <= 0 || limit <= 0) {
         return false;
     }
@@ -17,31 +16,34 @@ inline bool IsTruncated(int returned, int limit, const std::optional<long>& tota
     return false;
 }
 
-inline nlohmann::json BuildResponseMeta(int limit,
-                                        int returned,
-                                        bool truncated,
-                                        const std::optional<long>& total_distinct,
-                                        const std::string& reason,
-                                        std::optional<int> bins_requested = std::nullopt,
-                                        std::optional<int> bins_returned = std::nullopt) {
+struct ResponseMetaArgs {
+    int limit;
+    int returned;
+    bool truncated;
+    std::optional<long> total_distinct;
+    std::string reason;
+    std::optional<int> bins_requested = std::nullopt;
+    std::optional<int> bins_returned = std::nullopt;
+};
+
+inline auto BuildResponseMeta(const ResponseMetaArgs& args) -> nlohmann::json {
     nlohmann::json meta;
-    meta["limit"] = limit;
-    meta["returned"] = returned;
-    meta["truncated"] = truncated;
-    if (total_distinct.has_value()) {
-        meta["total_distinct"] = *total_distinct;
+    meta["limit"] = args.limit;
+    meta["returned"] = args.returned;
+    meta["truncated"] = args.truncated;
+    if (args.total_distinct.has_value()) {
+        meta["total_distinct"] = *args.total_distinct;
     } else {
         meta["total_distinct"] = nullptr;
     }
-    meta["reason"] = reason;
-    if (bins_requested.has_value()) {
-        meta["bins_requested"] = *bins_requested;
+    meta["reason"] = args.reason;
+    if (args.bins_requested.has_value()) {
+        meta["bins_requested"] = *args.bins_requested;
     }
-    if (bins_returned.has_value()) {
-        meta["bins_returned"] = *bins_returned;
+    if (args.bins_returned.has_value()) {
+        meta["bins_returned"] = *args.bins_returned;
     }
     return meta;
 }
 
-}  // namespace api
-}  // namespace telemetry
+}  // namespace telemetry::api

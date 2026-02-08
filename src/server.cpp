@@ -1,22 +1,24 @@
 #include "server.h"
 #include "generator.h"
 #include "db_client.h"
+#include "obs/context.h"
 
 #include <uuid/uuid.h>
 #include <thread>
 #include <chrono>
+#include <array>
 
 // Helper to generate UUID string
-std::string GenerateUUID() {
+auto GenerateUUID() -> std::string {
     uuid_t binuuid;
     uuid_generate_random(binuuid);
-    char uuid[37];
-    uuid_unparse_lower(binuuid, uuid);
-    return std::string(uuid);
+    std::array<char, 37> uuid{};
+    uuid_unparse_lower(binuuid, uuid.data());
+    return {uuid.data()};
 }
 
-Status TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* context, const GenerateRequest* request,
-                                              GenerateResponse* response) {
+auto TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* context, const GenerateRequest* request,
+                                              GenerateResponse* response) -> Status {
     std::string run_id = GenerateUUID();
     spdlog::info("Received GenerateTelemetry request. Tier: {}, HostCount: {}, RunID: {}", 
                  request->tier(), request->host_count(), run_id);
@@ -27,7 +29,12 @@ Status TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* c
     auto factory = db_factory_;
     
     try {
-        job_manager_->StartJob("gen-" + run_id, "", [run_id, req_copy, factory](const std::atomic<bool>* stop_flag) {
+        job_manager_->StartJob("gen-" + run_id, req_copy.request_id(), [run_id, req_copy, factory](const std::atomic<bool>* stop_flag) {
+            telemetry::obs::Context ctx;
+            ctx.request_id = req_copy.request_id();
+            ctx.dataset_id = run_id;
+            telemetry::obs::ScopedContext scope(ctx);
+            
             spdlog::info("Background generation for run {} started...", run_id);
             try {
                 auto db = factory();
@@ -41,7 +48,7 @@ Status TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* c
         });
     } catch (const std::exception& e) {
         spdlog::error("Failed to start generation job for run {}: {}", run_id, e.what());
-        return Status(grpc::StatusCode::RESOURCE_EXHAUSTED, e.what());
+        return {grpc::StatusCode::RESOURCE_EXHAUSTED, e.what()};
     }
 
     response->set_run_id(run_id);
@@ -49,8 +56,8 @@ Status TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* c
 }
 
 
-Status TelemetryServiceImpl::GetRun([[maybe_unused]] ServerContext* context, const GetRunRequest* request,
-                                   RunStatus* response) {
+auto TelemetryServiceImpl::GetRun([[maybe_unused]] ServerContext* context, const GetRunRequest* request,
+                                   RunStatus* response) -> Status {
     spdlog::info("Received GetRun request for RunID: {}", request->run_id());
     
     auto db = db_factory_();

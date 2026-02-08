@@ -1,7 +1,6 @@
 #include "route_registry.h"
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
 const std::vector<RouteSpec> kRequiredRoutes = {
     {"POST", "/datasets", "CreateDataset"},
@@ -41,5 +40,4 @@ const std::vector<RouteSpec> kRequiredRoutes = {
     {"DELETE", "/jobs/([a-zA-Z0-9-]+)", "CancelJob"}
 };
 
-} // namespace api
-} // namespace telemetry
+} // namespace telemetry::api

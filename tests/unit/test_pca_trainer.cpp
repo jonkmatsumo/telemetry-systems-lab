@@ -9,7 +9,7 @@ TEST(PcaTrainerTest, TrainsOnSyntheticData) {
     samples.reserve(200);
 
     for (int i = 0; i < 200; ++i) {
-        double base = static_cast<double>(i % 50);
+        auto base = static_cast<double>(i % 50);
         telemetry::linalg::Vector x(5, 0.0);
         x[0] = 40.0 + base;
         x[1] = 0.8 * x[0] + 5.0;
@@ -167,7 +167,7 @@ TEST(HpoContractTest, PreflightCalculatesCorrectly) {
     // Test GRID_CAP (100)
     config.search_space.n_components = {1, 2, 3, 4, 5};
     config.search_space.percentile = {};
-    for (int i = 0; i < 30; ++i) config.search_space.percentile.push_back(90.0 + i * 0.1);
+    for (int i = 0; i < 30; ++i) { config.search_space.percentile.push_back(90.0 + i * 0.1); }
     // 5 * 30 = 150 combinations
     preflight = telemetry::training::PreflightHpoConfig(config);
     EXPECT_EQ(preflight.estimated_candidates, 150);

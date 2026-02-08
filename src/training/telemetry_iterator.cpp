@@ -2,19 +2,23 @@
 #include <pqxx/pqxx>
 #include <spdlog/spdlog.h>
 
-namespace telemetry {
-namespace training {
+// Compatibility macro for libpqxx 6.x vs 7.x
+#if !defined(PQXX_VERSION_MAJOR) || (PQXX_VERSION_MAJOR < 7)
+#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec_prepared(stmt, ##__VA_ARGS__) // NOLINT(clang-diagnostic-gnu-zero-variadic-macro-arguments)
+#else
+#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec(pqxx::prepped{stmt}, pqxx::params{__VA_ARGS__}) // NOLINT(clang-diagnostic-gnu-zero-variadic-macro-arguments)
+#endif
+
+namespace telemetry::training {
 
 TelemetryBatchIterator::TelemetryBatchIterator(std::shared_ptr<DbConnectionManager> manager,
-                                               const std::string& dataset_id,
+                                               std::string dataset_id,
                                                size_t batch_size)
     : manager_(std::move(manager)),
-      dataset_id_(dataset_id),
-      batch_size_(batch_size),
-      last_record_id_(0),
-      total_processed_(0) {}
+      dataset_id_(std::move(dataset_id)),
+      batch_size_(batch_size) {}
 
-bool TelemetryBatchIterator::NextBatch(std::vector<linalg::Vector>& out_batch) {
+auto TelemetryBatchIterator::NextBatch(std::vector<linalg::Vector>& out_batch) -> bool {
     out_batch.clear();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -22,12 +26,7 @@ bool TelemetryBatchIterator::NextBatch(std::vector<linalg::Vector>& out_batch) {
 
         // Using keyset pagination: ORDER BY record_id LIMIT N
         // We filter by run_id (dataset_id) and record_id > last_record_id_
-        pqxx::result res = R.exec_params(
-            "SELECT record_id, cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate "
-            "FROM host_telemetry_archival "
-            "WHERE run_id = $1 AND record_id > $2 "
-            "ORDER BY record_id "
-            "LIMIT $3",
+        pqxx::result res = PQXX_EXEC_PREPPED(R, "get_telemetry_batch",
             dataset_id_,
             last_record_id_,
             batch_size_
@@ -57,14 +56,13 @@ bool TelemetryBatchIterator::NextBatch(std::vector<linalg::Vector>& out_batch) {
     }
 }
 
-void TelemetryBatchIterator::Reset() {
+auto TelemetryBatchIterator::Reset() -> void {
     last_record_id_ = 0;
     total_processed_ = 0;
 }
 
-size_t TelemetryBatchIterator::TotalRowsProcessed() const {
+auto TelemetryBatchIterator::TotalRowsProcessed() const -> size_t {
     return total_processed_;
 }
 
-} // namespace training
-} // namespace telemetry
+} // namespace telemetry::training

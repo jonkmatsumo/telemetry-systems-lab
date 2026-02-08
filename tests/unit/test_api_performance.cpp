@@ -8,8 +8,7 @@
 #include <chrono>
 #include <string>
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
 class ApiServerPerformanceTest : public ::testing::Test {
 protected:
@@ -38,12 +37,12 @@ TEST_F(ApiServerPerformanceTest, ListModelsUsesBulkFetch) {
     class TestMockDb : public MockDbClient {
     public:
         nlohmann::json list_models_result;
-        nlohmann::json ListModelRuns(int /*limit*/,
+        auto ListModelRuns(int /*limit*/,
                                      int /*offset*/,
                                      const std::string& /*status*/ = "",
                                      const std::string& /*dataset_id*/ = "",
                                      const std::string& /*created_from*/ = "",
-                                     const std::string& /*created_to*/ = "") override {
+                                     const std::string& /*created_to*/ = "") -> nlohmann::json override {
             return list_models_result;
         }
     };
@@ -91,5 +90,4 @@ TEST_F(ApiServerPerformanceTest, ListModelsUsesBulkFetch) {
     EXPECT_EQ(item["status"], "COMPLETED");
 }
 
-} // namespace api
-} // namespace telemetry
+} // namespace telemetry::api

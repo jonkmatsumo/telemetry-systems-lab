@@ -3,8 +3,7 @@
 #include <cstddef>
 #include <vector>
 
-namespace telemetry {
-namespace linalg {
+namespace telemetry::linalg {
 
 using Vector = std::vector<double>;
 
@@ -16,8 +15,8 @@ struct Matrix {
     Matrix() = default;
     Matrix(size_t r, size_t c);
 
-    double& operator()(size_t r, size_t c);
-    double operator()(size_t r, size_t c) const;
+    auto operator()(size_t r, size_t c) -> double&;
+    auto operator()(size_t r, size_t c) const -> double;
 };
 
 struct EigenSymResult {
@@ -25,17 +24,16 @@ struct EigenSymResult {
     Matrix eigenvectors; // columns are eigenvectors
 };
 
-Matrix identity(size_t n);
-Matrix transpose(const Matrix& m);
-Matrix matmul(const Matrix& a, const Matrix& b);
-Vector matvec(const Matrix& a, const Vector& x);
+auto identity(size_t n) -> Matrix;
+auto transpose(const Matrix& m) -> Matrix;
+auto matmul(const Matrix& a, const Matrix& b) -> Matrix;
+auto matvec(const Matrix& a, const Vector& x) -> Vector;
 
-double dot(const Vector& a, const Vector& b);
-double l2_norm(const Vector& v);
+auto dot(const Vector& a, const Vector& b) -> double;
+auto l2_norm(const Vector& v) -> double;
 
-std::vector<size_t> argsort_desc(const Vector& v);
+auto argsort_desc(const Vector& v) -> std::vector<size_t>;
 
-EigenSymResult eigen_sym_jacobi(const Matrix& a, int max_iter, double eps);
+auto eigen_sym_jacobi(const Matrix& a, int max_iter, double eps) -> EigenSymResult;
 
-} // namespace linalg
-} // namespace telemetry
+} // namespace telemetry::linalg

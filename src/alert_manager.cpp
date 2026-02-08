@@ -2,17 +2,16 @@
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 using json = nlohmann::json;
 
-std::vector<Alert> AlertManager::Evaluate(const std::string& host_id, 
+auto AlertManager::Evaluate(const std::string& host_id, 
                             const std::string& run_id,
                             std::chrono::system_clock::time_point ts,
                             bool detector_a_flag, double scores_a,
                             bool detector_b_flag, double scores_b,
-                            const std::string& details) 
+                            const std::string& details) -> std::vector<Alert> 
 {
     std::vector<Alert> alerts;
     auto& state = states_[host_id];
@@ -82,5 +81,4 @@ std::vector<Alert> AlertManager::Evaluate(const std::string& host_id,
     return alerts;
 }
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly

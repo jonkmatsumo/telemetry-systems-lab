@@ -11,16 +11,198 @@
 #include <algorithm>
 #include <unordered_set>
 
+// Compatibility macros for libpqxx 6.x vs 7.x
+#if !defined(PQXX_VERSION_MAJOR) || (PQXX_VERSION_MAJOR < 7)
+#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec_prepared(stmt, ##__VA_ARGS__) // NOLINT(clang-diagnostic-gnu-zero-variadic-macro-arguments)
+#define PQXX_EXEC_PARAMS(txn, query, ...) (txn).exec_params(query, ##__VA_ARGS__) // NOLINT(clang-diagnostic-gnu-zero-variadic-macro-arguments)
+#else
+#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec(pqxx::prepped{stmt}, pqxx::params{__VA_ARGS__})
+#define PQXX_EXEC_PARAMS(txn, query, ...) (txn).exec((query), pqxx::params{__VA_ARGS__})
+#endif
 
+#if defined(__clang__)
+  #pragma clang diagnostic push
+  #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+  #pragma GCC diagnostic push
+  #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 DbClient::DbClient(const std::string& connection_string) 
-    : manager_(std::make_shared<SimpleDbConnectionManager>(connection_string)) {}
+    : manager_(std::make_shared<SimpleDbConnectionManager>(connection_string, [](pqxx::connection& C) {
+        DbClient::PrepareStatements(C);
+    })) {}
 
 DbClient::DbClient(std::shared_ptr<DbConnectionManager> manager) 
     : manager_(std::move(manager)) {}
 
+auto DbClient::PrepareStatements(pqxx::connection& C) -> void {
+    C.prepare("insert_generation_run",
+              "INSERT INTO generation_runs (run_id, tier, host_count, start_time, end_time, interval_seconds, seed, status, config, request_id) "
+              "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)");
+    
+    C.prepare("update_generation_run",
+              "UPDATE generation_runs SET status = $1, inserted_rows = $2, updated_at = NOW() WHERE run_id = $3");
+              
+    C.prepare("update_generation_run_error",
+              "UPDATE generation_runs SET status = $1, inserted_rows = $2, error = $3, updated_at = NOW() WHERE run_id = $4");
+              
+    C.prepare("get_run_status",
+              "SELECT status, inserted_rows, error, request_id FROM generation_runs WHERE run_id = $1");
+
+    C.prepare("heartbeat_generation", "UPDATE generation_runs SET updated_at = NOW() WHERE run_id = $1");
+    C.prepare("heartbeat_model_run", "UPDATE model_runs SET updated_at = NOW() WHERE model_run_id = $1");
+    C.prepare("heartbeat_score_job", "UPDATE dataset_score_jobs SET updated_at = NOW() WHERE job_id = $1");
+
+    C.prepare("insert_alert",
+              "INSERT INTO alerts (host_id, run_id, timestamp, severity, detector_source, score, details) "
+              "VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7::jsonb)");
+
+    C.prepare("insert_model_run",
+              "INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, hpo_config, candidate_fingerprint, generator_version, seed_used) "
+              "VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8) RETURNING model_run_id");
+
+    C.prepare("insert_hpo_trial",
+              "INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, parent_run_id, trial_index, trial_params) "
+              "VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7) RETURNING model_run_id");
+
+    C.prepare("update_model_run_completed",
+              "UPDATE model_runs SET status=$1, artifact_path=$2, completed_at=NOW(), updated_at=NOW() WHERE model_run_id=$3");
+
+    C.prepare("update_model_run_failed",
+              "UPDATE model_runs SET status=$1, error=$2, error_summary=$3, completed_at=NOW(), updated_at=NOW() WHERE model_run_id=$4");
+
+    C.prepare("update_model_run_status",
+              "UPDATE model_runs SET status=$1, updated_at=NOW() WHERE model_run_id=$2");
+
+    C.prepare("get_model_run",
+              "SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id, training_config, "
+              "hpo_config, parent_run_id, trial_index, trial_params, "
+              "best_trial_run_id, best_metric_value, best_metric_name, "
+              "selection_metric_direction, tie_break_basis, is_eligible, eligibility_reason, selection_metric_value, "
+              "candidate_fingerprint, generator_version, seed_used, "
+              "error_summary, error_aggregates, "
+              "selection_metric_source, selection_metric_computed_at "
+              "FROM model_runs WHERE model_run_id = $1");
+
+    C.prepare("update_best_trial",
+              "UPDATE model_runs SET best_trial_run_id=$1, best_metric_value=$2, best_metric_name=$3, "
+              "selection_metric_direction=$4, tie_break_basis=$5 WHERE model_run_id=$6");
+
+    C.prepare("update_trial_eligibility",
+              "UPDATE model_runs SET is_eligible=$1, eligibility_reason=$2, selection_metric_value=$3, "
+              "selection_metric_source=$4, selection_metric_computed_at=NOW() "
+              "WHERE model_run_id=$5");
+
+    C.prepare("update_error_aggregates",
+              "UPDATE model_runs SET error_aggregates=$1 WHERE model_run_id=$2");
+
+    C.prepare("get_hpo_trials_paginated",
+              "SELECT model_run_id, status, trial_index, trial_params, created_at, completed_at, error, "
+              "is_eligible, eligibility_reason, selection_metric_value, selection_metric_source, error_summary, dataset_id, name, training_config "
+              "FROM model_runs WHERE parent_run_id = $1 ORDER BY trial_index ASC LIMIT $2 OFFSET $3");
+
+    C.prepare("insert_inference_run",
+              "INSERT INTO inference_runs (model_run_id, status) VALUES ($1, 'RUNNING') RETURNING inference_id");
+
+    C.prepare("update_inference_run",
+              "UPDATE inference_runs SET status=$1, anomaly_count=$2, details=$3::jsonb, latency_ms=$4 WHERE inference_id=$5");
+
+    C.prepare("get_inference_run",
+              "SELECT inference_id, model_run_id, status, anomaly_count, latency_ms, details, created_at "
+              "FROM inference_runs WHERE inference_id = $1");
+
+    C.prepare("get_models_for_dataset",
+              "SELECT model_run_id, name, status, created_at FROM model_runs WHERE dataset_id = $1 ORDER BY created_at DESC");
+
+    C.prepare("get_scored_datasets_for_model",
+              "SELECT DISTINCT ds.dataset_id, gr.created_at, ds.scored_at "
+              "FROM dataset_scores ds JOIN generation_runs gr ON ds.dataset_id = gr.run_id "
+              "WHERE ds.model_run_id = $1 ORDER BY ds.scored_at DESC");
+
+    C.prepare("get_dataset_detail",
+              "SELECT run_id, status, inserted_rows, created_at, start_time, end_time, interval_seconds, host_count, tier, error, request_id "
+              "FROM generation_runs WHERE run_id = $1");
+
+    C.prepare("get_dataset_samples",
+              "SELECT cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate, metric_timestamp, host_id "
+              "FROM host_telemetry_archival WHERE run_id = $1 ORDER BY metric_timestamp DESC LIMIT $2");
+
+    C.prepare("get_dataset_record",
+              "SELECT cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate, metric_timestamp, host_id, labels "
+              "FROM host_telemetry_archival WHERE run_id = $1 AND record_id = $2");
+
+    C.prepare("check_score_job_exists",
+              "SELECT job_id FROM dataset_score_jobs WHERE dataset_id = $1 AND model_run_id = $2 "
+              "AND status IN ('PENDING', 'RUNNING')");
+
+    C.prepare("insert_score_job",
+              "INSERT INTO dataset_score_jobs (dataset_id, model_run_id, status, request_id) "
+              "VALUES ($1, $2, 'PENDING', $3) RETURNING job_id");
+
+    C.prepare("update_score_job_completed",
+              "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, updated_at=NOW(), completed_at=NOW() "
+              "WHERE job_id=$5");
+
+    C.prepare("update_score_job_error",
+              "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, error=$5, updated_at=NOW() "
+              "WHERE job_id=$6");
+
+    C.prepare("update_score_job_status",
+              "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, updated_at=NOW() "
+              "WHERE job_id=$5");
+
+    C.prepare("get_score_job",
+              "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, last_record_id, error, created_at, updated_at, completed_at, request_id "
+              "FROM dataset_score_jobs WHERE job_id = $1");
+
+    C.prepare("fetch_scoring_rows",
+              "SELECT record_id, is_anomaly, cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate "
+              "FROM host_telemetry_archival WHERE run_id = $1 AND record_id > $2 ORDER BY record_id ASC LIMIT $3");
+
+    C.prepare("transition_model_run_status",
+              "UPDATE model_runs SET status = $1 WHERE model_run_id = $2 AND status = $3");
+
+    C.prepare("transition_score_job_status",
+              "UPDATE dataset_score_jobs SET status = $1, updated_at = NOW() WHERE job_id = $2 AND status = $3");
+
+    C.prepare("get_eval_metrics",
+              "SELECT s.reconstruction_error, s.predicted_is_anomaly, h.is_anomaly "
+              "FROM dataset_scores s JOIN host_telemetry_archival h ON s.record_id = h.record_id "
+              "WHERE s.dataset_id = $1 AND s.model_run_id = $2");
+
+    C.prepare("delete_dataset_scores", "DELETE FROM dataset_scores WHERE dataset_id = $1");
+    C.prepare("delete_dataset_score_jobs", "DELETE FROM dataset_score_jobs WHERE dataset_id = $1");
+    C.prepare("delete_host_telemetry", "DELETE FROM host_telemetry_archival WHERE run_id = $1");
+    C.prepare("delete_alerts", "DELETE FROM alerts WHERE run_id = $1");
+    C.prepare("delete_model_runs", "DELETE FROM model_runs WHERE dataset_id = $1");
+    C.prepare("delete_generation_run", "DELETE FROM generation_runs WHERE run_id = $1");
+    
+    // Additional useful ones
+    C.prepare("get_dataset_record_count", "SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1");
+
+    C.prepare("get_non_anomaly_count", "SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1 AND is_anomaly = false");
+
+    C.prepare("get_telemetry_batch",
+              "SELECT record_id, cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate "
+              "FROM host_telemetry_archival "
+              "WHERE run_id = $1 AND record_id > $2 "
+              "ORDER BY record_id "
+              "LIMIT $3");
+
+    C.prepare("call_cleanup", "CALL cleanup_old_telemetry($1::INT)");
+    
+    // Dynamic column selection requires quoting, but base WHERE clause is static for bounds/stats
+    // For GetMetricStats/Histogram we need to inject the column name, so we can't fully prepare it 
+    // unless we prepare one for each metric (too many) or interpolate the column name (which we do) 
+    // and prepare the rest? No, prepared statement query string is fixed.
+    // So if the query has dynamic column names "MIN(" + metric + ")", we can't use prepared statements 
+    // unless we use the 'exec' approach with manual quoting. 
+    // But RunRetentionCleanup is static.
+}
+
 // Static allowlist of valid metric column names from host_telemetry_archival schema.
 // This prevents SQL injection via metric parameter in analytics queries.
-bool DbClient::IsValidMetric(const std::string& metric) {
+auto DbClient::IsValidMetric(const std::string& metric) -> bool {
     static const std::unordered_set<std::string> kAllowedMetrics = {
         "cpu_usage",
         "memory_usage",
@@ -31,7 +213,7 @@ bool DbClient::IsValidMetric(const std::string& metric) {
     return kAllowedMetrics.count(metric) > 0;
 }
 
-bool DbClient::IsValidDimension(const std::string& dim) {
+auto DbClient::IsValidDimension(const std::string& dim) -> bool {
     static const std::unordered_set<std::string> kAllowedDimensions = {
         "region",
         "project_id",
@@ -45,7 +227,7 @@ bool DbClient::IsValidDimension(const std::string& dim) {
     return kAllowedDimensions.count(dim) > 0;
 }
 
-bool DbClient::IsValidAggregation(const std::string& agg) {
+auto DbClient::IsValidAggregation(const std::string& agg) -> bool {
     static const std::unordered_set<std::string> kAllowedAggs = {
         "mean",
         "min",
@@ -56,29 +238,37 @@ bool DbClient::IsValidAggregation(const std::string& agg) {
     return kAllowedAggs.count(agg) > 0;
 }
 
-void DbClient::ReconcileStaleJobs() {
+auto DbClient::ReconcileStaleJobs(std::optional<std::chrono::seconds> stale_ttl) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
-        // Use exec() instead of exec0() to avoid potential issues if libpqxx version varies, though exec0 is standard.
-        // Actually exec0 returns void, exec returns result.
-        W.exec("UPDATE dataset_score_jobs SET status='FAILED', error='System restart/recovery' WHERE status='RUNNING'");
-        W.exec("UPDATE model_runs SET status='FAILED', error='System restart/recovery' WHERE status='RUNNING'");
-        W.exec("UPDATE generation_runs SET status='FAILED', error='System restart/recovery' WHERE status='RUNNING'");
+        std::string condition = "status IN ('RUNNING', 'PENDING')";
+        if (stale_ttl.has_value()) {
+            condition += " AND updated_at < NOW() - INTERVAL '" + std::to_string(stale_ttl->count()) + " seconds'";
+        }
+
+        std::string error_msg = stale_ttl.has_value() ? "Stale job detected (heartbeat timeout)" : "System restart/recovery";
+
+        std::string error_q = W.quote(error_msg);
+        std::string suffix = " SET status='FAILED', error=" + error_q + ", updated_at=NOW() WHERE " + condition;
+
+        PQXX_EXEC_PARAMS(W, "UPDATE dataset_score_jobs" + suffix);
+        PQXX_EXEC_PARAMS(W, "UPDATE model_runs" + suffix);
+        PQXX_EXEC_PARAMS(W, "UPDATE generation_runs" + suffix);
         
         W.commit();
-        spdlog::info("Reconciled stale RUNNING jobs to FAILED.");
+        spdlog::info("Reconciled stale jobs (TTL={}).", stale_ttl.has_value() ? std::to_string(stale_ttl->count()) + "s" : "all");
     } catch (const std::exception& e) {
         spdlog::error("Failed to reconcile stale jobs: {}", e.what());
     }
 }
 
-void DbClient::RunRetentionCleanup(int retention_days) {
+auto DbClient::RunRetentionCleanup(int retention_days) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
-        W.exec_params("CALL cleanup_old_telemetry($1)", retention_days);
+        PQXX_EXEC_PREPPED(W, "call_cleanup", retention_days);
         W.commit();
         spdlog::info("Retention cleanup completed for data older than {} days.", retention_days);
     } catch (const std::exception& e) {
@@ -86,7 +276,7 @@ void DbClient::RunRetentionCleanup(int retention_days) {
     }
 }
 
-void DbClient::EnsurePartition(std::chrono::system_clock::time_point tp) {
+auto DbClient::EnsurePartition(std::chrono::system_clock::time_point tp) -> void {
     try {
         auto t_time = std::chrono::system_clock::to_time_t(tp);
         std::tm tm = *std::gmtime(&t_time);
@@ -119,10 +309,10 @@ void DbClient::EnsurePartition(std::chrono::system_clock::time_point tp) {
     }
 }
 
-void DbClient::CreateRun(const std::string& run_id, 
+auto DbClient::CreateRun(const std::string& run_id, 
                         const telemetry::GenerateRequest& config, 
                         const std::string& status,
-                        const std::string& request_id) {
+                        const std::string& request_id) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -130,8 +320,7 @@ void DbClient::CreateRun(const std::string& run_id,
         std::string config_json;
         (void)google::protobuf::util::MessageToJsonString(config, &config_json);
 
-        W.exec_params("INSERT INTO generation_runs (run_id, tier, host_count, start_time, end_time, interval_seconds, seed, status, config, request_id) "
-                     "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        PQXX_EXEC_PREPPED(W, "insert_generation_run",
                      run_id, config.tier(), config.host_count(), config.start_time_iso(), config.end_time_iso(), 
                      config.interval_seconds(), config.seed(), status, config_json, request_id);
         W.commit();
@@ -140,18 +329,18 @@ void DbClient::CreateRun(const std::string& run_id,
     }
 }
 
-void DbClient::UpdateRunStatus(const std::string& run_id, 
+auto DbClient::UpdateRunStatus(const std::string& run_id, 
                               const std::string& status, 
                               long inserted_rows,
-                              const std::string& error) {
+                              const std::string& error) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         if (!error.empty()) {
-             W.exec_params("UPDATE generation_runs SET status = $1, inserted_rows = $2, error = $3 WHERE run_id = $4",
+             PQXX_EXEC_PREPPED(W, "update_generation_run_error",
                           status, inserted_rows, error, run_id);
         } else {
-             W.exec_params("UPDATE generation_runs SET status = $1, inserted_rows = $2 WHERE run_id = $3",
+             PQXX_EXEC_PREPPED(W, "update_generation_run",
                           status, inserted_rows, run_id);
         }
         W.commit();
@@ -160,32 +349,13 @@ void DbClient::UpdateRunStatus(const std::string& run_id,
     }
 }
 
-void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records) {
-    if (records.empty()) return;
+auto DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records) -> void {
+    if (records.empty()) { return; }
     
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
-#if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
-        auto stream = pqxx::stream_to::table(
-            W,
-            pqxx::table_path{"host_telemetry_archival"},
-            {"ingestion_time",
-             "metric_timestamp",
-             "host_id",
-             "project_id",
-             "region",
-             "cpu_usage",
-             "memory_usage",
-             "disk_utilization",
-             "network_rx_rate",
-             "network_tx_rate",
-             "labels",
-             "run_id",
-             "is_anomaly",
-             "anomaly_type"});
-#else
         const std::vector<std::string> columns = {
             "ingestion_time",
             "metric_timestamp",
@@ -201,6 +371,24 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
             "run_id",
             "is_anomaly",
             "anomaly_type"};
+
+#if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
+        auto stream = pqxx::stream_to::table(W, pqxx::table_path{"host_telemetry_archival"}, 
+            {std::string_view("ingestion_time"),
+             std::string_view("metric_timestamp"),
+             std::string_view("host_id"),
+             std::string_view("project_id"),
+             std::string_view("region"),
+             std::string_view("cpu_usage"),
+             std::string_view("memory_usage"),
+             std::string_view("disk_utilization"),
+             std::string_view("network_rx_rate"),
+             std::string_view("network_tx_rate"),
+             std::string_view("labels"),
+             std::string_view("run_id"),
+             std::string_view("is_anomaly"),
+             std::string_view("anomaly_type")});
+#else
         pqxx::stream_to stream(W, "host_telemetry_archival", columns);
 #endif
 
@@ -235,7 +423,24 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
     }
 }
 
-void DbClient::InsertAlert(const Alert& alert) {
+auto DbClient::Heartbeat(JobType type, const std::string& job_id) -> void {
+    try {
+        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
+        pqxx::work W(C);
+        std::string stmt;
+        switch (type) {
+            case JobType::Generation: stmt = "heartbeat_generation"; break;
+            case JobType::ModelRun: stmt = "heartbeat_model_run"; break;
+            case JobType::ScoreJob: stmt = "heartbeat_score_job"; break;
+        }
+        PQXX_EXEC_PREPPED(W, stmt, job_id);
+        W.commit();
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to send heartbeat for job {}: {}", job_id, e.what());
+    }
+}
+
+auto DbClient::InsertAlert(const Alert& alert) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -244,8 +449,7 @@ void DbClient::InsertAlert(const Alert& alert) {
             return fmt::format("{:%Y-%m-%d %H:%M:%S%z}", tp);
         };
 
-        W.exec_params("INSERT INTO alerts (host_id, run_id, timestamp, severity, detector_source, score, details) "
-                      "VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7::jsonb)",
+        PQXX_EXEC_PREPPED(W, "insert_alert",
                       alert.host_id, alert.run_id, to_iso(alert.timestamp),
                       alert.severity, alert.source, alert.score, alert.details_json);
         W.commit();
@@ -255,13 +459,13 @@ void DbClient::InsertAlert(const Alert& alert) {
     }
 }
 
-telemetry::RunStatus DbClient::GetRunStatus(const std::string& run_id) {
+auto DbClient::GetRunStatus(const std::string& run_id) -> telemetry::RunStatus {
     telemetry::RunStatus status;
     status.set_run_id(run_id);
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
-        auto res = N.exec_params("SELECT status, inserted_rows, error, request_id FROM generation_runs WHERE run_id = $1", run_id);
+        auto res = PQXX_EXEC_PREPPED(N, "get_run_status", run_id);
         if (!res.empty()) {
             status.set_status(res[0][0].as<std::string>());
             status.set_inserted_rows(res[0][1].as<long>());
@@ -276,14 +480,15 @@ telemetry::RunStatus DbClient::GetRunStatus(const std::string& run_id) {
     return status;
 }
 
-std::string DbClient::CreateModelRun(const std::string& dataset_id, 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+auto DbClient::CreateModelRun(const std::string& dataset_id, 
                                      const std::string& name,
                                      const nlohmann::json& training_config,
                                      const std::string& request_id,
                                      const nlohmann::json& hpo_config,
                                      const std::string& candidate_fingerprint,
                                      const std::string& generator_version,
-                                     std::optional<long long> seed_used) {
+                                     std::optional<long long> seed_used) -> std::string {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -298,33 +503,33 @@ std::string DbClient::CreateModelRun(const std::string& dataset_id,
         const char* fp_ptr = candidate_fingerprint.empty() ? nullptr : candidate_fingerprint.c_str();
         const char* gv_ptr = generator_version.empty() ? nullptr : generator_version.c_str();
 
-        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, hpo_config, candidate_fingerprint, generator_version, seed_used) "
-                                 "VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7, $8) RETURNING model_run_id",
+        auto res = PQXX_EXEC_PREPPED(W, "insert_model_run",
                                  dataset_id, name, request_id, training_config.dump(), hpo_ptr, fp_ptr, gv_ptr, seed_used);
         W.commit();
-        if (!res.empty()) return res[0][0].as<std::string>();
+        if (!res.empty()) { return res[0][0].as<std::string>(); }
     } catch (const std::exception& e) {
         spdlog::error("Failed to create model run: {}", e.what());
         throw;
     }
     return "";
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
-std::string DbClient::CreateHpoTrialRun(const std::string& dataset_id,
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+auto DbClient::CreateHpoTrialRun(const std::string& dataset_id,
                                         const std::string& name,
                                         const nlohmann::json& training_config,
                                         const std::string& request_id,
                                         const std::string& parent_run_id,
                                         int trial_index,
-                                        const nlohmann::json& trial_params) {
+                                        const nlohmann::json& trial_params) -> std::string {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
-        auto res = W.exec_params("INSERT INTO model_runs (dataset_id, name, status, request_id, training_config, parent_run_id, trial_index, trial_params) "
-                                 "VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7) RETURNING model_run_id",
+        auto res = PQXX_EXEC_PREPPED(W, "insert_hpo_trial",
                                  dataset_id, name, request_id, training_config.dump(), parent_run_id, trial_index, trial_params.dump());
         W.commit();
-        if (!res.empty()) return res[0][0].as<std::string>();
+        if (!res.empty()) { return res[0][0].as<std::string>(); }
     } catch (const std::exception& e) {
         spdlog::error("Failed to create HPO trial run: {}", e.what());
         throw;
@@ -332,11 +537,11 @@ std::string DbClient::CreateHpoTrialRun(const std::string& dataset_id,
     return "";
 }
 
-void DbClient::UpdateModelRunStatus(const std::string& model_run_id, 
+auto DbClient::UpdateModelRunStatus(const std::string& model_run_id, 
                                     const std::string& status, 
-                                    const std::string& artifact_path, 
+                                    const std::string& artifact_path,
                                     const std::string& error,
-                                    const nlohmann::json& error_summary) {
+                                    const nlohmann::json& error_summary) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -349,22 +554,23 @@ void DbClient::UpdateModelRunStatus(const std::string& model_run_id,
         }
 
         if (status == "COMPLETED") {
-             W.exec_params("UPDATE model_runs SET status=$1, artifact_path=$2, completed_at=NOW() WHERE model_run_id=$3",
+             PQXX_EXEC_PREPPED(W, "update_model_run_completed",
                           status, artifact_path, model_run_id);
         } else if (status == "FAILED" || status == "CANCELLED" || status == "CANCELED") {
-             W.exec_params("UPDATE model_runs SET status=$1, error=$2, error_summary=$3, completed_at=NOW() WHERE model_run_id=$4",
+             PQXX_EXEC_PREPPED(W, "update_model_run_failed",
                           status, error, summary_ptr, model_run_id);
         } else {
-             W.exec_params("UPDATE model_runs SET status=$1 WHERE model_run_id=$2",
+             PQXX_EXEC_PREPPED(W, "update_model_run_status",
                           status, model_run_id);
         }
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to update model run {}: {}", model_run_id, e.what());
     }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 }
 
-nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
+auto DbClient::GetModelRun(const std::string& model_run_id) -> nlohmann::json {
 
     nlohmann::json j;
 
@@ -374,14 +580,7 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
 
         pqxx::nontransaction N(C);
 
-        auto res = N.exec_params("SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id, training_config, "
-                                 "hpo_config, parent_run_id, trial_index, trial_params, "
-                                 "best_trial_run_id, best_metric_value, best_metric_name, "
-                                 "selection_metric_direction, tie_break_basis, is_eligible, eligibility_reason, selection_metric_value, "
-                                 "candidate_fingerprint, generator_version, seed_used, "
-                                 "error_summary, error_aggregates, "
-                                 "selection_metric_source, selection_metric_computed_at "
-                                 "FROM model_runs WHERE model_run_id = $1", model_run_id);
+        auto res = PQXX_EXEC_PREPPED(N, "get_model_run", model_run_id);
 
         if (!res.empty()) {
             // ...
@@ -473,17 +672,17 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
     return j;
 }
 
-void DbClient::UpdateBestTrial(const std::string& parent_run_id,
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+auto DbClient::UpdateBestTrial(const std::string& parent_run_id,
                                const std::string& best_trial_run_id,
                                double best_metric_value,
                                const std::string& best_metric_name,
                                const std::string& best_metric_direction,
-                               const std::string& tie_break_basis) {
+                               const std::string& tie_break_basis) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
-        W.exec_params("UPDATE model_runs SET best_trial_run_id=$1, best_metric_value=$2, best_metric_name=$3, "
-                     "selection_metric_direction=$4, tie_break_basis=$5 WHERE model_run_id=$6",
+        PQXX_EXEC_PREPPED(W, "update_best_trial",
                      best_trial_run_id, best_metric_value, best_metric_name, 
                      best_metric_direction, tie_break_basis, parent_run_id);
         W.commit();
@@ -492,48 +691,43 @@ void DbClient::UpdateBestTrial(const std::string& parent_run_id,
     }
 }
 
-void DbClient::UpdateTrialEligibility(const std::string& model_run_id,
-                                     bool is_eligible,
-                                     const std::string& reason,
-                                     double metric_value,
-                                     const std::string& source) {
-    try {
+auto DbClient::UpdateTrialEligibility(const std::string& model_run_id,
+                                bool is_eligible,
+                                const std::string& reason,
+                                double metric_value,
+                                const std::string& source) -> void {    try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
         const char* src_ptr = source.empty() ? nullptr : source.c_str();
 
-        W.exec_params("UPDATE model_runs SET is_eligible=$1, eligibility_reason=$2, selection_metric_value=$3, "
-                     "selection_metric_source=$4, selection_metric_computed_at=NOW() "
-                     "WHERE model_run_id=$5",
-                     is_eligible, reason, metric_value, src_ptr, model_run_id);
+        PQXX_EXEC_PREPPED(W, "update_trial_eligibility",
+                      is_eligible, reason, metric_value, src_ptr, model_run_id);
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to update trial eligibility for {}: {}", model_run_id, e.what());
     }
 }
 
-void DbClient::UpdateParentErrorAggregates(const std::string& parent_run_id,
-                                           const nlohmann::json& error_aggregates) {
-    try {
+auto DbClient::UpdateParentErrorAggregates(const std::string& parent_run_id,
+                                     const nlohmann::json& error_aggregates) -> void {    try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
-        W.exec_params("UPDATE model_runs SET error_aggregates=$1 "
-                     "WHERE model_run_id=$2",
-                     error_aggregates.dump(), parent_run_id);
+        PQXX_EXEC_PREPPED(W, "update_error_aggregates",
+                      error_aggregates.dump(), parent_run_id);
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to update error aggregates for {}: {}", parent_run_id, e.what());
     }
 }
 
-nlohmann::json DbClient::GetHpoTrials(const std::string& parent_run_id) {
+auto DbClient::GetHpoTrials(const std::string& parent_run_id) -> nlohmann::json {
     return GetHpoTrialsPaginated(parent_run_id, 1000, 0);
 }
 
-std::map<std::string, nlohmann::json> DbClient::GetBulkHpoTrialSummaries(const std::vector<std::string>& parent_run_ids) {
+auto DbClient::GetBulkHpoTrialSummaries(const std::vector<std::string>& parent_run_ids) -> std::map<std::string, nlohmann::json> {
     std::map<std::string, nlohmann::json> summaries;
-    if (parent_run_ids.empty()) return summaries;
+    if (parent_run_ids.empty()) { return summaries; }
 
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -541,7 +735,7 @@ std::map<std::string, nlohmann::json> DbClient::GetBulkHpoTrialSummaries(const s
         
         std::string in_clause = "";
         for (const auto& id : parent_run_ids) {
-            if (!in_clause.empty()) in_clause += ", ";
+            if (!in_clause.empty()) { in_clause += ", "; }
             in_clause += N.quote(id);
         }
         
@@ -550,8 +744,8 @@ std::map<std::string, nlohmann::json> DbClient::GetBulkHpoTrialSummaries(const s
         auto res = N.exec(query); 
         
         for (const auto& row : res) {
-            std::string pid = row[0].as<std::string>();
-            std::string status = row[1].as<std::string>();
+            auto pid = row[0].as<std::string>();
+            auto status = row[1].as<std::string>();
             long count = row[2].as<long>();
             
             if (!summaries.count(pid)) {
@@ -575,16 +769,13 @@ std::map<std::string, nlohmann::json> DbClient::GetBulkHpoTrialSummaries(const s
     return summaries;
 }
 
-nlohmann::json DbClient::GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) {
+auto DbClient::GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
-        auto res = N.exec_params(
-            "SELECT model_run_id, status, trial_index, trial_params, created_at, completed_at, error, "
-            "is_eligible, eligibility_reason, selection_metric_value, selection_metric_source, error_summary, dataset_id, name, training_config "
-            "FROM model_runs WHERE parent_run_id = $1 ORDER BY trial_index ASC LIMIT $2 OFFSET $3",
-            parent_run_id, limit, offset);
+        auto res = PQXX_EXEC_PREPPED(N, "get_hpo_trials_paginated",
+             parent_run_id, limit, offset);
         for (const auto& row : res) {
             nlohmann::json j;
             j["model_run_id"] = row[0].as<std::string>();
@@ -618,15 +809,14 @@ nlohmann::json DbClient::GetHpoTrialsPaginated(const std::string& parent_run_id,
     return out;
 }
 
-std::string DbClient::CreateInferenceRun(const std::string& model_run_id) {
+auto DbClient::CreateInferenceRun(const std::string& model_run_id) -> std::string {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
-        auto res = W.exec_params("INSERT INTO inference_runs (model_run_id, status) "
-                                 "VALUES ($1, 'RUNNING') RETURNING inference_id",
-                                 model_run_id);
+        auto res = PQXX_EXEC_PREPPED(W, "insert_inference_run",
+                                  model_run_id);
         W.commit();
-        if (!res.empty()) return res[0][0].as<std::string>();
+        if (!res.empty()) { return res[0][0].as<std::string>(); }
     } catch (const std::exception& e) {
         spdlog::error("Failed to create inference run: {}", e.what());
         throw;
@@ -634,27 +824,29 @@ std::string DbClient::CreateInferenceRun(const std::string& model_run_id) {
     return "";
 }
 
-void DbClient::UpdateInferenceRunStatus(const std::string& inference_id, 
-                                        const std::string& status, 
-                                        int anomaly_count, 
-                                        const nlohmann::json& details,
-                                        double latency_ms) {
-    try {
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+auto DbClient::UpdateInferenceRunStatus(const std::string& inference_id, 
+                                          const std::string& status, 
+                                          int anomaly_count, 
+                                          const nlohmann::json& details,
+                                          double latency_ms) -> void {    try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
-        W.exec_params("UPDATE inference_runs SET status=$1, anomaly_count=$2, details=$3::jsonb, latency_ms=$4 WHERE inference_id=$5",
-                     status, anomaly_count, details.dump(), latency_ms, inference_id);
+        PQXX_EXEC_PREPPED(W, "update_inference_run",
+                      status, anomaly_count, details.dump(), latency_ms, inference_id);
         W.commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to update inference run {}: {}", inference_id, e.what());
     }
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
-nlohmann::json DbClient::ListGenerationRuns(int limit,
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+auto DbClient::ListGenerationRuns(int limit,
                                             int offset,
                                             const std::string& status,
                                             const std::string& created_from,
-                                            const std::string& created_to) {
+                                            const std::string& created_to) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -663,19 +855,19 @@ nlohmann::json DbClient::ListGenerationRuns(int limit,
             "SELECT run_id, status, inserted_rows, created_at, start_time, end_time, interval_seconds, host_count, tier "
             "FROM generation_runs ";
         std::vector<std::string> where;
-        if (!status.empty()) where.push_back("status = " + N.quote(status));
-        if (!created_from.empty()) where.push_back("created_at >= " + N.quote(created_from));
-        if (!created_to.empty()) where.push_back("created_at <= " + N.quote(created_to));
+        if (!status.empty()) { where.push_back("status = " + N.quote(status)); }
+        if (!created_from.empty()) { where.push_back("created_at >= " + N.quote(created_from)); }
+        if (!created_to.empty()) { where.push_back("created_at <= " + N.quote(created_to)); }
         if (!where.empty()) {
             query += "WHERE ";
             for (size_t i = 0; i < where.size(); ++i) {
                 query += where[i];
-                if (i + 1 < where.size()) query += " AND ";
+                if (i + 1 < where.size()) { query += " AND "; }
             }
             query += " ";
         }
         query += "ORDER BY created_at DESC LIMIT $1 OFFSET $2";
-        auto res = N.exec_params(query, limit, offset);
+        auto res = PQXX_EXEC_PARAMS(N, query, limit, offset);
         for (const auto& row : res) {
             nlohmann::json j;
             j["run_id"] = row[0].as<std::string>();
@@ -695,16 +887,15 @@ nlohmann::json DbClient::ListGenerationRuns(int limit,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
-nlohmann::json DbClient::GetDatasetDetail(const std::string& run_id) {
+auto DbClient::GetDatasetDetail(const std::string& run_id) -> nlohmann::json {
     nlohmann::json j;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
-        auto res = N.exec_params(
-            "SELECT run_id, status, inserted_rows, created_at, start_time, end_time, interval_seconds, host_count, tier, error, request_id "
-            "FROM generation_runs WHERE run_id = $1",
-            run_id);
+        auto res = PQXX_EXEC_PREPPED(N, "get_dataset_detail",
+             run_id);
         if (!res.empty()) {
             j["run_id"] = res[0][0].as<std::string>();
             j["status"] = res[0][1].as<std::string>();
@@ -725,15 +916,13 @@ nlohmann::json DbClient::GetDatasetDetail(const std::string& run_id) {
     return j;
 }
 
-nlohmann::json DbClient::GetDatasetSamples(const std::string& run_id, int limit) {
+auto DbClient::GetDatasetSamples(const std::string& run_id, int limit) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
-        auto res = N.exec_params(
-            "SELECT cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate, metric_timestamp, host_id "
-            "FROM host_telemetry_archival WHERE run_id = $1 ORDER BY metric_timestamp DESC LIMIT $2",
-            run_id, limit);
+        auto res = PQXX_EXEC_PREPPED(N, "get_dataset_samples",
+             run_id, limit);
         for (const auto& row : res) {
             nlohmann::json j;
             j["cpu_usage"] = row[0].as<double>();
@@ -752,15 +941,13 @@ nlohmann::json DbClient::GetDatasetSamples(const std::string& run_id, int limit)
     return out;
 }
 
-nlohmann::json DbClient::GetDatasetRecord(const std::string& run_id, long record_id) {
+auto DbClient::GetDatasetRecord(const std::string& run_id, long record_id) -> nlohmann::json {
     nlohmann::json j;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
-        auto res = N.exec_params(
-            "SELECT cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate, metric_timestamp, host_id, labels "
-            "FROM host_telemetry_archival WHERE run_id = $1 AND record_id = $2",
-            run_id, record_id);
+        auto res = PQXX_EXEC_PREPPED(N, "get_dataset_record",
+             run_id, record_id);
         if (!res.empty()) {
             j["cpu_usage"] = res[0][0].as<double>();
             j["memory_usage"] = res[0][1].as<double>();
@@ -777,12 +964,13 @@ nlohmann::json DbClient::GetDatasetRecord(const std::string& run_id, long record
     return j;
 }
 
-nlohmann::json DbClient::ListModelRuns(int limit,
-                                       int offset,
-                                       const std::string& status,
-                                       const std::string& dataset_id,
-                                       const std::string& created_from,
-                                       const std::string& created_to) {
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+auto DbClient::ListModelRuns(int limit,
+                               int offset,
+                               const std::string& status,
+                               const std::string& dataset_id,
+                               const std::string& created_from,
+                               const std::string& created_to) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -793,20 +981,20 @@ nlohmann::json DbClient::ListModelRuns(int limit,
             "is_eligible, eligibility_reason, selection_metric_value "
             "FROM model_runs ";
         std::vector<std::string> where;
-        if (!status.empty()) where.push_back("status = " + N.quote(status));
-        if (!dataset_id.empty()) where.push_back("dataset_id = " + N.quote(dataset_id));
-        if (!created_from.empty()) where.push_back("created_at >= " + N.quote(created_from));
-        if (!created_to.empty()) where.push_back("created_at <= " + N.quote(created_to));
+        if (!status.empty()) { where.push_back("status = " + N.quote(status)); }
+        if (!dataset_id.empty()) { where.push_back("dataset_id = " + N.quote(dataset_id)); }
+        if (!created_from.empty()) { where.push_back("created_at >= " + N.quote(created_from)); }
+        if (!created_to.empty()) { where.push_back("created_at <= " + N.quote(created_to)); }
         if (!where.empty()) {
             query += "WHERE ";
             for (size_t i = 0; i < where.size(); ++i) {
                 query += where[i];
-                if (i + 1 < where.size()) query += " AND ";
+                if (i + 1 < where.size()) { query += " AND "; }
             }
             query += " ";
         }
         query += "ORDER BY created_at DESC LIMIT $1 OFFSET $2";
-        auto res = N.exec_params(query, limit, offset);
+        auto res = PQXX_EXEC_PARAMS(N, query, limit, offset);
         for (const auto& row : res) {
             nlohmann::json j;
             j["model_run_id"] = row[0].as<std::string>();
@@ -841,14 +1029,16 @@ nlohmann::json DbClient::ListModelRuns(int limit,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
-nlohmann::json DbClient::ListInferenceRuns(const std::string& dataset_id,
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+auto DbClient::ListInferenceRuns(const std::string& dataset_id,
                                            const std::string& model_run_id,
                                            int limit,
                                            int offset,
                                            const std::string& status,
                                            const std::string& created_from,
-                                           const std::string& created_to) {
+                                           const std::string& created_to) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -857,21 +1047,21 @@ nlohmann::json DbClient::ListInferenceRuns(const std::string& dataset_id,
             "SELECT i.inference_id, i.model_run_id, m.dataset_id, i.status, i.anomaly_count, i.latency_ms, i.created_at "
             "FROM inference_runs i JOIN model_runs m ON i.model_run_id = m.model_run_id ";
         std::vector<std::string> where;
-        if (!dataset_id.empty()) where.push_back("m.dataset_id = " + N.quote(dataset_id));
-        if (!model_run_id.empty()) where.push_back("i.model_run_id = " + N.quote(model_run_id));
-        if (!status.empty()) where.push_back("i.status = " + N.quote(status));
-        if (!created_from.empty()) where.push_back("i.created_at >= " + N.quote(created_from));
-        if (!created_to.empty()) where.push_back("i.created_at <= " + N.quote(created_to));
+        if (!dataset_id.empty()) { where.push_back("m.dataset_id = " + N.quote(dataset_id)); }
+        if (!model_run_id.empty()) { where.push_back("i.model_run_id = " + N.quote(model_run_id)); }
+        if (!status.empty()) { where.push_back("i.status = " + N.quote(status)); }
+        if (!created_from.empty()) { where.push_back("i.created_at >= " + N.quote(created_from)); }
+        if (!created_to.empty()) { where.push_back("i.created_at <= " + N.quote(created_to)); }
         if (!where.empty()) {
             base += "WHERE ";
             for (size_t i = 0; i < where.size(); ++i) {
                 base += where[i];
-                if (i + 1 < where.size()) base += " AND ";
+                if (i + 1 < where.size()) { base += " AND "; }
             }
             base += " ";
         }
         base += "ORDER BY i.created_at DESC LIMIT $1 OFFSET $2";
-        auto res = N.exec_params(base, limit, offset);
+        auto res = PQXX_EXEC_PARAMS(N, base, limit, offset);
         for (const auto& row : res) {
             nlohmann::json j;
             j["inference_id"] = row[0].as<std::string>();
@@ -888,16 +1078,15 @@ nlohmann::json DbClient::ListInferenceRuns(const std::string& dataset_id,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
-nlohmann::json DbClient::GetInferenceRun(const std::string& inference_id) {
+auto DbClient::GetInferenceRun(const std::string& inference_id) -> nlohmann::json {
     nlohmann::json j;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
-        auto res = N.exec_params(
-            "SELECT inference_id, model_run_id, status, anomaly_count, latency_ms, details, created_at "
-            "FROM inference_runs WHERE inference_id = $1",
-            inference_id);
+        auto res = PQXX_EXEC_PREPPED(N, "get_inference_run",
+             inference_id);
         if (!res.empty()) {
             j["inference_id"] = res[0][0].as<std::string>();
             j["model_run_id"] = res[0][1].as<std::string>();
@@ -913,14 +1102,13 @@ nlohmann::json DbClient::GetInferenceRun(const std::string& inference_id) {
     return j;
 }
 
-nlohmann::json DbClient::GetModelsForDataset(const std::string& dataset_id) {
+auto DbClient::GetModelsForDataset(const std::string& dataset_id) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
-        auto res = N.exec_params(
-            "SELECT model_run_id, name, status, created_at FROM model_runs WHERE dataset_id = $1 ORDER BY created_at DESC",
-            dataset_id);
+        auto res = PQXX_EXEC_PREPPED(N, "get_models_for_dataset",
+             dataset_id);
         for (const auto& row : res) {
             nlohmann::json j;
             j["model_run_id"] = row[0].as<std::string>();
@@ -935,17 +1123,14 @@ nlohmann::json DbClient::GetModelsForDataset(const std::string& dataset_id) {
     return out;
 }
 
-nlohmann::json DbClient::GetScoredDatasetsForModel(const std::string& model_run_id) {
+auto DbClient::GetScoredDatasetsForModel(const std::string& model_run_id) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
         // We find unique datasets from dataset_scores for this model
-        auto res = N.exec_params(
-            "SELECT DISTINCT ds.dataset_id, gr.created_at, ds.scored_at "
-            "FROM dataset_scores ds JOIN generation_runs gr ON ds.dataset_id = gr.run_id "
-            "WHERE ds.model_run_id = $1 ORDER BY ds.scored_at DESC",
-            model_run_id);
+        auto res = PQXX_EXEC_PREPPED(N, "get_scored_datasets_for_model",
+             model_run_id);
         for (const auto& row : res) {
             nlohmann::json j;
             j["dataset_id"] = row[0].as<std::string>();
@@ -959,16 +1144,15 @@ nlohmann::json DbClient::GetScoredDatasetsForModel(const std::string& model_run_
     return out;
 }
 
-nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) {
+auto DbClient::GetDatasetSummary(const std::string& run_id, int topk) -> nlohmann::json {
     nlohmann::json j;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
-        auto res = W.exec_params(
+        auto res = W.exec(
             "SELECT COUNT(*), MIN(metric_timestamp), MAX(metric_timestamp), "
             "SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) "
-            "FROM host_telemetry_archival WHERE run_id = $1",
-            run_id);
+            "FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id));
         if (!res.empty()) {
             long count = res[0][0].as<long>();
             j["row_count"] = count;
@@ -978,16 +1162,15 @@ nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) 
             j["anomaly_rate"] = count > 0 ? static_cast<double>(anomalies) / static_cast<double>(count) : 0.0;
         }
 
-        auto res_types = W.exec_params(
+        auto res_types = W.exec(
             "SELECT anomaly_type, COUNT(*) FROM host_telemetry_archival "
-            "WHERE run_id = $1 AND is_anomaly = true AND anomaly_type IS NOT NULL "
-            "GROUP BY anomaly_type ORDER BY COUNT(*) DESC",
-            run_id);
+            "WHERE run_id = " + W.quote(run_id) + " AND is_anomaly = true AND anomaly_type IS NOT NULL "
+            "GROUP BY anomaly_type ORDER BY COUNT(*) DESC");
         nlohmann::json type_counts = nlohmann::json::array();
         long other = 0;
         int idx = 0;
         for (const auto& row : res_types) {
-            std::string type = row[0].as<std::string>();
+            auto type = row[0].as<std::string>();
             long cnt = row[1].as<long>();
             if (idx < topk) {
                 nlohmann::json entry;
@@ -1007,36 +1190,33 @@ nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) 
         }
         j["anomaly_type_counts"] = type_counts;
 
-        auto res_distinct = W.exec_params(
+        auto res_distinct = W.exec(
             "SELECT COUNT(DISTINCT host_id), COUNT(DISTINCT project_id), COUNT(DISTINCT region) "
-            "FROM host_telemetry_archival WHERE run_id = $1",
-            run_id);
+            "FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id));
         if (!res_distinct.empty()) {
             j["distinct_counts"]["host_id"] = res_distinct[0][0].as<long>();
             j["distinct_counts"]["project_id"] = res_distinct[0][1].as<long>();
             j["distinct_counts"]["region"] = res_distinct[0][2].as<long>();
         }
 
-        auto res_latency = W.exec_params(
+        auto res_latency = W.exec(
             "SELECT "
             "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (ingestion_time - metric_timestamp))), "
             "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (ingestion_time - metric_timestamp))) "
-            "FROM host_telemetry_archival WHERE run_id = $1",
-            run_id);
+            "FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id));
         if (!res_latency.empty()) {
             j["ingestion_latency_p50"] = res_latency[0][0].is_null() ? 0.0 : res_latency[0][0].as<double>();
             j["ingestion_latency_p95"] = res_latency[0][1].is_null() ? 0.0 : res_latency[0][1].as<double>();
         }
 
-        auto res_trend = W.exec_params(
-            "WITH max_ts AS (SELECT MAX(metric_timestamp) AS max_ts FROM host_telemetry_archival WHERE run_id = $1) "
+        auto res_trend = W.exec(
+            "WITH max_ts AS (SELECT MAX(metric_timestamp) AS max_ts FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id) + ") "
             "SELECT date_trunc('hour', h.metric_timestamp) AS bucket, "
             "COUNT(*) AS total, "
             "SUM(CASE WHEN h.is_anomaly THEN 1 ELSE 0 END) AS anomalies "
             "FROM host_telemetry_archival h, max_ts "
-            "WHERE h.run_id = $1 AND h.metric_timestamp >= max_ts.max_ts - INTERVAL '24 hours' "
-            "GROUP BY bucket ORDER BY bucket ASC",
-            run_id);
+            "WHERE h.run_id = " + W.quote(run_id) + " AND h.metric_timestamp >= max_ts.max_ts - INTERVAL '24 hours' "
+            "GROUP BY bucket ORDER BY bucket ASC");
         nlohmann::json trend = nlohmann::json::array();
         for (const auto& row : res_trend) {
             long total = row[1].is_null() ? 0 : row[1].as<long>();
@@ -1058,7 +1238,8 @@ nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) 
     return j;
 }
 
-nlohmann::json DbClient::GetTopK(const std::string& run_id,
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+auto DbClient::GetTopK(const std::string& run_id,
                                  const std::string& column,
                                  int k,
                                  const std::string& region,
@@ -1066,7 +1247,7 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
                                  const std::string& anomaly_type,
                                  const std::string& start_time,
                                  const std::string& end_time,
-                                 bool include_total_distinct) {
+                                 bool include_total_distinct) -> nlohmann::json { // NOLINTEND(bugprone-easily-swappable-parameters)
     if (!IsValidDimension(column)) {
         throw std::invalid_argument("Invalid column: " + column);
     }
@@ -1124,16 +1305,16 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
     return out;
 }
 
-nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
-                                       const std::vector<std::string>& metrics,
-                                       const std::vector<std::string>& aggs,
-                                       int bucket_seconds,
-                                       const std::string& region,
-                                       const std::string& is_anomaly,
-                                       const std::string& anomaly_type,
-                                       const std::string& start_time,
-                                       const std::string& end_time) {
-    // Validate all metrics against allowlist to prevent SQL injection
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+auto DbClient::GetTimeSeries(const std::string& run_id,
+                                     const std::vector<std::string>& metrics,
+                                     const std::vector<std::string>& aggs,
+                                     int bucket_seconds,
+                                     const std::string& region,
+                                     const std::string& is_anomaly,
+                                     const std::string& anomaly_type,
+                                     const std::string& start_time,
+                                     const std::string& end_time) -> nlohmann::json { // NOLINTEND(bugprone-easily-swappable-parameters)    // Validate all metrics against allowlist to prevent SQL injection
     for (const auto& metric : metrics) {
         if (!IsValidMetric(metric)) {
             throw std::invalid_argument("Invalid metric: " + metric);
@@ -1155,13 +1336,15 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
         std::string select = bucket_expr + " AS bucket_ts";
         for (const auto& metric : metrics) {
             for (const auto& agg : aggs) {
-                std::string col = metric;
-                std::string alias = metric + "_" + agg;
-                if (agg == "mean") select += ", AVG(" + col + ") AS " + alias;
-                else if (agg == "min") select += ", MIN(" + col + ") AS " + alias;
-                else if (agg == "max") select += ", MAX(" + col + ") AS " + alias;
-                else if (agg == "p50") select += ", PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY " + col + ") AS " + alias;
-                else if (agg == "p95") select += ", PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY " + col + ") AS " + alias;
+                const std::string& col = metric;
+                std::string alias = metric;
+                alias += "_";
+                alias += agg;
+                if (agg == "mean") { select += ", AVG("; select += col; select += ") AS "; select += alias; }
+                else if (agg == "min") { select += ", MIN("; select += col; select += ") AS "; select += alias; }
+                else if (agg == "max") { select += ", MAX("; select += col; select += ") AS "; select += alias; }
+                else if (agg == "p50") { select += ", PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY "; select += col; select += ") AS "; select += alias; }
+                else if (agg == "p95") { select += ", PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "; select += col; select += ") AS "; select += alias; }
             }
         }
         select += ", COUNT(*) AS bucket_count";
@@ -1190,7 +1373,9 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
             int col_idx = 1;
             for (const auto& metric : metrics) {
                 for (const auto& agg : aggs) {
-                    std::string key = metric + "_" + agg;
+                    std::string key = metric;
+                    key += "_";
+                    key += agg;
                     j[key] = row[col_idx].is_null() ? 0.0 : row[col_idx].as<double>();
                     col_idx++;
                 }
@@ -1206,23 +1391,23 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
     return out;
 }
 
-nlohmann::json DbClient::GetHistogram(const std::string& run_id,
-                                      const std::string& metric,
-                                      int bins,
-                                      double min_val,
-                                      double max_val,
-                                      const std::string& region,
-                                      const std::string& is_anomaly,
-                                      const std::string& anomaly_type,
-                                      const std::string& start_time,
-                                      const std::string& end_time) {
-    // Validate metric against allowlist to prevent SQL injection
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+auto DbClient::GetHistogram(const std::string& run_id,
+                                   const std::string& metric,
+                                   int bins,
+                                   double min_val,
+                                   double max_val,
+                                   const std::string& region,
+                                   const std::string& is_anomaly,
+                                   const std::string& anomaly_type,
+                                   const std::string& start_time,
+                                   const std::string& end_time) -> nlohmann::json {
     if (!IsValidMetric(metric)) {
         throw std::invalid_argument("Invalid metric: " + metric);
     }
     const int MAX_BINS = 500;
     int requested_bins = bins;
-    if (bins > MAX_BINS) bins = MAX_BINS;
+    if (bins > MAX_BINS) { bins = MAX_BINS; }
 
     nlohmann::json out;
     out["requested_bins"] = requested_bins;
@@ -1232,9 +1417,8 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         if (max_val <= min_val) {
-            auto res = W.exec_params(
-                "SELECT MIN(" + metric + "), MAX(" + metric + ") FROM host_telemetry_archival WHERE run_id = $1",
-                run_id);
+            auto res = W.exec(
+                "SELECT MIN(" + metric + "), MAX(" + metric + ") FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id));
             if (!res.empty() && !res[0][0].is_null() && !res[0][1].is_null()) {
                 min_val = res[0][0].as<double>();
                 max_val = res[0][1].as<double>();
@@ -1288,8 +1472,9 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
-nlohmann::json DbClient::GetMetricStats(const std::string& run_id, const std::string& metric) {
+auto DbClient::GetMetricStats(const std::string& run_id, const std::string& metric) -> nlohmann::json {
     if (!IsValidMetric(metric)) {
         throw std::invalid_argument("Invalid metric: " + metric);
     }
@@ -1297,12 +1482,11 @@ nlohmann::json DbClient::GetMetricStats(const std::string& run_id, const std::st
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
-        auto res = W.exec_params(
+        auto res = W.exec(
             "SELECT COUNT(*), MIN(" + metric + "), MAX(" + metric + "), AVG(" + metric + "), "
             "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY " + metric + "), "
             "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY " + metric + ") "
-            "FROM host_telemetry_archival WHERE run_id = $1",
-            run_id);
+            "FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id));
         if (!res.empty()) {
             j["count"] = res[0][0].as<long>();
             j["min"] = res[0][1].is_null() ? 0.0 : res[0][1].as<double>();
@@ -1320,7 +1504,7 @@ nlohmann::json DbClient::GetMetricStats(const std::string& run_id, const std::st
     return j;
 }
 
-nlohmann::json DbClient::GetDatasetMetricsSummary(const std::string& run_id) {
+auto DbClient::GetDatasetMetricsSummary(const std::string& run_id) -> nlohmann::json {
     static const std::vector<std::string> kMetrics = {
         "cpu_usage", "memory_usage", "disk_utilization", "network_rx_rate", "network_tx_rate"
     };
@@ -1331,14 +1515,14 @@ nlohmann::json DbClient::GetDatasetMetricsSummary(const std::string& run_id) {
         std::string select;
         for (size_t i = 0; i < kMetrics.size(); ++i) {
             select += "STDDEV(" + kMetrics[i] + ") AS " + kMetrics[i] + "_stddev";
-            if (i + 1 < kMetrics.size()) select += ", ";
+            if (i + 1 < kMetrics.size()) { select += ", "; }
         }
-        auto res = W.exec_params("SELECT " + select + " FROM host_telemetry_archival WHERE run_id = $1", run_id);
+        auto res = W.exec("SELECT " + select + " FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id));
         if (!res.empty()) {
             std::vector<std::pair<std::string, double>> stddevs;
             for (const auto& m : kMetrics) {
                 double val = res[0][m + "_stddev"].is_null() ? 0.0 : res[0][m + "_stddev"].as<double>();
-                stddevs.push_back({m, val});
+                stddevs.emplace_back(m, val);
             }
             // Sort by stddev descending
             std::sort(stddevs.begin(), stddevs.end(), [](const auto& a, const auto& b) {
@@ -1359,26 +1543,21 @@ nlohmann::json DbClient::GetDatasetMetricsSummary(const std::string& run_id) {
     return out;
 }
 
-std::string DbClient::CreateScoreJob(const std::string& dataset_id, 
-                                    const std::string& model_run_id,
-                                    const std::string& request_id) {
-    try {
+auto DbClient::CreateScoreJob(const std::string& dataset_id, 
+                               const std::string& model_run_id,
+                               const std::string& request_id) -> std::string {    try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
         // Check if job already exists
-        auto existing = W.exec_params(
-            "SELECT job_id FROM dataset_score_jobs WHERE dataset_id = $1 AND model_run_id = $2 "
-            "AND status IN ('PENDING', 'RUNNING')",
-            dataset_id, model_run_id);
-        if (!existing.empty()) return existing[0][0].as<std::string>();
+        auto existing = PQXX_EXEC_PREPPED(W, "check_score_job_exists",
+             dataset_id, model_run_id);
+        if (!existing.empty()) { return existing[0][0].as<std::string>(); }
 
-        auto res = W.exec_params(
-            "INSERT INTO dataset_score_jobs (dataset_id, model_run_id, status, request_id) "
-            "VALUES ($1, $2, 'PENDING', $3) RETURNING job_id",
-            dataset_id, model_run_id, request_id);
+        auto res = PQXX_EXEC_PREPPED(W, "insert_score_job",
+             dataset_id, model_run_id, request_id);
         W.commit();
-        if (!res.empty()) return res[0][0].as<std::string>();
+        if (!res.empty()) { return res[0][0].as<std::string>(); }
     } catch (const std::exception& e) {
         spdlog::error("Failed to create score job: {}", e.what());
         throw;
@@ -1386,30 +1565,23 @@ std::string DbClient::CreateScoreJob(const std::string& dataset_id,
     return "";
 }
 
-void DbClient::UpdateScoreJob(const std::string& job_id,
-                              const std::string& status,
-                              long total_rows,
-                              long processed_rows,
-                              long last_record_id,
-                              const std::string& error) {
-    try {
+auto DbClient::UpdateScoreJob(const std::string& job_id,
+                        const std::string& status,
+                        long total_rows,
+                        long processed_rows,
+                        long last_record_id,
+                        const std::string& error) -> void {    try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         if (status == "COMPLETED") {
-            W.exec_params(
-                "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, updated_at=NOW(), completed_at=NOW() "
-                "WHERE job_id=$5",
-                status, total_rows, processed_rows, last_record_id, job_id);
+            PQXX_EXEC_PREPPED(W, "update_score_job_completed",
+                 status, total_rows, processed_rows, last_record_id, job_id);
         } else if (!error.empty()) {
-            W.exec_params(
-                "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, error=$5, updated_at=NOW() "
-                "WHERE job_id=$6",
-                status, total_rows, processed_rows, last_record_id, error, job_id);
+            PQXX_EXEC_PREPPED(W, "update_score_job_error",
+                 status, total_rows, processed_rows, last_record_id, error, job_id);
         } else {
-            W.exec_params(
-                "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, updated_at=NOW() "
-                "WHERE job_id=$5",
-                status, total_rows, processed_rows, last_record_id, job_id);
+            PQXX_EXEC_PREPPED(W, "update_score_job_status",
+                 status, total_rows, processed_rows, last_record_id, job_id);
         }
         W.commit();
     } catch (const std::exception& e) {
@@ -1417,15 +1589,13 @@ void DbClient::UpdateScoreJob(const std::string& job_id,
     }
 }
 
-nlohmann::json DbClient::GetScoreJob(const std::string& job_id) {
+auto DbClient::GetScoreJob(const std::string& job_id) -> nlohmann::json {
     nlohmann::json j;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
-        auto res = N.exec_params(
-            "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, last_record_id, error, created_at, updated_at, completed_at, request_id "
-            "FROM dataset_score_jobs WHERE job_id = $1",
-            job_id);
+        auto res = PQXX_EXEC_PREPPED(N, "get_score_job",
+             job_id);
         if (!res.empty()) {
             j["job_id"] = res[0][0].as<std::string>();
             j["dataset_id"] = res[0][1].as<std::string>();
@@ -1446,13 +1616,14 @@ nlohmann::json DbClient::GetScoreJob(const std::string& job_id) {
     return j;
 }
 
-nlohmann::json DbClient::ListScoreJobs(int limit,
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+auto DbClient::ListScoreJobs(int limit,
                                        int offset,
                                        const std::string& status,
                                        const std::string& dataset_id,
                                        const std::string& model_run_id,
                                        const std::string& created_from,
-                                       const std::string& created_to) {
+                                       const std::string& created_to) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -1461,21 +1632,21 @@ nlohmann::json DbClient::ListScoreJobs(int limit,
             "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, last_record_id, error, created_at, updated_at, completed_at "
             "FROM dataset_score_jobs ";
         std::vector<std::string> where;
-        if (!status.empty()) where.push_back("status = " + N.quote(status));
-        if (!dataset_id.empty()) where.push_back("dataset_id = " + N.quote(dataset_id));
-        if (!model_run_id.empty()) where.push_back("model_run_id = " + N.quote(model_run_id));
-        if (!created_from.empty()) where.push_back("created_at >= " + N.quote(created_from));
-        if (!created_to.empty()) where.push_back("created_at <= " + N.quote(created_to));
+        if (!status.empty()) { where.push_back("status = " + N.quote(status)); }
+        if (!dataset_id.empty()) { where.push_back("dataset_id = " + N.quote(dataset_id)); }
+        if (!model_run_id.empty()) { where.push_back("model_run_id = " + N.quote(model_run_id)); }
+        if (!created_from.empty()) { where.push_back("created_at >= " + N.quote(created_from)); }
+        if (!created_to.empty()) { where.push_back("created_at <= " + N.quote(created_to)); }
         if (!where.empty()) {
             query += "WHERE ";
             for (size_t i = 0; i < where.size(); ++i) {
                 query += where[i];
-                if (i + 1 < where.size()) query += " AND ";
+                if (i + 1 < where.size()) { query += " AND "; }
             }
             query += " ";
         }
         query += "ORDER BY created_at DESC LIMIT $1 OFFSET $2";
-        auto res = N.exec_params(query, limit, offset);
+        auto res = PQXX_EXEC_PARAMS(N, query, limit, offset);
         for (const auto& row : res) {
             nlohmann::json j;
             j["job_id"] = row[0].as<std::string>();
@@ -1496,19 +1667,17 @@ nlohmann::json DbClient::ListScoreJobs(int limit,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
-std::vector<IDbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const std::string& dataset_id,
-                                                                        long last_record_id,
-                                                                        int limit) {
-    std::vector<IDbClient::ScoringRow> rows;
+auto DbClient::FetchScoringRowsAfterRecord(const std::string& dataset_id,
+                                                        long last_record_id,
+                                                        int limit) -> std::vector<IDbClient::ScoringRow> {    std::vector<IDbClient::ScoringRow> rows;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
-        auto res = N.exec_params(
-            "SELECT record_id, is_anomaly, cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate "
-            "FROM host_telemetry_archival WHERE run_id = $1 AND record_id > $2 ORDER BY record_id ASC LIMIT $3",
-            dataset_id, last_record_id, limit);
-        rows.reserve(res.size());
+        auto res = PQXX_EXEC_PREPPED(N, "fetch_scoring_rows",
+             dataset_id, last_record_id, limit);
+        rows.reserve(static_cast<size_t>(res.size()));
         for (const auto& row : res) {
             IDbClient::ScoringRow r;
             r.record_id = row[0].as<long>();
@@ -1527,30 +1696,28 @@ std::vector<IDbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const s
     return rows;
 }
 
-void DbClient::InsertDatasetScores(const std::string& dataset_id,
+auto DbClient::InsertDatasetScores(const std::string& dataset_id,
                                    const std::string& model_run_id,
-                                   const std::vector<std::pair<long, std::pair<double, bool>>>& scores) {
-    if (scores.empty()) return;
+                                   const std::vector<std::pair<long, std::pair<double, bool>>>& scores) -> void {
+    if (scores.empty()) { return; }
     auto start = std::chrono::steady_clock::now();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
-#if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
-        auto stream = pqxx::stream_to::table(
-            W,
-            pqxx::table_path{"dataset_scores"},
-            {"dataset_id",
-             "model_run_id",
-             "record_id",
-             "reconstruction_error",
-             "predicted_is_anomaly"});
-#else
         const std::vector<std::string> columns = {
             "dataset_id",
             "model_run_id",
             "record_id",
             "reconstruction_error",
             "predicted_is_anomaly"};
+#if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
+        auto stream = pqxx::stream_to::table(W, pqxx::table_path{"dataset_scores"}, 
+            {std::string_view("dataset_id"),
+             std::string_view("model_run_id"),
+             std::string_view("record_id"),
+             std::string_view("reconstruction_error"),
+             std::string_view("predicted_is_anomaly")});
+#else
         pqxx::stream_to stream(W, "dataset_scores", columns);
 #endif
         for (const auto& entry : scores) {
@@ -1572,8 +1739,8 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
         };
         if (telemetry::obs::HasContext()) {
             const auto& ctx = telemetry::obs::GetContext();
-            if (!ctx.request_id.empty()) fields["request_id"] = ctx.request_id;
-            if (!ctx.score_job_id.empty()) fields["score_job_id"] = ctx.score_job_id;
+            if (!ctx.request_id.empty()) { fields["request_id"] = ctx.request_id; }
+            if (!ctx.score_job_id.empty()) { fields["score_job_id"] = ctx.score_job_id; }
         }
         telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "db_insert", "db", fields);
     } catch (const std::exception& e) {
@@ -1583,15 +1750,11 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
     }
 }
 
-long DbClient::GetDatasetRecordCount(const std::string& dataset_id) {
+auto DbClient::GetDatasetRecordCount(const std::string& dataset_id) -> long {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
-#if defined(PQXX_VERSION_MAJOR) && (PQXX_VERSION_MAJOR >= 7)
-        auto res = N.exec_params("SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1", dataset_id);
-#else
-        auto res = N.exec_params("SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1", dataset_id);
-#endif
+        auto res = PQXX_EXEC_PREPPED(N, "get_dataset_record_count", dataset_id);
         return res.empty() ? 0 : res[0][0].as<long>();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get dataset record count: {}", e.what());
@@ -1599,13 +1762,14 @@ long DbClient::GetDatasetRecordCount(const std::string& dataset_id) {
     }
 }
 
-nlohmann::json DbClient::GetScores(const std::string& dataset_id,
-                                   const std::string& model_run_id,
-                                   int limit,
-                                   int offset,
-                                   bool only_anomalies,
-                                   double min_score,
-                                   double max_score) {
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+auto DbClient::GetScores(const std::string& dataset_id,
+                             const std::string& model_run_id,
+                             int limit,
+                             int offset,
+                             bool only_anomalies,
+                             double min_score,
+                             double max_score) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::object();
     out["items"] = nlohmann::json::array();
     auto start = std::chrono::steady_clock::now();
@@ -1629,7 +1793,7 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
             "FROM dataset_scores s JOIN host_telemetry_archival h ON s.record_id = h.record_id "
             + where + " ORDER BY s.reconstruction_error DESC, s.score_id DESC LIMIT $1 OFFSET $2";
         
-        auto res = N.exec_params(query, limit, offset);
+        auto res = PQXX_EXEC_PARAMS(N, query, limit, offset);
         for (const auto& row : res) {
             nlohmann::json j;
             j["score_id"] = row[0].as<long>();
@@ -1703,39 +1867,37 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
     };
     if (telemetry::obs::HasContext()) {
         const auto& ctx = telemetry::obs::GetContext();
-        if (!ctx.request_id.empty()) fields["request_id"] = ctx.request_id;
+        if (!ctx.request_id.empty()) { fields["request_id"] = ctx.request_id; }
     }
     telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "db_query", "db", fields);
     return out;
 }
 
-nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
-                                        const std::string& model_run_id,
-                                        int points,
-                                        int max_samples) {
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+auto DbClient::GetEvalMetrics(const std::string& dataset_id,
+                                  const std::string& model_run_id,
+                                  int points,
+                                  int max_samples) -> nlohmann::json {
     nlohmann::json out;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
-        auto res = N.exec_params(
-            "SELECT s.reconstruction_error, s.predicted_is_anomaly, h.is_anomaly "
-            "FROM dataset_scores s JOIN host_telemetry_archival h ON s.record_id = h.record_id "
-            "WHERE s.dataset_id = $1 AND s.model_run_id = $2",
-            dataset_id, model_run_id);
+        auto res = PQXX_EXEC_PREPPED(N, "get_eval_metrics",
+             dataset_id, model_run_id);
         struct EvalRow { double err; bool pred; bool label; };
         std::vector<EvalRow> samples;
-        samples.reserve(res.size());
+        samples.reserve(static_cast<size_t>(res.size()));
         for (const auto& row : res) {
             samples.push_back({row[0].as<double>(), row[1].as<bool>(), row[2].as<bool>()});
-            if (max_samples > 0 && static_cast<int>(samples.size()) >= max_samples) break;
+            if (max_samples > 0 && static_cast<int>(samples.size()) >= max_samples) { break; }
         }
 
         long tp = 0, fp = 0, tn = 0, fn = 0;
         for (const auto& s : samples) {
-            if (s.pred && s.label) tp++;
-            else if (s.pred && !s.label) fp++;
-            else if (!s.pred && !s.label) tn++;
-            else fn++;
+            if (s.pred && s.label) { tp++; }
+            else if (s.pred && !s.label) { fp++; }
+            else if (!s.pred && !s.label) { tn++; }
+            else { fn++; }
         }
         out["confusion"] = {{"tp", tp}, {"fp", fp}, {"tn", tn}, {"fn", fn}};
 
@@ -1748,22 +1910,21 @@ nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
         long positives = 0;
         long negatives = 0;
         for (const auto& s : samples) {
-            if (s.label) positives++;
-            else negatives++;
+            if (s.label) { positives++; }
+            else { negatives++; }
         }
 
         nlohmann::json roc = nlohmann::json::array();
         nlohmann::json pr = nlohmann::json::array();
         if (!samples.empty()) {
             for (int i = 0; i < n_points; ++i) {
-                size_t idx = static_cast<size_t>((static_cast<double>(i) / (n_points - 1)) * static_cast<double>(samples.size() - 1));
+                auto idx = static_cast<size_t>((static_cast<double>(i) / (n_points - 1)) * static_cast<double>(samples.size() - 1));
                 double threshold = samples[idx].err;
-                long ttp = 0, tfp = 0, tfn = 0;
+                long ttp = 0, tfp = 0;
                 for (const auto& s : samples) {
                     bool pred = s.err >= threshold;
-                    if (pred && s.label) ttp++;
-                    else if (pred && !s.label) tfp++;
-                    else if (!pred && s.label) tfn++;
+                    if (pred && s.label) { ttp++; }
+                    else if (pred && !s.label) { tfp++; }
                 }
                 double tpr = positives > 0 ? static_cast<double>(ttp) / static_cast<double>(positives) : 0.0;
                 double fpr = negatives > 0 ? static_cast<double>(tfp) / static_cast<double>(negatives) : 0.0;
@@ -1790,10 +1951,12 @@ nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
-nlohmann::json DbClient::GetErrorDistribution(const std::string& dataset_id,
-                                              const std::string& model_run_id,
-                                              const std::string& group_by) {
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+auto DbClient::GetErrorDistribution(const std::string& dataset_id,
+                                        const std::string& model_run_id,
+                                        const std::string& group_by) -> nlohmann::json {
     if (!IsValidDimension(group_by)) {
         throw std::invalid_argument("Invalid group_by: " + group_by);
     }
@@ -1801,7 +1964,7 @@ nlohmann::json DbClient::GetErrorDistribution(const std::string& dataset_id,
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
-        std::string col = group_by;
+        const std::string& col = group_by;
         std::string query =
             "SELECT " + col + ", "
             "COUNT(*), AVG(s.reconstruction_error), "
@@ -1827,29 +1990,30 @@ nlohmann::json DbClient::GetErrorDistribution(const std::string& dataset_id,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
-void DbClient::DeleteDatasetWithScores(const std::string& dataset_id) {
+auto DbClient::DeleteDatasetWithScores(const std::string& dataset_id) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
 
         // 1. Delete scores
-        W.exec_params("DELETE FROM dataset_scores WHERE dataset_id = $1", dataset_id);
+        PQXX_EXEC_PREPPED(W, "delete_dataset_scores", dataset_id);
         
         // 2. Delete score jobs
-        W.exec_params("DELETE FROM dataset_score_jobs WHERE dataset_id = $1", dataset_id);
+        PQXX_EXEC_PREPPED(W, "delete_dataset_score_jobs", dataset_id);
         
         // 3. Delete telemetry (archival)
-        W.exec_params("DELETE FROM host_telemetry_archival WHERE run_id = $1", dataset_id);
+        PQXX_EXEC_PREPPED(W, "delete_host_telemetry", dataset_id);
         
         // 4. Delete alerts
-        W.exec_params("DELETE FROM alerts WHERE run_id = $1", dataset_id);
+        PQXX_EXEC_PREPPED(W, "delete_alerts", dataset_id);
 
         // 5. Delete model runs
-        W.exec_params("DELETE FROM model_runs WHERE dataset_id = $1", dataset_id);
+        PQXX_EXEC_PREPPED(W, "delete_model_runs", dataset_id);
 
         // 6. Delete the run itself
-        W.exec_params("DELETE FROM generation_runs WHERE run_id = $1", dataset_id);
+        PQXX_EXEC_PREPPED(W, "delete_generation_run", dataset_id);
 
         W.commit();
         spdlog::info("Successfully deleted dataset {} and all associated data.", dataset_id);
@@ -1859,18 +2023,18 @@ void DbClient::DeleteDatasetWithScores(const std::string& dataset_id) {
     }
 }
 
-nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
-                                              int limit,
-                                              int offset,
-                                              const std::string& start_time,
-                                              const std::string& end_time,
-                                              const std::string& is_anomaly,
-                                              const std::string& anomaly_type,
-                                              const std::string& host_id,
-                                              const std::string& region,
-                                              const std::string& sort_by,
-                                              const std::string& sort_order,
-                                              const std::string& anchor_time) {
+auto DbClient::SearchDatasetRecords(const std::string& run_id,
+                                        int limit,
+                                        int offset,
+                                        const std::string& start_time,
+                                        const std::string& end_time,
+                                        const std::string& is_anomaly,
+                                        const std::string& anomaly_type,
+                                        const std::string& host_id,
+                                        const std::string& region,
+                                        const std::string& sort_by,
+                                        const std::string& sort_order,
+                                        const std::string& anchor_time) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)
     nlohmann::json out = nlohmann::json::object();
     out["items"] = nlohmann::json::array();
     try {
@@ -1892,8 +2056,8 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
         }
 
         std::string where = "WHERE run_id = " + N.quote(run_id);
-        if (!start_time.empty()) where += " AND metric_timestamp >= " + N.quote(start_time);
-        if (!end_time.empty()) where += " AND metric_timestamp <= " + N.quote(end_time);
+        if (!start_time.empty()) { where += " AND metric_timestamp >= " + N.quote(start_time); }
+        if (!end_time.empty()) { where += " AND metric_timestamp <= " + N.quote(end_time); }
         if (!anchor_time.empty()) {
             if (sort_dir == "asc") {
                 where += " AND metric_timestamp >= " + N.quote(anchor_time);
@@ -1901,17 +2065,17 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
                 where += " AND metric_timestamp <= " + N.quote(anchor_time);
             }
         }
-        if (!is_anomaly.empty()) where += " AND is_anomaly = " + N.quote(is_anomaly == "true");
-        if (!anomaly_type.empty()) where += " AND anomaly_type = " + N.quote(anomaly_type);
-        if (!host_id.empty()) where += " AND host_id = " + N.quote(host_id);
-        if (!region.empty()) where += " AND region = " + N.quote(region);
+        if (!is_anomaly.empty()) { where += " AND is_anomaly = " + N.quote(is_anomaly == "true"); }
+        if (!anomaly_type.empty()) { where += " AND anomaly_type = " + N.quote(anomaly_type); }
+        if (!host_id.empty()) { where += " AND host_id = " + N.quote(host_id); }
+        if (!region.empty()) { where += " AND region = " + N.quote(region); }
 
         std::string query =
             "SELECT record_id, host_id, metric_timestamp, cpu_usage, memory_usage, disk_utilization, "
             "network_rx_rate, network_tx_rate, is_anomaly, anomaly_type, region, project_id, labels "
             "FROM host_telemetry_archival " + where + " ORDER BY " + sort_column + " " + sort_dir + " LIMIT $1 OFFSET $2";
             
-        auto res = N.exec_params(query, limit, offset);
+        auto res = PQXX_EXEC_PARAMS(N, query, limit, offset);
         for (const auto& row : res) {
             nlohmann::json j;
             j["record_id"] = row[0].as<long>();
@@ -1951,14 +2115,14 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
     return out;
 }
 
-bool DbClient::TryTransitionModelRunStatus(const std::string& model_run_id,
+auto DbClient::TryTransitionModelRunStatus(const std::string& model_run_id,
                                            const std::string& expected_current,
-                                           const std::string& next_status) {
+                                           const std::string& next_status) -> bool { // NOLINT(bugprone-easily-swappable-parameters)
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
-        auto res = W.exec_params("UPDATE model_runs SET status = $1 WHERE model_run_id = $2 AND status = $3",
-                                 next_status, model_run_id, expected_current);
+        auto res = PQXX_EXEC_PREPPED(W, "transition_model_run_status",
+                                  next_status, model_run_id, expected_current);
         W.commit();
         return res.affected_rows() > 0;
     } catch (const std::exception& e) {
@@ -1967,14 +2131,14 @@ bool DbClient::TryTransitionModelRunStatus(const std::string& model_run_id,
     }
 }
 
-bool DbClient::TryTransitionScoreJobStatus(const std::string& job_id,
+auto DbClient::TryTransitionScoreJobStatus(const std::string& job_id,
                                            const std::string& expected_current,
-                                           const std::string& next_status) {
+                                           const std::string& next_status) -> bool { // NOLINT(bugprone-easily-swappable-parameters)
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
-        auto res = W.exec_params("UPDATE dataset_score_jobs SET status = $1, updated_at = NOW() WHERE job_id = $2 AND status = $3",
-                                 next_status, job_id, expected_current);
+        auto res = PQXX_EXEC_PREPPED(W, "transition_score_job_status",
+                                  next_status, job_id, expected_current);
         W.commit();
         return res.affected_rows() > 0;
     } catch (const std::exception& e) {
@@ -1982,3 +2146,9 @@ bool DbClient::TryTransitionScoreJobStatus(const std::string& job_id,
         return false;
     }
 }
+
+#if defined(__clang__)
+  #pragma clang diagnostic pop
+#elif defined(__GNUC__)
+  #pragma GCC diagnostic pop
+#endif

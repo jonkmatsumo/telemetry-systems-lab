@@ -12,40 +12,39 @@
 #include "obs/metrics.h"
 #include "obs/error_codes.h"
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 using json = nlohmann::json;
 
-static linalg::Vector vec_sub(const linalg::Vector& a, const linalg::Vector& b) {
-    if (a.size() != b.size()) throw std::runtime_error("vec_sub dimension mismatch");
+static auto vec_sub(const linalg::Vector& a, const linalg::Vector& b) -> linalg::Vector {
+    if (a.size() != b.size()) { throw std::runtime_error("vec_sub dimension mismatch"); }
     linalg::Vector out(a.size(), 0.0);
-    for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] - b[i];
+    for (size_t i = 0; i < a.size(); ++i) { out[i] = a[i] - b[i]; }
     return out;
 }
 
-static linalg::Vector vec_add(const linalg::Vector& a, const linalg::Vector& b) {
-    if (a.size() != b.size()) throw std::runtime_error("vec_add dimension mismatch");
+static auto vec_add(const linalg::Vector& a, const linalg::Vector& b) -> linalg::Vector {
+    if (a.size() != b.size()) { throw std::runtime_error("vec_add dimension mismatch"); }
     linalg::Vector out(a.size(), 0.0);
-    for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] + b[i];
+    for (size_t i = 0; i < a.size(); ++i) { out[i] = a[i] + b[i]; }
     return out;
 }
 
-static linalg::Vector vec_div(const linalg::Vector& a, const linalg::Vector& b) {
-    if (a.size() != b.size()) throw std::runtime_error("vec_div dimension mismatch");
+static auto vec_div(const linalg::Vector& a, const linalg::Vector& b) -> linalg::Vector {
+    if (a.size() != b.size()) { throw std::runtime_error("vec_div dimension mismatch"); }
     linalg::Vector out(a.size(), 0.0);
-    for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] / b[i];
+    for (size_t i = 0; i < a.size(); ++i) { out[i] = a[i] / b[i]; }
     return out;
 }
 
-void PcaModel::Load(const std::string& artifact_path) {
+auto PcaModel::Load(const std::string& artifact_path) -> void {
     auto start = std::chrono::steady_clock::now();
     nlohmann::json start_fields = {{"artifact_path", artifact_path}};
     if (telemetry::obs::HasContext()) {
         const auto& ctx = telemetry::obs::GetContext();
-        if (!ctx.request_id.empty()) start_fields["request_id"] = ctx.request_id;
-        if (!ctx.model_run_id.empty()) start_fields["model_run_id"] = ctx.model_run_id;
-        if (!ctx.inference_run_id.empty()) start_fields["inference_run_id"] = ctx.inference_run_id;
+        if (!ctx.request_id.empty()) { start_fields["request_id"] = ctx.request_id; }
+        if (!ctx.model_run_id.empty()) { start_fields["model_run_id"] = ctx.model_run_id; }
+        if (!ctx.inference_run_id.empty()) { start_fields["inference_run_id"] = ctx.inference_run_id; }
     }
     telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "model_load_start", "model", start_fields);
     std::ifstream f(artifact_path);
@@ -75,9 +74,9 @@ void PcaModel::Load(const std::string& artifact_path) {
     // Components are stored as list of lists (k x d)
     auto raw_components = j["model"]["components"].get<std::vector<std::vector<double>>>();
     int k = static_cast<int>(raw_components.size());
-    if (k == 0) throw std::runtime_error("No PCA components found");
+    if (k == 0) { throw std::runtime_error("No PCA components found"); }
     int d = static_cast<int>(raw_components[0].size());
-    if (d != FeatureVector::kSize) throw std::runtime_error("Dimension mismatch in PCA components");
+    if (d != FeatureVector::kSize) { throw std::runtime_error("Dimension mismatch in PCA components"); }
 
     // Copy to matrix
     components_ = linalg::Matrix(static_cast<size_t>(k), static_cast<size_t>(d));
@@ -112,9 +111,9 @@ void PcaModel::Load(const std::string& artifact_path) {
     telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "model_load_end", "model", end_fields);
 }
 
-PcaScore PcaModel::Score(const FeatureVector& vec) const {
+auto PcaModel::Score(const FeatureVector& vec) const -> PcaScore {
     PcaScore result;
-    if (!loaded_) return result;
+    if (!loaded_) { return result; }
 
     // Adapt FeatureVector to vector
     // Note: FeatureVector is std::array, guaranteed contiguous
@@ -155,5 +154,13 @@ PcaScore PcaModel::Score(const FeatureVector& vec) const {
     return result;
 }
 
-} // namespace anomaly
-} // namespace telemetry
+auto PcaModel::EstimateMemoryUsage() const -> size_t {
+    size_t usage = sizeof(PcaModel);
+    usage += cur_mean_.size() * sizeof(double);
+    usage += cur_scale_.size() * sizeof(double);
+    usage += components_.data.size() * sizeof(double);
+    usage += pca_mean_.size() * sizeof(double);
+    return usage;
+}
+
+} // namespace telemetry::anomaly

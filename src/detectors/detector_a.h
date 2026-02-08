@@ -10,8 +10,7 @@
 #include "../contract.h"
 #include "../detector_config.h"
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 struct AnomalyScore {
     bool is_anomaly = false;
@@ -24,7 +23,7 @@ public:
     explicit DetectorA(const WindowConfig& win_config, const OutlierConfig& outlier_config);
 
     // Update state with new vector and return score
-    AnomalyScore Update(const FeatureVector& vec);
+    auto Update(const FeatureVector& vec) -> AnomalyScore;
 
 private:
     struct MetricState {
@@ -37,16 +36,16 @@ private:
         double mad = 0.0; // Median Absolute Deviation
         
         // Compute Mean/Std from sum/sum_sq
-        double Mean(size_t n) const { return n > 0 ? sum / static_cast<double>(n) : 0.0; }
-        double Std(size_t n) const {
-            if (n < 2) return 0.0;
+        [[nodiscard]] auto Mean(size_t n) const -> double { return n > 0 ? sum / static_cast<double>(n) : 0.0; }
+        [[nodiscard]] auto Std(size_t n) const -> double {
+            if (n < 2) { return 0.0; }
             double mean = Mean(n);
             double variance = (sum_sq / static_cast<double>(n)) - (mean * mean);
             return variance > 0 ? std::sqrt(variance) : 0.0;
         }
     };
 
-    void UpdateRobustStats(MetricState& state);
+    auto UpdateRobustStats(MetricState& state) -> void;
 
     WindowConfig win_config_;
     OutlierConfig outlier_config_;
@@ -55,5 +54,4 @@ private:
     long update_count_ = 0;
 };
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly

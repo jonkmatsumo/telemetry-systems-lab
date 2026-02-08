@@ -60,7 +60,7 @@ TEST_F(JobManagerTest, AllowsJobAfterCompletion) {
     // Wait slightly for job1 to finish
     int retries = 100;
     while (retries-- > 0) {
-        if (manager.GetStatus("job1") == JobStatus::COMPLETED) break;
+        if (manager.GetStatus("job1") == JobStatus::COMPLETED) { break; }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     EXPECT_EQ(manager.GetStatus("job1"), JobStatus::COMPLETED);
@@ -103,7 +103,7 @@ TEST_F(JobManagerTest, CanCancelJob) {
     // Wait for job1 to register cancellation
     int retries = 100;
     while (retries-- > 0) {
-        if (manager.GetStatus("job1") == JobStatus::CANCELLED) break;
+        if (manager.GetStatus("job1") == JobStatus::CANCELLED) { break; }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     

@@ -18,7 +18,7 @@
 using namespace telemetry;
 using namespace telemetry::anomaly;
 
-int main(int argc, char** argv) {
+auto main(int argc, char** argv) -> int {
     // Initialize logger
     auto console = spdlog::stdout_color_mt("console");
     spdlog::set_default_logger(console);
@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
         for (const auto& host : hosts) {
             // Sharding Check
             size_t h = std::hash<std::string>{}(host);
-            if ((h % num_shards) != (size_t)shard_id) {
+            if ((h % static_cast<size_t>(num_shards)) != static_cast<size_t>(shard_id)) {
                 continue; // Not my shard
             }
 
@@ -98,7 +98,9 @@ int main(int argc, char** argv) {
             r.cpu_usage = 50.0 + (i % 10); 
             r.memory_usage = 60.0;
             // Diff behavior for host-2 to see variety
-            if (host == "host-2") r.cpu_usage += 20.0;
+            if (host == "host-2") {
+                r.cpu_usage += 20.0;
+            }
 
             r.disk_utilization = 30.0;
             r.network_rx_rate = 100.0;
@@ -195,9 +197,9 @@ int main(int argc, char** argv) {
 
             // 4. Fuse & Alert
             std::string combined_details;
-            if (flag_a) combined_details += "[A:" + details_a + "] ";
-            if (run_b && flag_b) combined_details += "[B:" + details_b + "] ";
-            if (!run_b) combined_details += "[B:SKIPPED] ";
+            if (flag_a) { combined_details += "[A:" + details_a + "] "; }
+            if (run_b && flag_b) { combined_details += "[B:" + details_b + "] "; }
+            if (!run_b) { combined_details += "[B:SKIPPED] "; }
 
             std::vector<Alert> alerts = alert_manager.Evaluate(
                 r.host_id, r.run_id, r.metric_timestamp,

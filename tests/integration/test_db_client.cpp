@@ -24,12 +24,12 @@ protected:
 #include <uuid/uuid.h>
 
 // Helper
-std::string GenerateUUID() {
+auto GenerateUUID() -> std::string {
     uuid_t binuuid;
     uuid_generate_random(binuuid);
-    char uuid[37];
-    uuid_unparse_lower(binuuid, uuid);
-    return std::string(uuid);
+    std::string out(36, '\0');
+    uuid_unparse_lower(binuuid, out.data());
+    return {out};
 }
 
 TEST_F(DbClientTest, CreateAndUpdateRun) {
@@ -310,6 +310,12 @@ TEST_F(DbClientTest, DeleteDatasetWithScores) {
     rec.project_id = "proj-1";
     rec.region = "us-test";
     rec.labels_json = "{}";
+    rec.cpu_usage = 10.0;
+    rec.memory_usage = 20.0;
+    rec.disk_utilization = 30.0;
+    rec.network_rx_rate = 40.0;
+    rec.network_tx_rate = 50.0;
+    rec.is_anomaly = false;
     client.BatchInsertTelemetry({rec});
     
     // Need a record_id to insert scores. Fetch it back.
@@ -363,6 +369,12 @@ TEST_F(DbClientTest, GetTopKTruncation) {
     rec.host_id = "host-1";
     rec.project_id = "proj-1";
     rec.labels_json = "{}";
+    rec.cpu_usage = 10.0;
+    rec.memory_usage = 20.0;
+    rec.disk_utilization = 30.0;
+    rec.network_rx_rate = 40.0;
+    rec.network_tx_rate = 50.0;
+    rec.is_anomaly = false;
     
     rec.region = "region-1";
     client.BatchInsertTelemetry({rec});

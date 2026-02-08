@@ -8,8 +8,7 @@
 #include <chrono>
 #include <string>
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
 class ApiServerSafetyTest : public ::testing::Test {
 protected:
@@ -46,7 +45,7 @@ TEST_F(ApiServerSafetyTest, RejectsOversizedPayload) {
     httplib::Client cli(host, port);
     
     // Create > 50MB payload
-    std::string large_body(1024 * 1024 * 51, 'a');
+    std::string large_body(static_cast<std::string::size_type>(1024ull * 1024ull * 51ull), 'a');
     
     auto res = cli.Post("/datasets", large_body, "application/json");
     
@@ -64,8 +63,9 @@ TEST_F(ApiServerSafetyTest, InferenceValidatesCount) {
     nlohmann::json body;
     body["model_run_id"] = "test_model";
     std::vector<nlohmann::json> samples;
+    samples.reserve(1001);
     for(int i=0; i<1001; ++i) {
-        samples.push_back({{"cpu_usage", 0.5}});
+        samples.emplace_back(nlohmann::json{{"cpu_usage", 0.5}});
     }
     body["samples"] = samples;
     
@@ -96,5 +96,4 @@ TEST_F(ApiServerSafetyTest, InferenceValidatesFeatureSize) {
     // Let's stick to that.
 }
 
-} // namespace api
-} // namespace telemetry
+} // namespace telemetry::api

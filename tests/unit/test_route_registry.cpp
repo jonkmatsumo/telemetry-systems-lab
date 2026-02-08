@@ -2,8 +2,7 @@
 #include "route_registry.h"
 #include <set>
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
 TEST(RouteRegistryTest, BasicInvariants) {
     EXPECT_FALSE(kRequiredRoutes.empty());
@@ -20,5 +19,4 @@ TEST(RouteRegistryTest, ExpectedCount) {
     EXPECT_EQ(kRequiredRoutes.size(), 35);
 }
 
-} // namespace api
-} // namespace telemetry
+} // namespace telemetry::api

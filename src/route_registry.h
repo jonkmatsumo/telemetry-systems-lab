@@ -3,8 +3,7 @@
 #include <string>
 #include <vector>
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
 struct RouteSpec {
     std::string method;
@@ -14,5 +13,4 @@ struct RouteSpec {
 
 extern const std::vector<RouteSpec> kRequiredRoutes;
 
-} // namespace api
-} // namespace telemetry
+} // namespace telemetry::api

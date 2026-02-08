@@ -5,8 +5,7 @@
 #include <unordered_map>
 #include <set>
 
-namespace telemetry {
-namespace job {
+namespace telemetry::job {
 
 /**
  * @brief Represents the possible states of a job or run.
@@ -19,8 +18,8 @@ enum class JobState {
     CANCELLED
 };
 
-std::string StateToString(JobState state);
-JobState StringToState(const std::string& state_str);
+auto StateToString(JobState state) -> std::string;
+auto StringToState(const std::string& state_str) -> JobState;
 
 /**
  * @brief Manages valid state transitions for jobs.
@@ -30,18 +29,17 @@ public:
     /**
      * @brief Checks if a transition from current_state to next_state is allowed.
      */
-    static bool IsTransitionAllowed(JobState current, JobState next);
+    static auto IsTransitionAllowed(JobState current, JobState next) -> bool;
 
     /**
      * @brief Returns the set of valid next states from the current state.
      */
-    static std::set<JobState> GetValidNextStates(JobState current);
+    static auto GetValidNextStates(JobState current) -> std::set<JobState>;
 
     /**
      * @brief Checks if a state is terminal (no further transitions allowed).
      */
-    static bool IsTerminal(JobState state);
+    static auto IsTerminal(JobState state) -> bool;
 };
 
-} // namespace job
-} // namespace telemetry
+} // namespace telemetry::job

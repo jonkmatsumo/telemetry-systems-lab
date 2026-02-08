@@ -13,7 +13,7 @@
 #include <sstream>
 
 // Helper to parse ISO string
-std::chrono::system_clock::time_point ParseTime(const std::string& iso) {
+auto ParseTime(const std::string& iso) -> std::chrono::system_clock::time_point {
     std::tm tm = {};
     std::stringstream ss(iso);
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%SZ"); // Expect Zulu for simplicity in MVP
@@ -24,11 +24,57 @@ std::chrono::system_clock::time_point ParseTime(const std::string& iso) {
 Generator::Generator(const telemetry::GenerateRequest& request, 
                      std::string run_id, 
                      std::shared_ptr<IDbClient> db_client)
-    : config_(request), run_id_(run_id), db_(db_client), rng_(request.seed()) {
+    : config_(request), run_id_(std::move(run_id)), db_(std::move(db_client)), rng_(static_cast<unsigned long long>(request.seed())) {
+    
+    const char* env_queue_size = std::getenv("GENERATOR_WRITE_QUEUE_SIZE");
+    if (env_queue_size) {
+        try { max_queue_size_ = std::stoul(env_queue_size); } catch (...) {}
+    }
 }
 
+Generator::~Generator() {
+    writer_running_ = false;
+    queue_cv_.notify_all();
+    if (writer_thread_ && writer_thread_->joinable()) {
+        writer_thread_->join();
+    }
+}
 
-void Generator::InitializeHosts() {
+auto Generator::EnqueueBatch(std::vector<TelemetryRecord> batch) -> void {
+    std::unique_lock<std::mutex> lock(queue_mutex_);
+    if (write_queue_.size() >= max_queue_size_) {
+        telemetry::obs::EmitCounter("generator_dropped_batches", 1, "batches", "generator");
+        spdlog::warn("Generator write queue full ({} batches). Dropping batch.", write_queue_.size());
+        return;
+    }
+    write_queue_.push(std::move(batch));
+    queue_cv_.notify_one();
+}
+
+auto Generator::WriterLoop() -> void {
+    spdlog::info("Generator writer thread started for run {}", run_id_);
+    while (writer_running_) {
+        std::vector<TelemetryRecord> batch;
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex_);
+            queue_cv_.wait(lock, [this]() { return !write_queue_.empty() || !writer_running_; });
+            if (!writer_running_ && write_queue_.empty()) { break; }
+            if (write_queue_.empty()) { continue; }
+            batch = std::move(write_queue_.front());
+            write_queue_.pop();
+        }
+        
+        try {
+            db_->BatchInsertTelemetry(batch);
+            telemetry::obs::EmitGauge("generator_write_queue_size", static_cast<double>(write_queue_.size()), "batches", "generator");
+        } catch (const std::exception& e) {
+            spdlog::error("Async DB write failed for run {}: {}", run_id_, e.what());
+        }
+    }
+    spdlog::info("Generator writer thread stopped for run {}", run_id_);
+}
+
+auto Generator::InitializeHosts() -> void {
     // Make a copy of the RNG for init so we don't advance the main sequence
     // Or just use the main RNG. Let's use the main RNG for consistency.
     std::uniform_real_distribution<double> cpu_dist(10.0, 60.0); // Baseline averages
@@ -37,13 +83,13 @@ void Generator::InitializeHosts() {
     // Pick region (round robin or random)
     // Minimal set of regions if not provided
     std::vector<std::string> regions = {config_.regions().begin(), config_.regions().end()};
-    if (regions.empty()) regions = {"us-east1", "us-west1", "eu-west1"};
+    if (regions.empty()) { regions = {"us-east1", "us-west1", "eu-west1"}; }
     
     for (int i = 0; i < config_.host_count(); ++i) {
         HostProfile h;
         h.host_id = fmt::format("host-{}-{}", config_.tier(), i);
         h.project_id = "proj-" + config_.tier(); // keeping simple
-        h.region = regions[i % regions.size()];
+        h.region = regions[static_cast<size_t>(i) % regions.size()];
         h.cpu_base = cpu_dist(rng_);
         h.mem_base = h.cpu_base * 0.8 + 10.0; // simple correlation for base
         h.phase_shift = phase_dist(rng_);
@@ -52,13 +98,13 @@ void Generator::InitializeHosts() {
     }
 }
 
-TelemetryRecord Generator::GenerateRecord(const HostProfile& host, 
-                                          std::chrono::system_clock::time_point timestamp) {
+auto Generator::GenerateRecord(const HostProfile& host, 
+                                          std::chrono::system_clock::time_point timestamp) -> TelemetryRecord {
     // Mutable host state requires passing by non-const reference or managing state elsewhere.
     // Since we are iterating, let's cast away constness or update the vector in the loop.
     // For MVP, we'll do the latter in the calling loop or just accept the const_cast for state updates 
     // (dirty but keeps signature simple for now).
-    HostProfile& mutable_host = const_cast<HostProfile&>(host);
+    auto& mutable_host = const_cast<HostProfile&>(host);
 
     TelemetryRecord r;
     r.metric_timestamp = timestamp;
@@ -97,7 +143,7 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
         type = "COLLECTIVE_BURST";
     } else if (config_.has_anomaly_config() && p < config_.anomaly_config().collective_rate()) {
         mutable_host.burst_remaining = config_.anomaly_config().burst_duration_points();
-        if (mutable_host.burst_remaining == 0) mutable_host.burst_remaining = 5; // default
+        if (mutable_host.burst_remaining == 0) { mutable_host.burst_remaining = 5; } // default
         cpu += 40.0;
         is_anomaly = true;
         type = "COLLECTIVE_BURST";
@@ -174,7 +220,7 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
     // Ingestion Lag
     // Use fixed lag from config or default 2000ms
     int lag_ms = config_.timing_config().fixed_lag_ms();
-    if (lag_ms == 0) lag_ms = 2000;
+    if (lag_ms == 0) { lag_ms = 2000; }
     
     // Add jitter (simple uniform for MVP, lognormal in full impl)
     std::uniform_int_distribution<int> jitter_dist(0, 500);
@@ -187,7 +233,7 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
 }
 
 
-void Generator::Run() {
+auto Generator::Run() -> void {
     spdlog::info("Starting generation run {} (req_id: {})", run_id_, config_.request_id());
     auto start_time = std::chrono::steady_clock::now();
     long write_batches = 0;
@@ -200,18 +246,22 @@ void Generator::Run() {
     try {
         db_->CreateRun(run_id_, config_, "RUNNING", config_.request_id());
         
+        writer_running_ = true;
+        writer_thread_ = std::make_unique<std::thread>(&Generator::WriterLoop, this);
+
         InitializeHosts();
         
         auto start = ParseTime(config_.start_time_iso());
         auto end = ParseTime(config_.end_time_iso());
         auto duration = std::chrono::seconds(config_.interval_seconds());
-        if (duration.count() == 0) duration = std::chrono::seconds(600); // default 10m
+        if (duration.count() == 0) { duration = std::chrono::seconds(600); } // default 10m
         
         long total_rows = 0;
         std::vector<TelemetryRecord> batch;
         const int BATCH_SIZE = 5000;
         
         for (auto t = start; t < end; t += duration) {
+            db_->Heartbeat(IDbClient::JobType::Generation, run_id_);
             if (stop_flag_ && stop_flag_->load()) {
                 spdlog::info("Generation run {} cancelled by request.", run_id_);
                 db_->UpdateRunStatus(run_id_, "CANCELLED", total_rows);
@@ -220,11 +270,12 @@ void Generator::Run() {
             for (const auto& host : hosts_) {
                 batch.push_back(GenerateRecord(host, t));
                 if (batch.size() >= BATCH_SIZE) {
-                    db_->BatchInsertTelemetry(batch);
-                    write_batches += 1;
-                    total_rows += batch.size();
-                    db_->UpdateRunStatus(run_id_, "RUNNING", total_rows);
+                    EnqueueBatch(std::move(batch));
                     batch.clear();
+                    
+                    write_batches += 1;
+                    total_rows += BATCH_SIZE;
+                    db_->UpdateRunStatus(run_id_, "RUNNING", total_rows);
                     
                     if (stop_flag_ && stop_flag_->load()) {
                         spdlog::info("Generation run {} cancelled by request.", run_id_);
@@ -237,11 +288,20 @@ void Generator::Run() {
         
         // Final batch
         if (!batch.empty()) {
-            db_->BatchInsertTelemetry(batch);
+            total_rows += static_cast<long>(batch.size());
+            EnqueueBatch(std::move(batch));
             write_batches += 1;
-            total_rows += batch.size();
         }
         
+        // Wait for writer to finish before marking SUCCEEDED
+        while (true) {
+            {
+                std::lock_guard<std::mutex> lock(queue_mutex_);
+                if (write_queue_.empty()) { break; }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
         spdlog::info("Generation run {} complete. Total rows: {}", run_id_, total_rows);
         db_->UpdateRunStatus(run_id_, "SUCCEEDED", total_rows);
         auto end_time = std::chrono::steady_clock::now();
