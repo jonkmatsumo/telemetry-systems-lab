@@ -6,14 +6,15 @@
 #include <uuid/uuid.h>
 #include <thread>
 #include <chrono>
+#include <array>
 
 // Helper to generate UUID string
 auto GenerateUUID() -> std::string {
     uuid_t binuuid;
     uuid_generate_random(binuuid);
-    char uuid[37];
-    uuid_unparse_lower(binuuid, uuid);
-    return std::string(uuid);
+    std::array<char, 37> uuid{};
+    uuid_unparse_lower(binuuid, uuid.data());
+    return std::string(uuid.data());
 }
 
 auto TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* context, const GenerateRequest* request,

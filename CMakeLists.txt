@@ -250,6 +250,21 @@ if(NOT TARGET GTest::gmock)
         add_library(GTest::gmock INTERFACE IMPORTED)
         target_include_directories(GTest::gmock INTERFACE ${GMock_INCLUDE_DIRS})
         target_link_libraries(GTest::gmock INTERFACE ${GMock_LIBRARIES})
+    else()
+        # Try PkgConfig
+        pkg_check_modules(PKG_GMOCK gmock)
+        if(PKG_GMOCK_FOUND)
+            add_library(GTest::gmock INTERFACE IMPORTED)
+            target_include_directories(GTest::gmock INTERFACE ${PKG_GMOCK_INCLUDE_DIRS})
+            target_link_libraries(GTest::gmock INTERFACE ${PKG_GMOCK_LIBRARIES})
+            message(STATUS "Found GMock via PkgConfig")
+        else()
+             # Fallback: simpler setups might have gmock inside GTest or standard include paths
+             # Attempt to link GTest::GTest and hope it contains gmock or it's implicitly found
+             message(STATUS "GMock not explicitly found, assuming it is bundled with GTest or available in system include paths")
+             add_library(GTest::gmock INTERFACE IMPORTED)
+             target_link_libraries(GTest::gmock INTERFACE GTest::GTest)
+        endif()
     endif()
 endif()
 

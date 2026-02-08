@@ -10,7 +10,7 @@ PooledDbConnectionManager::PooledDbConnectionManager(const std::string& conn_str
     : conn_str_(conn_str), 
       pool_size_(pool_size), 
       acquire_timeout_(acquire_timeout),
-      initializer_(initializer) {    
+      initializer_(std::move(initializer)) {    
     spdlog::info("Initializing DB connection pool with size {}", pool_size_);
 }
 

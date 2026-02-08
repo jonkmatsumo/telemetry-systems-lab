@@ -250,9 +250,12 @@ auto DbClient::ReconcileStaleJobs(std::optional<std::chrono::seconds> stale_ttl)
 
         std::string error_msg = stale_ttl.has_value() ? "Stale job detected (heartbeat timeout)" : "System restart/recovery";
 
-        PQXX_EXEC_PARAMS(W, "UPDATE dataset_score_jobs SET status='FAILED', error=" + W.quote(error_msg) + ", updated_at=NOW() WHERE " + condition);
-        PQXX_EXEC_PARAMS(W, "UPDATE model_runs SET status='FAILED', error=" + W.quote(error_msg) + ", updated_at=NOW() WHERE " + condition);
-        PQXX_EXEC_PARAMS(W, "UPDATE generation_runs SET status='FAILED', error=" + W.quote(error_msg) + ", updated_at=NOW() WHERE " + condition);
+        std::string error_q = W.quote(error_msg);
+        std::string suffix = " SET status='FAILED', error=" + error_q + ", updated_at=NOW() WHERE " + condition;
+
+        PQXX_EXEC_PARAMS(W, "UPDATE dataset_score_jobs" + suffix);
+        PQXX_EXEC_PARAMS(W, "UPDATE model_runs" + suffix);
+        PQXX_EXEC_PARAMS(W, "UPDATE generation_runs" + suffix);
         
         W.commit();
         spdlog::info("Reconciled stale jobs (TTL={}).", stale_ttl.has_value() ? std::to_string(stale_ttl->count()) + "s" : "all");
@@ -1235,7 +1238,7 @@ auto DbClient::GetTopK(const std::string& run_id,
                                  const std::string& anomaly_type,
                                  const std::string& start_time,
                                  const std::string& end_time,
-                                 bool include_total_distinct) -> nlohmann::json {
+                                 bool include_total_distinct) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)
     if (!IsValidDimension(column)) {
         throw std::invalid_argument("Invalid column: " + column);
     }
@@ -1301,7 +1304,7 @@ auto DbClient::GetTimeSeries(const std::string& run_id,
                                      const std::string& is_anomaly,
                                      const std::string& anomaly_type,
                                      const std::string& start_time,
-                                     const std::string& end_time) -> nlohmann::json {    // Validate all metrics against allowlist to prevent SQL injection
+                                     const std::string& end_time) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)    // Validate all metrics against allowlist to prevent SQL injection
     for (const auto& metric : metrics) {
         if (!IsValidMetric(metric)) {
             throw std::invalid_argument("Invalid metric: " + metric);
@@ -1383,7 +1386,7 @@ auto DbClient::GetHistogram(const std::string& run_id,
                                    const std::string& is_anomaly,
                                    const std::string& anomaly_type,
                                    const std::string& start_time,
-                                   const std::string& end_time) -> nlohmann::json {    // Validate metric against allowlist to prevent SQL injection
+                                   const std::string& end_time) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)    // Validate metric against allowlist to prevent SQL injection
     if (!IsValidMetric(metric)) {
         throw std::invalid_argument("Invalid metric: " + metric);
     }
@@ -1748,7 +1751,8 @@ auto DbClient::GetScores(const std::string& dataset_id,
                              int offset,
                              bool only_anomalies,
                              double min_score,
-                             double max_score) -> nlohmann::json {    nlohmann::json out = nlohmann::json::object();
+                             double max_score) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)
+    nlohmann::json out = nlohmann::json::object();
     out["items"] = nlohmann::json::array();
     auto start = std::chrono::steady_clock::now();
     try {
@@ -2006,7 +2010,8 @@ auto DbClient::SearchDatasetRecords(const std::string& run_id,
                                         const std::string& region,
                                         const std::string& sort_by,
                                         const std::string& sort_order,
-                                        const std::string& anchor_time) -> nlohmann::json {    nlohmann::json out = nlohmann::json::object();
+                                        const std::string& anchor_time) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)
+    nlohmann::json out = nlohmann::json::object();
     out["items"] = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -2088,7 +2093,7 @@ auto DbClient::SearchDatasetRecords(const std::string& run_id,
 
 auto DbClient::TryTransitionModelRunStatus(const std::string& model_run_id,
                                            const std::string& expected_current,
-                                           const std::string& next_status) -> bool {
+                                           const std::string& next_status) -> bool { // NOLINT(bugprone-easily-swappable-parameters)
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -2104,7 +2109,7 @@ auto DbClient::TryTransitionModelRunStatus(const std::string& model_run_id,
 
 auto DbClient::TryTransitionScoreJobStatus(const std::string& job_id,
                                            const std::string& expected_current,
-                                           const std::string& next_status) -> bool {
+                                           const std::string& next_status) -> bool { // NOLINT(bugprone-easily-swappable-parameters)
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);

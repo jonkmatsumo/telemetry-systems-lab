@@ -115,7 +115,7 @@ static auto enforce_component_sign(linalg::Vector& v) -> void {
 static auto TrainPcaFromStream(const std::function<void(const std::function<void(const linalg::Vector&)>&)>& for_each,
                                       size_t dim,
                                       int n_components,
-                                      double percentile) -> PcaArtifact {
+                                      double percentile) -> PcaArtifact { // NOLINT(bugprone-easily-swappable-parameters)
     if (n_components < 1 || n_components > static_cast<int>(dim)) {
         throw std::invalid_argument("n_components must be between 1 and " + std::to_string(dim));
     }
@@ -209,9 +209,9 @@ auto TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
                                   int n_components,
                                   double percentile,
                                   size_t batch_size,
-                                  std::function<void()> heartbeat) -> PcaArtifact {
+                                  std::function<void()> heartbeat) -> PcaArtifact { // NOLINT(bugprone-easily-swappable-parameters)
     auto start = std::chrono::steady_clock::now();
-    TelemetryBatchIterator iter(manager, dataset_id, batch_size);
+    TelemetryBatchIterator iter(std::move(manager), dataset_id, batch_size);
 
     auto for_each = [&](const std::function<void(const linalg::Vector&)>& cb) {
         iter.Reset();
@@ -452,9 +452,9 @@ auto ComputeCandidateFingerprint(const HpoConfig& hpo) -> std::string {
     std::string serialized = normalized.dump();
     size_t hash_val = std::hash<std::string>{}(serialized);
     
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%zx", hash_val);
-    return std::string(buf);
+    std::array<char, 32> buf{};
+    snprintf(buf.data(), buf.size(), "%zx", hash_val);
+    return std::string(buf.data());
 }
 
 } // namespace telemetry::training

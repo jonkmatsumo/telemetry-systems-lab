@@ -29,7 +29,7 @@ public:
     /**
      * @brief Returns the connection string used by the manager.
      */
-    virtual auto GetConnectionString() const -> std::string = 0;
+    [[nodiscard]] virtual auto GetConnectionString() const -> std::string = 0;
 };
 
 /**
@@ -40,7 +40,7 @@ public:
     using ConnectionInitializer = std::function<void(pqxx::connection&)>;
 
     explicit SimpleDbConnectionManager(const std::string& conn_str, ConnectionInitializer initializer = nullptr) 
-        : conn_str_(conn_str), initializer_(initializer) {}
+        : conn_str_(conn_str), initializer_(std::move(initializer)) {}
 
     auto GetConnection() -> DbConnectionPtr override {
         auto conn = new pqxx::connection(conn_str_);
@@ -51,7 +51,7 @@ public:
                               [](pqxx::connection* c) { delete c; });
     }
 
-    auto GetConnectionString() const -> std::string override {
+    [[nodiscard]] auto GetConnectionString() const -> std::string override {
         return conn_str_;
     }
 

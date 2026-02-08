@@ -14,7 +14,7 @@ namespace telemetry::obs {
 inline auto EmitCounter(const std::string& name,
                         long value,
                         const std::string& unit,
-                        const std::string& component,
+                        const std::string& component, // NOLINT(bugprone-easily-swappable-parameters)
                         const std::map<std::string, std::string>& labels = {},
                         const nlohmann::json& fields = nlohmann::json::object()) -> void {
     ::telemetry::metrics::MetricsRegistry::Instance().Increment(name, labels, value);
@@ -43,7 +43,7 @@ inline auto EmitCounter(const std::string& name,
 inline auto EmitHistogram(const std::string& name,
                           double value,
                           const std::string& unit,
-                          const std::string& component,
+                          const std::string& component, // NOLINT(bugprone-easily-swappable-parameters)
                           const std::map<std::string, std::string>& labels = {},
                           const nlohmann::json& fields = nlohmann::json::object()) -> void {
     ::telemetry::metrics::MetricsRegistry::Instance().RecordLatency(name, labels, value);
@@ -72,7 +72,7 @@ inline auto EmitHistogram(const std::string& name,
 inline auto EmitGauge(const std::string& name,
                       double value,
                       const std::string& unit,
-                      const std::string& component,
+                      const std::string& component, // NOLINT(bugprone-easily-swappable-parameters)
                       const std::map<std::string, std::string>& labels = {},
                       const nlohmann::json& fields = nlohmann::json::object()) -> void {
     ::telemetry::metrics::MetricsRegistry::Instance().SetGauge(name, value);

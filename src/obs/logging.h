@@ -50,7 +50,7 @@ inline auto NowIso8601() -> std::string {
 
 inline auto LogEvent(LogLevel level,
                      const std::string& event,
-                     const std::string& component,
+                     const std::string& component, // NOLINT(bugprone-easily-swappable-parameters)
                      const nlohmann::json& fields = nlohmann::json::object()) -> void {
     nlohmann::json j = fields;
     j["ts"] = NowIso8601();
@@ -103,9 +103,13 @@ public:
         LogEvent(level, event_, component_, payload);
     }
 
-    ~ScopedTimer() {
-        if (!stopped_) {
-            Stop(LogLevel::Info);
+    ~ScopedTimer() noexcept {
+        try {
+            if (!stopped_) {
+                Stop(LogLevel::Info);
+            }
+        } catch (...) {
+            // Destructors should not throw
         }
     }
 
