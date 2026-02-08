@@ -5,8 +5,7 @@
 #include <array>
 #include "types.h"
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 // Fixed-size feature vector for V1 contract
 // Order: CPU, Memory, Disk, Network RX, Network TX
@@ -57,5 +56,4 @@ struct FeatureMetadata {
     }
 };
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly

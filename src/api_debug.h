@@ -2,9 +2,9 @@
 
 #include <nlohmann/json.hpp>
 
-inline nlohmann::json BuildDebugMeta(double duration_ms,
+inline auto BuildDebugMeta(double duration_ms,
                                      long row_count,
-                                     const nlohmann::json& resolved = nlohmann::json::object()) {
+                                     const nlohmann::json& resolved = nlohmann::json::object()) -> nlohmann::json {
     nlohmann::json meta;
     meta["duration_ms"] = duration_ms;
     meta["row_count"] = row_count;

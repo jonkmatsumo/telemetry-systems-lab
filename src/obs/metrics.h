@@ -9,15 +9,14 @@
 #include "obs/context.h"
 #include "obs/logging.h"
 
-namespace telemetry {
-namespace obs {
+namespace telemetry::obs {
 
-inline void EmitCounter(const std::string& name,
+inline auto EmitCounter(const std::string& name,
                         long value,
                         const std::string& unit,
                         const std::string& component,
                         const std::map<std::string, std::string>& labels = {},
-                        const nlohmann::json& fields = nlohmann::json::object()) {
+                        const nlohmann::json& fields = nlohmann::json::object()) -> void {
     ::telemetry::metrics::MetricsRegistry::Instance().Increment(name, labels, value);
     nlohmann::json payload = fields;
     payload["metric_name"] = name;
@@ -25,11 +24,11 @@ inline void EmitCounter(const std::string& name,
     payload["unit"] = unit;
     if (HasContext()) {
         const auto& ctx = GetContext();
-        if (!ctx.request_id.empty() && !payload.contains("request_id")) payload["request_id"] = ctx.request_id;
-        if (!ctx.dataset_id.empty() && !payload.contains("dataset_id")) payload["dataset_id"] = ctx.dataset_id;
-        if (!ctx.model_run_id.empty() && !payload.contains("model_run_id")) payload["model_run_id"] = ctx.model_run_id;
-        if (!ctx.inference_run_id.empty() && !payload.contains("inference_run_id")) payload["inference_run_id"] = ctx.inference_run_id;
-        if (!ctx.score_job_id.empty() && !payload.contains("score_job_id")) payload["score_job_id"] = ctx.score_job_id;
+        if (!ctx.request_id.empty() && !payload.contains("request_id")) { payload["request_id"] = ctx.request_id; }
+        if (!ctx.dataset_id.empty() && !payload.contains("dataset_id")) { payload["dataset_id"] = ctx.dataset_id; }
+        if (!ctx.model_run_id.empty() && !payload.contains("model_run_id")) { payload["model_run_id"] = ctx.model_run_id; }
+        if (!ctx.inference_run_id.empty() && !payload.contains("inference_run_id")) { payload["inference_run_id"] = ctx.inference_run_id; }
+        if (!ctx.score_job_id.empty() && !payload.contains("score_job_id")) { payload["score_job_id"] = ctx.score_job_id; }
     }
     if (!labels.empty()) {
         nlohmann::json l = nlohmann::json::object();
@@ -41,12 +40,12 @@ inline void EmitCounter(const std::string& name,
     LogEvent(LogLevel::Info, "metric", component, payload);
 }
 
-inline void EmitHistogram(const std::string& name,
+inline auto EmitHistogram(const std::string& name,
                           double value,
                           const std::string& unit,
                           const std::string& component,
                           const std::map<std::string, std::string>& labels = {},
-                          const nlohmann::json& fields = nlohmann::json::object()) {
+                          const nlohmann::json& fields = nlohmann::json::object()) -> void {
     ::telemetry::metrics::MetricsRegistry::Instance().RecordLatency(name, labels, value);
     nlohmann::json payload = fields;
     payload["metric_name"] = name;
@@ -54,11 +53,11 @@ inline void EmitHistogram(const std::string& name,
     payload["unit"] = unit;
     if (HasContext()) {
         const auto& ctx = GetContext();
-        if (!ctx.request_id.empty() && !payload.contains("request_id")) payload["request_id"] = ctx.request_id;
-        if (!ctx.dataset_id.empty() && !payload.contains("dataset_id")) payload["dataset_id"] = ctx.dataset_id;
-        if (!ctx.model_run_id.empty() && !payload.contains("model_run_id")) payload["model_run_id"] = ctx.model_run_id;
-        if (!ctx.inference_run_id.empty() && !payload.contains("inference_run_id")) payload["inference_run_id"] = ctx.inference_run_id;
-        if (!ctx.score_job_id.empty() && !payload.contains("score_job_id")) payload["score_job_id"] = ctx.score_job_id;
+        if (!ctx.request_id.empty() && !payload.contains("request_id")) { payload["request_id"] = ctx.request_id; }
+        if (!ctx.dataset_id.empty() && !payload.contains("dataset_id")) { payload["dataset_id"] = ctx.dataset_id; }
+        if (!ctx.model_run_id.empty() && !payload.contains("model_run_id")) { payload["model_run_id"] = ctx.model_run_id; }
+        if (!ctx.inference_run_id.empty() && !payload.contains("inference_run_id")) { payload["inference_run_id"] = ctx.inference_run_id; }
+        if (!ctx.score_job_id.empty() && !payload.contains("score_job_id")) { payload["score_job_id"] = ctx.score_job_id; }
     }
     if (!labels.empty()) {
         nlohmann::json l = nlohmann::json::object();
@@ -70,12 +69,12 @@ inline void EmitHistogram(const std::string& name,
     LogEvent(LogLevel::Info, "metric", component, payload);
 }
 
-inline void EmitGauge(const std::string& name,
+inline auto EmitGauge(const std::string& name,
                       double value,
                       const std::string& unit,
                       const std::string& component,
                       const std::map<std::string, std::string>& labels = {},
-                      const nlohmann::json& fields = nlohmann::json::object()) {
+                      const nlohmann::json& fields = nlohmann::json::object()) -> void {
     ::telemetry::metrics::MetricsRegistry::Instance().SetGauge(name, value);
     nlohmann::json payload = fields;
     payload["metric_name"] = name;
@@ -83,11 +82,11 @@ inline void EmitGauge(const std::string& name,
     payload["unit"] = unit;
     if (HasContext()) {
         const auto& ctx = GetContext();
-        if (!ctx.request_id.empty() && !payload.contains("request_id")) payload["request_id"] = ctx.request_id;
-        if (!ctx.dataset_id.empty() && !payload.contains("dataset_id")) payload["dataset_id"] = ctx.dataset_id;
-        if (!ctx.model_run_id.empty() && !payload.contains("model_run_id")) payload["model_run_id"] = ctx.model_run_id;
-        if (!ctx.inference_run_id.empty() && !payload.contains("inference_run_id")) payload["inference_run_id"] = ctx.inference_run_id;
-        if (!ctx.score_job_id.empty() && !payload.contains("score_job_id")) payload["score_job_id"] = ctx.score_job_id;
+        if (!ctx.request_id.empty() && !payload.contains("request_id")) { payload["request_id"] = ctx.request_id; }
+        if (!ctx.dataset_id.empty() && !payload.contains("dataset_id")) { payload["dataset_id"] = ctx.dataset_id; }
+        if (!ctx.model_run_id.empty() && !payload.contains("model_run_id")) { payload["model_run_id"] = ctx.model_run_id; }
+        if (!ctx.inference_run_id.empty() && !payload.contains("inference_run_id")) { payload["inference_run_id"] = ctx.inference_run_id; }
+        if (!ctx.score_job_id.empty() && !payload.contains("score_job_id")) { payload["score_job_id"] = ctx.score_job_id; }
     }
     if (!labels.empty()) {
         nlohmann::json l = nlohmann::json::object();
@@ -99,5 +98,4 @@ inline void EmitGauge(const std::string& name,
     LogEvent(LogLevel::Info, "metric", component, payload);
 }
 
-} // namespace obs
-} // namespace telemetry
+} // namespace telemetry::obs

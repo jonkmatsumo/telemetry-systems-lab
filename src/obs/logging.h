@@ -10,8 +10,7 @@
 #include <spdlog/spdlog.h>
 #include "context.h"
 
-namespace telemetry {
-namespace obs {
+namespace telemetry::obs {
 
 enum class LogLevel {
     Info,
@@ -19,7 +18,7 @@ enum class LogLevel {
     Error
 };
 
-inline const char* LevelToString(LogLevel level) {
+inline auto LevelToString(LogLevel level) -> const char* {
     switch (level) {
         case LogLevel::Info:
             return "INFO";
@@ -31,7 +30,7 @@ inline const char* LevelToString(LogLevel level) {
     return "INFO";
 }
 
-inline std::string NowIso8601() {
+inline auto NowIso8601() -> std::string {
     using namespace std::chrono;
     auto now = system_clock::now();
     auto secs = time_point_cast<seconds>(now);
@@ -49,10 +48,10 @@ inline std::string NowIso8601() {
     return oss.str();
 }
 
-inline void LogEvent(LogLevel level,
+inline auto LogEvent(LogLevel level,
                      const std::string& event,
                      const std::string& component,
-                     const nlohmann::json& fields = nlohmann::json::object()) {
+                     const nlohmann::json& fields = nlohmann::json::object()) -> void {
     nlohmann::json j = fields;
     j["ts"] = NowIso8601();
     j["level"] = LevelToString(level);
@@ -61,13 +60,13 @@ inline void LogEvent(LogLevel level,
 
     if (HasContext()) {
         const auto& ctx = GetContext();
-        if (!ctx.request_id.empty()) j["request_id"] = ctx.request_id;
-        if (!ctx.trace_id.empty()) j["trace_id"] = ctx.trace_id;
-        if (!ctx.user_id.empty()) j["user_id"] = ctx.user_id;
-        if (!ctx.dataset_id.empty()) j["dataset_id"] = ctx.dataset_id;
-        if (!ctx.model_run_id.empty()) j["model_run_id"] = ctx.model_run_id;
-        if (!ctx.inference_run_id.empty()) j["inference_run_id"] = ctx.inference_run_id;
-        if (!ctx.score_job_id.empty()) j["score_job_id"] = ctx.score_job_id;
+        if (!ctx.request_id.empty()) { j["request_id"] = ctx.request_id; }
+        if (!ctx.trace_id.empty()) { j["trace_id"] = ctx.trace_id; }
+        if (!ctx.user_id.empty()) { j["user_id"] = ctx.user_id; }
+        if (!ctx.dataset_id.empty()) { j["dataset_id"] = ctx.dataset_id; }
+        if (!ctx.model_run_id.empty()) { j["model_run_id"] = ctx.model_run_id; }
+        if (!ctx.inference_run_id.empty()) { j["inference_run_id"] = ctx.inference_run_id; }
+        if (!ctx.score_job_id.empty()) { j["score_job_id"] = ctx.score_job_id; }
     }
 
     switch (level) {
@@ -91,8 +90,8 @@ public:
           fields_(std::move(fields)),
           start_(std::chrono::steady_clock::now()) {}
 
-    void Stop(LogLevel level = LogLevel::Info, nlohmann::json extra = nlohmann::json::object()) {
-        if (stopped_) return;
+    auto Stop(LogLevel level = LogLevel::Info, nlohmann::json extra = nlohmann::json::object()) -> void {
+        if (stopped_) { return; }
         stopped_ = true;
         auto duration_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - start_).count();
@@ -118,5 +117,4 @@ private:
     bool stopped_ = false;
 };
 
-} // namespace obs
-} // namespace telemetry
+} // namespace telemetry::obs

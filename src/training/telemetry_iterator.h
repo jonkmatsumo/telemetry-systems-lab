@@ -7,8 +7,7 @@
 #include "linalg/matrix.h"
 #include "db_connection_manager.h"
 
-namespace telemetry {
-namespace training {
+namespace telemetry::training {
 
 class TelemetryBatchIterator {
 public:
@@ -28,5 +27,4 @@ private:
     size_t total_processed_;
 };
 
-} // namespace training
-} // namespace telemetry
+} // namespace telemetry::training

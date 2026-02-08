@@ -7,8 +7,7 @@
 #include <atomic>
 #include <iostream>
 
-namespace telemetry {
-namespace metrics {
+namespace telemetry::metrics {
 
 class MetricsRegistry {
 public:
@@ -86,5 +85,4 @@ private:
     }
 };
 
-} // namespace metrics
-} // namespace telemetry
+} // namespace telemetry::metrics

@@ -33,26 +33,26 @@ public:
     ~JobManager();
 
     // Start a new background job. The work function receives a pointer to an atomic bool for cancellation check.
-    void StartJob(const std::string& job_id, const std::string& request_id, std::function<void(const std::atomic<bool>*)> work);
+    auto StartJob(const std::string& job_id, const std::string& request_id, std::function<void(const std::atomic<bool>*)> work) -> void;
 
     // Get status of a job
-    JobStatus GetStatus(const std::string& job_id);
+    auto GetStatus(const std::string& job_id) -> JobStatus;
     
     // List all jobs
-    std::vector<JobInfo> ListJobs();
+    auto ListJobs() -> std::vector<JobInfo>;
 
     // Cancel a running job
-    void CancelJob(const std::string& job_id);
+    auto CancelJob(const std::string& job_id) -> void;
 
     // Clean up completed jobs
-    void Stop();
+    auto Stop() -> void;
 
     // Set maximum concurrent jobs (default: 4)
-    void SetMaxConcurrentJobs(size_t max_jobs);
+    auto SetMaxConcurrentJobs(size_t max_jobs) -> void;
 
 private:
     // Internal cleanup of finished threads
-    void CleanupFinishedThreads();
+    auto CleanupFinishedThreads() -> void;
 
     std::mutex mutex_;
     std::map<std::string, JobInfo> jobs_;

@@ -8,8 +8,7 @@
 
 #include "obs/logging.h"
 
-namespace telemetry {
-namespace obs {
+namespace telemetry::obs {
 
 class HttpRequestLogScope {
 public:
@@ -79,5 +78,4 @@ private:
     ScopedContext ctx_scope_;
 };
 
-} // namespace obs
-} // namespace telemetry
+} // namespace telemetry::obs

@@ -5,8 +5,7 @@
 #include <unordered_map>
 #include <set>
 
-namespace telemetry {
-namespace job {
+namespace telemetry::job {
 
 /**
  * @brief Represents the possible states of a job or run.
@@ -43,5 +42,4 @@ public:
     static bool IsTerminal(JobState state);
 };
 
-} // namespace job
-} // namespace telemetry
+} // namespace telemetry::job

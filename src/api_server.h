@@ -13,8 +13,7 @@
 #include "pca_model_cache.h"
 #include "training/pca_trainer.h"
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
 class ApiServer {
 public:
@@ -97,5 +96,4 @@ private:
     std::unique_ptr<telemetry::anomaly::PcaModelCache> model_cache_;
 };
 
-} // namespace api
-} // namespace telemetry
+} // namespace telemetry::api

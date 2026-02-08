@@ -195,9 +195,9 @@ int main(int argc, char** argv) {
 
             // 4. Fuse & Alert
             std::string combined_details;
-            if (flag_a) combined_details += "[A:" + details_a + "] ";
-            if (run_b && flag_b) combined_details += "[B:" + details_b + "] ";
-            if (!run_b) combined_details += "[B:SKIPPED] ";
+            if (flag_a) { combined_details += "[A:" + details_a + "] "; }
+            if (run_b && flag_b) { combined_details += "[B:" + details_b + "] "; }
+            if (!run_b) { combined_details += "[B:SKIPPED] "; }
 
             std::vector<Alert> alerts = alert_manager.Evaluate(
                 r.host_id, r.run_id, r.metric_timestamp,

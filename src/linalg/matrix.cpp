@@ -4,20 +4,19 @@
 #include <cmath>
 #include <stdexcept>
 
-namespace telemetry {
-namespace linalg {
+namespace telemetry::linalg {
 
 Matrix::Matrix(size_t r, size_t c) : rows(r), cols(c), data(r * c, 0.0) {}
 
-double& Matrix::operator()(size_t r, size_t c) {
+auto Matrix::operator()(size_t r, size_t c) -> double& {
     return data[r * cols + c];
 }
 
-double Matrix::operator()(size_t r, size_t c) const {
+auto Matrix::operator()(size_t r, size_t c) const -> double {
     return data[r * cols + c];
 }
 
-Matrix identity(size_t n) {
+auto identity(size_t n) -> Matrix {
     Matrix m(n, n);
     for (size_t i = 0; i < n; ++i) {
         m(i, i) = 1.0;
@@ -25,7 +24,7 @@ Matrix identity(size_t n) {
     return m;
 }
 
-Matrix transpose(const Matrix& m) {
+auto transpose(const Matrix& m) -> Matrix {
     Matrix t(m.cols, m.rows);
     for (size_t r = 0; r < m.rows; ++r) {
         for (size_t c = 0; c < m.cols; ++c) {
@@ -35,7 +34,7 @@ Matrix transpose(const Matrix& m) {
     return t;
 }
 
-Matrix matmul(const Matrix& a, const Matrix& b) {
+auto matmul(const Matrix& a, const Matrix& b) -> Matrix {
     if (a.cols != b.rows) {
         throw std::runtime_error("matmul dimension mismatch");
     }
@@ -51,7 +50,7 @@ Matrix matmul(const Matrix& a, const Matrix& b) {
     return out;
 }
 
-Vector matvec(const Matrix& a, const Vector& x) {
+auto matvec(const Matrix& a, const Vector& x) -> Vector {
     if (a.cols != x.size()) {
         throw std::runtime_error("matvec dimension mismatch");
     }
@@ -66,7 +65,7 @@ Vector matvec(const Matrix& a, const Vector& x) {
     return out;
 }
 
-double dot(const Vector& a, const Vector& b) {
+auto dot(const Vector& a, const Vector& b) -> double {
     if (a.size() != b.size()) {
         throw std::runtime_error("dot dimension mismatch");
     }
@@ -77,21 +76,26 @@ double dot(const Vector& a, const Vector& b) {
     return sum;
 }
 
-double l2_norm(const Vector& v) {
+auto l2_norm(const Vector& v) -> double {
     return std::sqrt(dot(v, v));
 }
 
-std::vector<size_t> argsort_desc(const Vector& v) {
+auto argsort_desc(const Vector& v) -> std::vector<size_t> {
     std::vector<size_t> idx(v.size());
-    for (size_t i = 0; i < v.size(); ++i) idx[i] = i;
+    for (size_t i = 0; i < v.size(); ++i) {
+        idx[i] = i;
+    }
     std::sort(idx.begin(), idx.end(), [&v](size_t a, size_t b) {
-        if (v[a] == v[b]) return a < b;
+        if (v[a] == v[b]) {
+            return a < b;
+        }
         return v[a] > v[b];
     });
     return idx;
 }
 
-static double max_offdiag(const Matrix& a, size_t& p, size_t& q) {
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+static auto max_offdiag(const Matrix& a, size_t& p, size_t& q) -> double {
     double max_val = 0.0;
     p = 0;
     q = 0;
@@ -108,7 +112,8 @@ static double max_offdiag(const Matrix& a, size_t& p, size_t& q) {
     return max_val;
 }
 
-EigenSymResult eigen_sym_jacobi(const Matrix& a, int max_iter, double eps) {
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+auto eigen_sym_jacobi(const Matrix& a, int max_iter, double eps) -> EigenSymResult {
     if (a.rows != a.cols) {
         throw std::runtime_error("eigen_sym_jacobi requires square matrix");
     }
@@ -117,9 +122,12 @@ EigenSymResult eigen_sym_jacobi(const Matrix& a, int max_iter, double eps) {
     Matrix d = a;
 
     for (int iter = 0; iter < max_iter; ++iter) {
-        size_t p = 0, q = 0;
+        size_t p = 0;
+        size_t q = 0;
         double off = max_offdiag(d, p, q);
-        if (off < eps) break;
+        if (off < eps) {
+            break;
+        }
 
         double app = d(p, p);
         double aqq = d(q, q);
@@ -163,5 +171,4 @@ EigenSymResult eigen_sym_jacobi(const Matrix& a, int max_iter, double eps) {
     return EigenSymResult{eigenvalues, v};
 }
 
-} // namespace linalg
-} // namespace telemetry
+} // namespace telemetry::linalg

@@ -24,12 +24,12 @@ public:
     /**
      * @brief Acquires a connection from the manager.
      */
-    virtual DbConnectionPtr GetConnection() = 0;
+    virtual auto GetConnection() -> DbConnectionPtr = 0;
 
     /**
      * @brief Returns the connection string used by the manager.
      */
-    virtual std::string GetConnectionString() const = 0;
+    virtual auto GetConnectionString() const -> std::string = 0;
 };
 
 /**
@@ -42,7 +42,7 @@ public:
     explicit SimpleDbConnectionManager(const std::string& conn_str, ConnectionInitializer initializer = nullptr) 
         : conn_str_(conn_str), initializer_(initializer) {}
 
-    DbConnectionPtr GetConnection() override {
+    auto GetConnection() -> DbConnectionPtr override {
         auto conn = new pqxx::connection(conn_str_);
         if (initializer_) {
             initializer_(*conn);
@@ -51,7 +51,7 @@ public:
                               [](pqxx::connection* c) { delete c; });
     }
 
-    std::string GetConnectionString() const override {
+    auto GetConnectionString() const -> std::string override {
         return conn_str_;
     }
 
@@ -73,8 +73,8 @@ public:
                                ConnectionInitializer initializer = nullptr);
     ~PooledDbConnectionManager() override;
 
-    DbConnectionPtr GetConnection() override;
-    std::string GetConnectionString() const override { return conn_str_; }
+    auto GetConnection() -> DbConnectionPtr override;
+    auto GetConnectionString() const -> std::string override { return conn_str_; }
 
     struct PoolStats {
         size_t size;
@@ -84,10 +84,10 @@ public:
         long long total_timeouts;
         double total_wait_ms;
     };
-    PoolStats GetStats() const;
+    auto GetStats() const -> PoolStats;
 
 private:
-    void ReleaseConnection(pqxx::connection* conn);
+    auto ReleaseConnection(pqxx::connection* conn) -> void;
 
     std::string conn_str_;
     size_t pool_size_;

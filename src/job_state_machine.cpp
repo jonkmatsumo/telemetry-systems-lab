@@ -1,8 +1,7 @@
 #include "job_state_machine.h"
 #include <stdexcept>
 
-namespace telemetry {
-namespace job {
+namespace telemetry::job {
 
 std::string StateToString(JobState state) {
     switch (state) {
@@ -57,5 +56,4 @@ bool JobStateMachine::IsTerminal(JobState state) {
     return state == JobState::COMPLETED || state == JobState::FAILED || state == JobState::CANCELLED;
 }
 
-} // namespace job
-} // namespace telemetry
+} // namespace telemetry::job

@@ -2,6 +2,7 @@
 #include <spdlog/spdlog.h>
 #include "obs/metrics.h"
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 PooledDbConnectionManager::PooledDbConnectionManager(const std::string& conn_str, 
                                                      size_t pool_size, 
                                                      std::chrono::milliseconds acquire_timeout,
@@ -21,7 +22,7 @@ PooledDbConnectionManager::~PooledDbConnectionManager() {
     }
 }
 
-DbConnectionPtr PooledDbConnectionManager::GetConnection() {
+auto PooledDbConnectionManager::GetConnection() -> DbConnectionPtr {
     std::unique_lock<std::mutex> lock(mutex_);
     
     auto start = std::chrono::steady_clock::now();
@@ -82,7 +83,7 @@ DbConnectionPtr PooledDbConnectionManager::GetConnection() {
     });
 }
 
-void PooledDbConnectionManager::ReleaseConnection(pqxx::connection* conn) {
+auto PooledDbConnectionManager::ReleaseConnection(pqxx::connection* conn) -> void {
     std::unique_lock<std::mutex> lock(mutex_);
     in_use_count_--;
 
@@ -98,7 +99,7 @@ void PooledDbConnectionManager::ReleaseConnection(pqxx::connection* conn) {
     cv_.notify_one();
 }
 
-PooledDbConnectionManager::PoolStats PooledDbConnectionManager::GetStats() const {
+auto PooledDbConnectionManager::GetStats() const -> PoolStats {
     std::unique_lock<std::mutex> lock(mutex_);
     return {
         pool_size_,

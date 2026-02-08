@@ -4,10 +4,9 @@
 #include <optional>
 #include <string>
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
-inline bool IsTruncated(int returned, int limit, const std::optional<long>& total_distinct) {
+inline auto IsTruncated(int returned, int limit, const std::optional<long>& total_distinct) -> bool {
     if (returned <= 0 || limit <= 0) {
         return false;
     }
@@ -17,13 +16,13 @@ inline bool IsTruncated(int returned, int limit, const std::optional<long>& tota
     return false;
 }
 
-inline nlohmann::json BuildResponseMeta(int limit,
+inline auto BuildResponseMeta(int limit,
                                         int returned,
                                         bool truncated,
                                         const std::optional<long>& total_distinct,
                                         const std::string& reason,
                                         std::optional<int> bins_requested = std::nullopt,
-                                        std::optional<int> bins_returned = std::nullopt) {
+                                        std::optional<int> bins_returned = std::nullopt) -> nlohmann::json {
     nlohmann::json meta;
     meta["limit"] = limit;
     meta["returned"] = returned;
@@ -43,5 +42,4 @@ inline nlohmann::json BuildResponseMeta(int limit,
     return meta;
 }
 
-}  // namespace api
-}  // namespace telemetry
+}  // namespace telemetry::api

@@ -7,11 +7,10 @@
 #include <sstream>
 #include <iomanip>
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
-inline std::optional<std::chrono::system_clock::time_point> ParseIsoTime(const std::string& iso) {
-    if (iso.empty()) return std::nullopt;
+inline auto ParseIsoTime(const std::string& iso) -> std::optional<std::chrono::system_clock::time_point> {
+    if (iso.empty()) { return std::nullopt; }
     std::string trimmed = iso;
     if (!trimmed.empty() && trimmed.back() == 'Z') {
         trimmed.pop_back();
@@ -30,7 +29,7 @@ inline std::optional<std::chrono::system_clock::time_point> ParseIsoTime(const s
     return std::chrono::system_clock::from_time_t(tt);
 }
 
-inline std::string FormatIsoTime(std::chrono::system_clock::time_point tp) {
+inline auto FormatIsoTime(std::chrono::system_clock::time_point tp) -> std::string {
     auto tt = std::chrono::system_clock::to_time_t(tp);
     std::tm tm{};
 #if defined(_WIN32)
@@ -43,9 +42,9 @@ inline std::string FormatIsoTime(std::chrono::system_clock::time_point tp) {
     return oss.str();
 }
 
-inline std::optional<std::pair<std::string, std::string>> PreviousPeriodWindow(
+inline auto PreviousPeriodWindow(
     const std::string& start_time,
-    const std::string& end_time) {
+    const std::string& end_time) -> std::optional<std::pair<std::string, std::string>> {
     auto start = ParseIsoTime(start_time);
     auto end = ParseIsoTime(end_time);
     if (!start.has_value() || !end.has_value()) {
@@ -60,7 +59,7 @@ inline std::optional<std::pair<std::string, std::string>> PreviousPeriodWindow(
     return std::make_pair(FormatIsoTime(baseline_start), FormatIsoTime(baseline_end));
 }
 
-inline int SelectBucketSeconds(const std::string& start_time, const std::string& end_time) {
+inline auto SelectBucketSeconds(const std::string& start_time, const std::string& end_time) -> int {
     auto start = ParseIsoTime(start_time);
     auto end = ParseIsoTime(end_time);
     if (!start.has_value() || !end.has_value()) {
@@ -68,21 +67,20 @@ inline int SelectBucketSeconds(const std::string& start_time, const std::string&
     }
     auto delta = std::chrono::duration_cast<std::chrono::seconds>(*end - *start);
     auto seconds = delta.count();
-    if (seconds <= 6 * 3600) return 300;       // 5m
-    if (seconds <= 2 * 86400) return 3600;     // 1h
-    if (seconds <= 30 * 86400) return 21600;   // 6h
-    if (seconds <= 180 * 86400) return 86400;  // 1d
+    if (seconds <= 6 * 3600) { return 300; }       // 5m
+    if (seconds <= 2 * 86400) { return 3600; }     // 1h
+    if (seconds <= 30 * 86400) { return 21600; }   // 6h
+    if (seconds <= 180 * 86400) { return 86400; }  // 1d
     return 604800;                             // 7d
 }
 
-inline std::string BucketLabel(int bucket_seconds) {
-    if (bucket_seconds == 300) return "5m";
-    if (bucket_seconds == 3600) return "1h";
-    if (bucket_seconds == 21600) return "6h";
-    if (bucket_seconds == 86400) return "1d";
-    if (bucket_seconds == 604800) return "7d";
+inline auto BucketLabel(int bucket_seconds) -> std::string {
+    if (bucket_seconds == 300) { return "5m"; }
+    if (bucket_seconds == 3600) { return "1h"; }
+    if (bucket_seconds == 21600) { return "6h"; }
+    if (bucket_seconds == 86400) { return "1d"; }
+    if (bucket_seconds == 604800) { return "7d"; }
     return std::to_string(bucket_seconds) + "s";
 }
 
-}  // namespace api
-}  // namespace telemetry
+}  // namespace telemetry::api

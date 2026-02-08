@@ -2,8 +2,7 @@
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 using json = nlohmann::json;
 
@@ -82,5 +81,4 @@ std::vector<Alert> AlertManager::Evaluate(const std::string& host_id,
     return alerts;
 }
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly

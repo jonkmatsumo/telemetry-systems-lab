@@ -10,14 +10,14 @@ JobManager::~JobManager() {
     Stop();
 }
 
-void JobManager::SetMaxConcurrentJobs(size_t max_jobs) {
+auto JobManager::SetMaxConcurrentJobs(size_t max_jobs) -> void {
     std::lock_guard<std::mutex> lk(mutex_);
     max_jobs_ = max_jobs;
 }
 
-void JobManager::CleanupFinishedThreads() {
+auto JobManager::CleanupFinishedThreads() -> void {
     for (auto it = threads_.begin(); it != threads_.end(); ) {
-        if (jobs_.count(it->first) && jobs_[it->first].status != telemetry::JobStatus::RUNNING) {
+        if (jobs_.count(it->first) > 0 && jobs_[it->first].status != telemetry::JobStatus::RUNNING) {
             if (it->second.joinable()) {
                 it->second.join();
             }
@@ -29,7 +29,7 @@ void JobManager::CleanupFinishedThreads() {
     }
 }
 
-void JobManager::StartJob(const std::string& job_id, const std::string& request_id, std::function<void(const std::atomic<bool>*)> work) {
+auto JobManager::StartJob(const std::string& job_id, const std::string& request_id, std::function<void(const std::atomic<bool>*)> work) -> void {
     std::lock_guard<std::mutex> lk(mutex_);
     
     
@@ -62,7 +62,7 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
             spdlog::info("DEBUG: Job wrapper finished for {}", job_id);
             
             std::lock_guard<std::mutex> inner_lk(mutex_);
-            if (jobs_.count(job_id)) {
+            if (jobs_.count(job_id) > 0) {
                 if (stop_flag->load()) {
                     jobs_[job_id].status = telemetry::JobStatus::CANCELLED;
                 } else {
@@ -74,9 +74,9 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
             telemetry::metrics::MetricsRegistry::Instance().Increment("job_completed_total", {});
         } catch (const std::exception& e) {
             spdlog::error("Job {} (req_id: {}) failed: {}", job_id, request_id, e.what());
-            // ... (rest of catch)
+            
             std::lock_guard<std::mutex> inner_lk(mutex_);
-            if (jobs_.count(job_id)) {
+            if (jobs_.count(job_id) > 0) {
                 jobs_[job_id].status = telemetry::JobStatus::FAILED;
                 jobs_[job_id].error = e.what();
             }
@@ -86,7 +86,7 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
         } catch (...) {
             spdlog::error("Job {} (req_id: {}) failed with unknown exception", job_id, request_id);
             std::lock_guard<std::mutex> inner_lk(mutex_);
-            if (jobs_.count(job_id)) {
+            if (jobs_.count(job_id) > 0) {
                 jobs_[job_id].status = telemetry::JobStatus::FAILED;
                 jobs_[job_id].error = "Unknown exception";
             }
@@ -97,23 +97,23 @@ void JobManager::StartJob(const std::string& job_id, const std::string& request_
     });
 }
 
-void JobManager::CancelJob(const std::string& job_id) {
+auto JobManager::CancelJob(const std::string& job_id) -> void {
     std::lock_guard<std::mutex> lk(mutex_);
-    if (stop_flags_.count(job_id)) {
+    if (stop_flags_.count(job_id) > 0) {
         stop_flags_[job_id]->store(true);
         spdlog::info("Requested stop for job {}", job_id);
     }
 }
 
-JobStatus JobManager::GetStatus(const std::string& job_id) {
+auto JobManager::GetStatus(const std::string& job_id) -> JobStatus {
     std::lock_guard<std::mutex> lk(mutex_);
-    if (jobs_.count(job_id)) {
+    if (jobs_.count(job_id) > 0) {
         return jobs_[job_id].status;
     }
     return telemetry::JobStatus::CANCELLED; // Or NOT_FOUND
 }
 
-std::vector<JobInfo> JobManager::ListJobs() {
+auto JobManager::ListJobs() -> std::vector<JobInfo> {
     std::lock_guard<std::mutex> lk(mutex_);
     std::vector<JobInfo> out;
     for (const auto& kv : jobs_) {
@@ -122,8 +122,8 @@ std::vector<JobInfo> JobManager::ListJobs() {
     return out;
 }
 
-void JobManager::Stop() {
-    if (stopping_.exchange(true)) return;
+auto JobManager::Stop() -> void {
+    if (stopping_.exchange(true)) { return; }
     
     spdlog::info("Stopping JobManager, waiting for {} threads...", threads_.size());
     

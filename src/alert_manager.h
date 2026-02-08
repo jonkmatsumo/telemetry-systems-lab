@@ -8,8 +8,7 @@
 #include "detector_config.h"
 #include "types.h"
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 struct FusionState {
     int consecutive_anomalies = 0;
@@ -36,5 +35,4 @@ private:
     std::map<std::string, FusionState> states_;
 };
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly

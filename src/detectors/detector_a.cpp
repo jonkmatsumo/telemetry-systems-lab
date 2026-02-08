@@ -3,15 +3,14 @@
 #include <iomanip>
 #include <iostream>
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 DetectorA::DetectorA(const WindowConfig& win_config, const OutlierConfig& outlier_config)
     : win_config_(win_config), outlier_config_(outlier_config) {
 }
 
-void DetectorA::UpdateRobustStats(MetricState& state) {
-    if (state.buffer.empty()) return;
+auto DetectorA::UpdateRobustStats(MetricState& state) -> void {
+    if (state.buffer.empty()) { return; }
 
     // Copy to sort
     std::vector<double> data(state.buffer.begin(), state.buffer.end());
@@ -32,10 +31,10 @@ void DetectorA::UpdateRobustStats(MetricState& state) {
     state.mad = abs_diffs[mid];
     
     // Avoid division by zero later
-    if (state.mad == 0.0) state.mad = 1e-6; 
+    if (state.mad == 0.0) { state.mad = 1e-6; }
 }
 
-AnomalyScore DetectorA::Update(const FeatureVector& vec) {
+auto DetectorA::Update(const FeatureVector& vec) -> AnomalyScore {
     AnomalyScore score;
     std::stringstream ss;
     bool flagged = false;
@@ -47,7 +46,7 @@ AnomalyScore DetectorA::Update(const FeatureVector& vec) {
         auto& state = states_[i];
         double val = vec.data[i];
 
-        bool warm = state.buffer.size() >= (size_t)win_config_.min_history;
+        bool warm = state.buffer.size() >= static_cast<size_t>(win_config_.min_history);
         if (needs_recompute && warm) {
              UpdateRobustStats(state);
         }
@@ -74,7 +73,7 @@ AnomalyScore DetectorA::Update(const FeatureVector& vec) {
             state.sum += val;
             state.sum_sq += val * val;
 
-            if (state.buffer.size() > (size_t)win_config_.size) {
+            if (state.buffer.size() > static_cast<size_t>(win_config_.size)) {
                 double old = state.buffer.front();
                 state.buffer.pop_front();
                 state.sum -= old;
@@ -87,7 +86,7 @@ AnomalyScore DetectorA::Update(const FeatureVector& vec) {
         if (warm) {
             if (robust_z > outlier_config_.robust_z_threshold) {
                 flagged = true;
-                if (robust_z > score.max_z_score) score.max_z_score = robust_z;
+                if (robust_z > score.max_z_score) { score.max_z_score = robust_z; }
                 
                 ss << FeatureMetadata::GetFeatureNames()[i] 
                    << ":rz=" << std::fixed << std::setprecision(1) << robust_z << (skip_update ? "(skipped)" : "") << " ";
@@ -105,5 +104,4 @@ AnomalyScore DetectorA::Update(const FeatureVector& vec) {
     return score;
 }
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly

@@ -99,6 +99,9 @@ add_library(telemetry_proto
     ${PROTO_GEN_DIR}/telemetry.pb.h
 )
 
+# Disable clang-tidy for generated protobuf code
+set_target_properties(telemetry_proto PROPERTIES CXX_CLANG_TIDY "")
+
 target_link_libraries(telemetry_proto
     PkgConfig::GRPC
     PkgConfig::PROTOBUF
@@ -296,9 +299,6 @@ add_executable(unit_tests
     src/detectors/pca_model.cpp
     src/alert_manager.cpp
 )
-
-# Disable clang-tidy for generated protobuf code
-set_target_properties(telemetry_proto PROPERTIES CXX_CLANG_TIDY "")
 
 target_include_directories(unit_tests PRIVATE src tests)
 target_compile_definitions(unit_tests PRIVATE TELEMETRY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

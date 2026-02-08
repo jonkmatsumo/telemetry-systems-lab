@@ -25,7 +25,7 @@ jobs:
           sudo apt-get install -y \
             build-essential cmake git \
             libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
-            libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev \
+            libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev google-mock \
             libeigen3-dev nlohmann-json3-dev libcpp-httplib-dev \
             pkg-config ccache
 
@@ -78,7 +78,7 @@ jobs:
           sudo apt-get install -y \
             build-essential cmake git \
             libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
-            libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev \
+            libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev google-mock \
             libeigen3-dev nlohmann-json3-dev libcpp-httplib-dev \
             pkg-config ccache
 
@@ -134,7 +134,7 @@ jobs:
           sudo apt-get install -y \
             build-essential cmake clang-tidy \
             libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
-            libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev \
+            libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev google-mock \
             libeigen3-dev nlohmann-json3-dev libcpp-httplib-dev \
             pkg-config
       - name: Configure
@@ -153,7 +153,7 @@ jobs:
           sudo apt-get install -y \
             build-essential cmake \
             libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
-            libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev \
+            libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev google-mock \
             libeigen3-dev nlohmann-json3-dev libcpp-httplib-dev \
             pkg-config
       - name: Configure

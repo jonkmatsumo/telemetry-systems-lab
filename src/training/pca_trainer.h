@@ -8,9 +8,7 @@
 
 #include "db_connection_manager.h"
 
-namespace telemetry {
-namespace training {
-// ... (skipping some parts if needed but replace needs context)
+namespace telemetry::training {
 
 struct TrainingConfig {
     std::string dataset_id;
@@ -89,5 +87,4 @@ PcaArtifact TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
 void WriteArtifactJson(const PcaArtifact& artifact,
                        const std::string& output_path);
 
-} // namespace training
-} // namespace telemetry
+} // namespace telemetry::training

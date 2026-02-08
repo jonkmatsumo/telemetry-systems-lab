@@ -1,3 +1,5 @@
+#pragma once
+
 #include "types.h"
 #include "idb_client.h"
 #include "telemetry.grpc.pb.h"
@@ -17,8 +19,8 @@ public:
               std::shared_ptr<IDbClient> db_client);
     ~Generator();
 
-    void Run();
-    void SetStopFlag(const std::atomic<bool>* stop_flag) { stop_flag_ = stop_flag; }
+    auto Run() -> void;
+    auto SetStopFlag(const std::atomic<bool>* stop_flag) -> void { stop_flag_ = stop_flag; }
 
 protected:
     telemetry::GenerateRequest config_;
@@ -29,12 +31,12 @@ protected:
     
     std::vector<HostProfile> hosts_;
     
-    void InitializeHosts();
-    TelemetryRecord GenerateRecord(const HostProfile& host, 
-                                   std::chrono::system_clock::time_point timestamp);
+    auto InitializeHosts() -> void;
+    auto GenerateRecord(const HostProfile& host, 
+                                   std::chrono::system_clock::time_point timestamp) -> TelemetryRecord;
     
-    void WriterLoop();
-    void EnqueueBatch(std::vector<TelemetryRecord> batch);
+    auto WriterLoop() -> void;
+    auto EnqueueBatch(std::vector<TelemetryRecord> batch) -> void;
 
     std::mt19937_64 rng_;
 
@@ -47,6 +49,4 @@ protected:
     std::unique_ptr<std::thread> writer_thread_;
 };
 
-std::chrono::system_clock::time_point ParseTime(const std::string& iso);
-
-
+auto ParseTime(const std::string& iso) -> std::chrono::system_clock::time_point;

@@ -8,17 +8,17 @@
 
 // Compatibility macro for libpqxx 6.x vs 7.x
 #if !defined(PQXX_VERSION_MAJOR) || (PQXX_VERSION_MAJOR < 7)
-#define PQXX_EXEC_PARAMS(txn, query, ...) (txn).exec_params(query, ##__VA_ARGS__)
+#define PQXX_EXEC_PARAMS(txn, query, ...) (txn).exec_params(query, __VA_ARGS__)
 #else
 #define PQXX_EXEC_PARAMS(txn, query, ...) (txn).exec((query), pqxx::params{__VA_ARGS__})
 #endif
 
-static std::string get_env(const char* key) {
+static auto get_env(const char* key) -> std::string {
     const char* val = std::getenv(key);
     return val ? std::string(val) : std::string();
 }
 
-int main(int argc, char** argv) {
+auto main(int argc, char** argv) -> int {
     std::string dataset_id;
     std::string output_dir = "artifacts/pca/default";
     std::string db_conn_str;

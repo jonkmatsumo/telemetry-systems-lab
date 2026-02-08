@@ -18,8 +18,7 @@
 #include "contract.h"
 #include "obs/metrics.h"
 
-namespace telemetry {
-namespace training {
+namespace telemetry::training {
 
 using json = nlohmann::json;
 
@@ -53,34 +52,34 @@ struct RunningStats {
 };
 
 
-static linalg::Vector vec_sub(const linalg::Vector& a, const linalg::Vector& b) {
+static auto vec_sub(const linalg::Vector& a, const linalg::Vector& b) -> linalg::Vector {
     if (a.size() != b.size()) throw std::runtime_error("vec_sub dimension mismatch");
     linalg::Vector out(a.size(), 0.0);
     for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] - b[i];
     return out;
 }
 
-static linalg::Vector vec_add(const linalg::Vector& a, const linalg::Vector& b) {
+static auto vec_add(const linalg::Vector& a, const linalg::Vector& b) -> linalg::Vector {
     if (a.size() != b.size()) throw std::runtime_error("vec_add dimension mismatch");
     linalg::Vector out(a.size(), 0.0);
     for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] + b[i];
     return out;
 }
 
-static linalg::Vector vec_div(const linalg::Vector& a, const linalg::Vector& b) {
+static auto vec_div(const linalg::Vector& a, const linalg::Vector& b) -> linalg::Vector {
     if (a.size() != b.size()) throw std::runtime_error("vec_div dimension mismatch");
     linalg::Vector out(a.size(), 0.0);
     for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] / b[i];
     return out;
 }
 
-static linalg::Vector vec_scale(const linalg::Vector& a, double s) {
+static auto vec_scale(const linalg::Vector& a, double s) -> linalg::Vector {
     linalg::Vector out(a.size(), 0.0);
     for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] * s;
     return out;
 }
 
-static double percentile_value(std::vector<double> values, double percentile) {
+static auto percentile_value(std::vector<double> values, double percentile) -> double {
     if (values.empty()) {
         throw std::runtime_error("percentile_value requires non-empty input");
     }
@@ -96,7 +95,7 @@ static double percentile_value(std::vector<double> values, double percentile) {
     return values[idx];
 }
 
-static void enforce_component_sign(linalg::Vector& v) {
+static auto enforce_component_sign(linalg::Vector& v) -> void {
     size_t idx = 0;
     double max_abs = 0.0;
     for (size_t i = 0; i < v.size(); ++i) {
@@ -113,10 +112,10 @@ static void enforce_component_sign(linalg::Vector& v) {
     }
 }
 
-static PcaArtifact TrainPcaFromStream(const std::function<void(const std::function<void(const linalg::Vector&)>&)>& for_each,
+static auto TrainPcaFromStream(const std::function<void(const std::function<void(const linalg::Vector&)>&)>& for_each,
                                       size_t dim,
                                       int n_components,
-                                      double percentile) {
+                                      double percentile) -> PcaArtifact {
     if (n_components < 1 || n_components > static_cast<int>(dim)) {
         throw std::invalid_argument("n_components must be between 1 and " + std::to_string(dim));
     }
@@ -205,12 +204,12 @@ static PcaArtifact TrainPcaFromStream(const std::function<void(const std::functi
     return artifact;
 }
 
-PcaArtifact TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
+auto TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,
                                   size_t batch_size,
-                                  std::function<void()> heartbeat) {
+                                  std::function<void()> heartbeat) -> PcaArtifact {
     auto start = std::chrono::steady_clock::now();
     TelemetryBatchIterator iter(manager, dataset_id, batch_size);
 
@@ -239,11 +238,11 @@ PcaArtifact TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
     return artifact;
 }
 
-PcaArtifact TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
+auto TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
                            const std::string& dataset_id,
                            int n_components,
                            double percentile,
-                           std::function<void()> heartbeat) {
+                           std::function<void()> heartbeat) -> PcaArtifact {
     size_t batch_size = 10000;
     const char* env_batch_size = std::getenv("PCA_TRAIN_BATCH_SIZE");
     if (env_batch_size) {
@@ -261,9 +260,9 @@ PcaArtifact TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
     return TrainPcaFromDbBatched(std::move(manager), dataset_id, n_components, percentile, batch_size, std::move(heartbeat));
 }
 
-PcaArtifact TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
+auto TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
                                 int n_components,
-                                double percentile) {
+                                double percentile) -> PcaArtifact {
     auto for_each = [&](const std::function<void(const linalg::Vector&)>& cb) {
         for (const auto& x : samples) {
             cb(x);
@@ -272,7 +271,7 @@ PcaArtifact TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
     return TrainPcaFromStream(for_each, telemetry::anomaly::FeatureVector::kSize, n_components, percentile);
 }
 
-void WriteArtifactJson(const PcaArtifact& artifact, const std::string& output_path) {
+auto WriteArtifactJson(const PcaArtifact& artifact, const std::string& output_path) -> void {
     json j;
     j["meta"]["version"] = "v1";
     j["meta"]["type"] = "pca_reconstruction";
@@ -313,7 +312,7 @@ void WriteArtifactJson(const PcaArtifact& artifact, const std::string& output_pa
     }
 }
 
-HpoPreflight PreflightHpoConfig(const HpoConfig& hpo) {
+auto PreflightHpoConfig(const HpoConfig& hpo) -> HpoPreflight {
     HpoPreflight preflight;
     
     std::vector<int> n_components_space = hpo.search_space.n_components;
@@ -346,7 +345,7 @@ HpoPreflight PreflightHpoConfig(const HpoConfig& hpo) {
     return preflight;
 }
 
-std::vector<HpoValidationError> ValidateHpoConfig(const HpoConfig& config) {
+auto ValidateHpoConfig(const HpoConfig& config) -> std::vector<HpoValidationError> {
     std::vector<HpoValidationError> errors;
 
     if (config.algorithm != "grid" && config.algorithm != "random") {
@@ -392,7 +391,7 @@ std::vector<HpoValidationError> ValidateHpoConfig(const HpoConfig& config) {
     return errors;
 }
 
-std::vector<TrainingConfig> GenerateTrials(const HpoConfig& hpo, const std::string& dataset_id) {
+auto GenerateTrials(const HpoConfig& hpo, const std::string& dataset_id) -> std::vector<TrainingConfig> {
     std::vector<TrainingConfig> trials;
 
     // Use default search values if space is partially defined
@@ -433,7 +432,7 @@ std::vector<TrainingConfig> GenerateTrials(const HpoConfig& hpo, const std::stri
     return trials;
 }
 
-std::string ComputeCandidateFingerprint(const HpoConfig& hpo) {
+auto ComputeCandidateFingerprint(const HpoConfig& hpo) -> std::string {
     nlohmann::json normalized;
     normalized["algorithm"] = hpo.algorithm;
     normalized["max_trials"] = hpo.max_trials;
@@ -458,5 +457,4 @@ std::string ComputeCandidateFingerprint(const HpoConfig& hpo) {
     return std::string(buf);
 }
 
-} // namespace training
-} // namespace telemetry
+} // namespace telemetry::training

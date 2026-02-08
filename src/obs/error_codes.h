@@ -1,7 +1,6 @@
 #pragma once
 
-namespace telemetry {
-namespace obs {
+namespace telemetry::obs {
 
 inline constexpr const char* kErrHttpBadRequest = "E_HTTP_BAD_REQUEST";
 inline constexpr const char* kErrHttpNotFound = "E_HTTP_NOT_FOUND";
@@ -24,5 +23,4 @@ inline constexpr const char* kErrInternal = "E_INTERNAL";
 inline constexpr const char* kErrHttpMissingField = "E_HTTP_MISSING_FIELD";
 inline constexpr const char* kErrHttpJsonParseError = "E_HTTP_JSON_PARSE_ERROR";
 
-} // namespace obs
-} // namespace telemetry
+} // namespace telemetry::obs

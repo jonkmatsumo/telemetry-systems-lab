@@ -2,8 +2,7 @@
 
 #include <string>
 
-namespace telemetry {
-namespace obs {
+namespace telemetry::obs {
 
 struct Context {
     std::string request_id;
@@ -18,25 +17,25 @@ struct Context {
 inline thread_local Context g_context{};
 inline thread_local bool g_context_set = false;
 
-inline const Context& GetContext() {
+inline auto GetContext() -> const Context& {
     return g_context;
 }
 
-inline bool HasContext() {
+inline auto HasContext() -> bool {
     return g_context_set;
 }
 
-inline void SetContext(const Context& ctx) {
+inline auto SetContext(const Context& ctx) -> void {
     g_context = ctx;
     g_context_set = true;
 }
 
-inline void ClearContext() {
+inline auto ClearContext() -> void {
     g_context = Context{};
     g_context_set = false;
 }
 
-inline void UpdateContext(const Context& ctx) {
+inline auto UpdateContext(const Context& ctx) -> void {
     g_context = ctx;
     g_context_set = true;
 }
@@ -62,5 +61,4 @@ private:
     bool prev_set_ = false;
 };
 
-} // namespace obs
-} // namespace telemetry
+} // namespace telemetry::obs

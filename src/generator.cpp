@@ -13,7 +13,7 @@
 #include <sstream>
 
 // Helper to parse ISO string
-std::chrono::system_clock::time_point ParseTime(const std::string& iso) {
+auto ParseTime(const std::string& iso) -> std::chrono::system_clock::time_point {
     std::tm tm = {};
     std::stringstream ss(iso);
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%SZ"); // Expect Zulu for simplicity in MVP
@@ -40,7 +40,7 @@ Generator::~Generator() {
     }
 }
 
-void Generator::EnqueueBatch(std::vector<TelemetryRecord> batch) {
+auto Generator::EnqueueBatch(std::vector<TelemetryRecord> batch) -> void {
     std::unique_lock<std::mutex> lock(queue_mutex_);
     if (write_queue_.size() >= max_queue_size_) {
         telemetry::obs::EmitCounter("generator_dropped_batches", 1, "batches", "generator");
@@ -51,15 +51,15 @@ void Generator::EnqueueBatch(std::vector<TelemetryRecord> batch) {
     queue_cv_.notify_one();
 }
 
-void Generator::WriterLoop() {
+auto Generator::WriterLoop() -> void {
     spdlog::info("Generator writer thread started for run {}", run_id_);
     while (writer_running_) {
         std::vector<TelemetryRecord> batch;
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
             queue_cv_.wait(lock, [this]() { return !write_queue_.empty() || !writer_running_; });
-            if (!writer_running_ && write_queue_.empty()) break;
-            if (write_queue_.empty()) continue;
+            if (!writer_running_ && write_queue_.empty()) { break; }
+            if (write_queue_.empty()) { continue; }
             batch = std::move(write_queue_.front());
             write_queue_.pop();
         }
@@ -74,7 +74,7 @@ void Generator::WriterLoop() {
     spdlog::info("Generator writer thread stopped for run {}", run_id_);
 }
 
-void Generator::InitializeHosts() {
+auto Generator::InitializeHosts() -> void {
     // Make a copy of the RNG for init so we don't advance the main sequence
     // Or just use the main RNG. Let's use the main RNG for consistency.
     std::uniform_real_distribution<double> cpu_dist(10.0, 60.0); // Baseline averages
@@ -83,7 +83,7 @@ void Generator::InitializeHosts() {
     // Pick region (round robin or random)
     // Minimal set of regions if not provided
     std::vector<std::string> regions = {config_.regions().begin(), config_.regions().end()};
-    if (regions.empty()) regions = {"us-east1", "us-west1", "eu-west1"};
+    if (regions.empty()) { regions = {"us-east1", "us-west1", "eu-west1"}; }
     
     for (int i = 0; i < config_.host_count(); ++i) {
         HostProfile h;
@@ -98,8 +98,8 @@ void Generator::InitializeHosts() {
     }
 }
 
-TelemetryRecord Generator::GenerateRecord(const HostProfile& host, 
-                                          std::chrono::system_clock::time_point timestamp) {
+auto Generator::GenerateRecord(const HostProfile& host, 
+                                          std::chrono::system_clock::time_point timestamp) -> TelemetryRecord {
     // Mutable host state requires passing by non-const reference or managing state elsewhere.
     // Since we are iterating, let's cast away constness or update the vector in the loop.
     // For MVP, we'll do the latter in the calling loop or just accept the const_cast for state updates 
@@ -143,7 +143,7 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
         type = "COLLECTIVE_BURST";
     } else if (config_.has_anomaly_config() && p < config_.anomaly_config().collective_rate()) {
         mutable_host.burst_remaining = config_.anomaly_config().burst_duration_points();
-        if (mutable_host.burst_remaining == 0) mutable_host.burst_remaining = 5; // default
+        if (mutable_host.burst_remaining == 0) { mutable_host.burst_remaining = 5; } // default
         cpu += 40.0;
         is_anomaly = true;
         type = "COLLECTIVE_BURST";
@@ -220,7 +220,7 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
     // Ingestion Lag
     // Use fixed lag from config or default 2000ms
     int lag_ms = config_.timing_config().fixed_lag_ms();
-    if (lag_ms == 0) lag_ms = 2000;
+    if (lag_ms == 0) { lag_ms = 2000; }
     
     // Add jitter (simple uniform for MVP, lognormal in full impl)
     std::uniform_int_distribution<int> jitter_dist(0, 500);
@@ -233,7 +233,7 @@ TelemetryRecord Generator::GenerateRecord(const HostProfile& host,
 }
 
 
-void Generator::Run() {
+auto Generator::Run() -> void {
     spdlog::info("Starting generation run {} (req_id: {})", run_id_, config_.request_id());
     auto start_time = std::chrono::steady_clock::now();
     long write_batches = 0;
@@ -254,7 +254,7 @@ void Generator::Run() {
         auto start = ParseTime(config_.start_time_iso());
         auto end = ParseTime(config_.end_time_iso());
         auto duration = std::chrono::seconds(config_.interval_seconds());
-        if (duration.count() == 0) duration = std::chrono::seconds(600); // default 10m
+        if (duration.count() == 0) { duration = std::chrono::seconds(600); } // default 10m
         
         long total_rows = 0;
         std::vector<TelemetryRecord> batch;
@@ -297,7 +297,7 @@ void Generator::Run() {
         while (true) {
             {
                 std::lock_guard<std::mutex> lock(queue_mutex_);
-                if (write_queue_.empty()) break;
+                if (write_queue_.empty()) { break; }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }

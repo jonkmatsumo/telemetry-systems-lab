@@ -4,13 +4,12 @@
 
 // Compatibility macro for libpqxx 6.x vs 7.x
 #if !defined(PQXX_VERSION_MAJOR) || (PQXX_VERSION_MAJOR < 7)
-#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec_prepared(stmt, ##__VA_ARGS__)
+#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec_prepared(stmt, __VA_ARGS__)
 #else
 #define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec(pqxx::prepped{stmt}, pqxx::params{__VA_ARGS__})
 #endif
 
-namespace telemetry {
-namespace training {
+namespace telemetry::training {
 
 TelemetryBatchIterator::TelemetryBatchIterator(std::shared_ptr<DbConnectionManager> manager,
                                                const std::string& dataset_id,
@@ -21,7 +20,7 @@ TelemetryBatchIterator::TelemetryBatchIterator(std::shared_ptr<DbConnectionManag
       last_record_id_(0),
       total_processed_(0) {}
 
-bool TelemetryBatchIterator::NextBatch(std::vector<linalg::Vector>& out_batch) {
+auto TelemetryBatchIterator::NextBatch(std::vector<linalg::Vector>& out_batch) -> bool {
     out_batch.clear();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -59,14 +58,13 @@ bool TelemetryBatchIterator::NextBatch(std::vector<linalg::Vector>& out_batch) {
     }
 }
 
-void TelemetryBatchIterator::Reset() {
+auto TelemetryBatchIterator::Reset() -> void {
     last_record_id_ = 0;
     total_processed_ = 0;
 }
 
-size_t TelemetryBatchIterator::TotalRowsProcessed() const {
+auto TelemetryBatchIterator::TotalRowsProcessed() const -> size_t {
     return total_processed_;
 }
 
-} // namespace training
-} // namespace telemetry
+} // namespace telemetry::training

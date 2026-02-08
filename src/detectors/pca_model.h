@@ -5,8 +5,7 @@
 #include "linalg/matrix.h"
 #include "../contract.h"
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 struct PcaScore {
     bool is_anomaly = false;
@@ -50,5 +49,4 @@ private:
     double threshold_ = 0.0;
 };
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly

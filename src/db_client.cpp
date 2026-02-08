@@ -13,8 +13,8 @@
 
 // Compatibility macros for libpqxx 6.x vs 7.x
 #if !defined(PQXX_VERSION_MAJOR) || (PQXX_VERSION_MAJOR < 7)
-#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec_prepared(stmt, ##__VA_ARGS__)
-#define PQXX_EXEC_PARAMS(txn, query, ...) (txn).exec_params(query, ##__VA_ARGS__)
+#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec_prepared(stmt, __VA_ARGS__)
+#define PQXX_EXEC_PARAMS(txn, query, ...) (txn).exec_params(query, __VA_ARGS__)
 #else
 #define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec(pqxx::prepped{stmt}, pqxx::params{__VA_ARGS__})
 #define PQXX_EXEC_PARAMS(txn, query, ...) (txn).exec((query), pqxx::params{__VA_ARGS__})
@@ -35,7 +35,7 @@ DbClient::DbClient(const std::string& connection_string)
 DbClient::DbClient(std::shared_ptr<DbConnectionManager> manager) 
     : manager_(std::move(manager)) {}
 
-void DbClient::PrepareStatements(pqxx::connection& C) {
+auto DbClient::PrepareStatements(pqxx::connection& C) -> void {
     C.prepare("insert_generation_run",
               "INSERT INTO generation_runs (run_id, tier, host_count, start_time, end_time, interval_seconds, seed, status, config, request_id) "
               "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)");
@@ -202,7 +202,7 @@ void DbClient::PrepareStatements(pqxx::connection& C) {
 
 // Static allowlist of valid metric column names from host_telemetry_archival schema.
 // This prevents SQL injection via metric parameter in analytics queries.
-bool DbClient::IsValidMetric(const std::string& metric) {
+auto DbClient::IsValidMetric(const std::string& metric) -> bool {
     static const std::unordered_set<std::string> kAllowedMetrics = {
         "cpu_usage",
         "memory_usage",
@@ -213,7 +213,7 @@ bool DbClient::IsValidMetric(const std::string& metric) {
     return kAllowedMetrics.count(metric) > 0;
 }
 
-bool DbClient::IsValidDimension(const std::string& dim) {
+auto DbClient::IsValidDimension(const std::string& dim) -> bool {
     static const std::unordered_set<std::string> kAllowedDimensions = {
         "region",
         "project_id",
@@ -227,7 +227,7 @@ bool DbClient::IsValidDimension(const std::string& dim) {
     return kAllowedDimensions.count(dim) > 0;
 }
 
-bool DbClient::IsValidAggregation(const std::string& agg) {
+auto DbClient::IsValidAggregation(const std::string& agg) -> bool {
     static const std::unordered_set<std::string> kAllowedAggs = {
         "mean",
         "min",
@@ -238,7 +238,7 @@ bool DbClient::IsValidAggregation(const std::string& agg) {
     return kAllowedAggs.count(agg) > 0;
 }
 
-void DbClient::ReconcileStaleJobs(std::optional<std::chrono::seconds> stale_ttl) {
+auto DbClient::ReconcileStaleJobs(std::optional<std::chrono::seconds> stale_ttl) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -261,7 +261,7 @@ void DbClient::ReconcileStaleJobs(std::optional<std::chrono::seconds> stale_ttl)
     }
 }
 
-void DbClient::RunRetentionCleanup(int retention_days) {
+auto DbClient::RunRetentionCleanup(int retention_days) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -273,7 +273,7 @@ void DbClient::RunRetentionCleanup(int retention_days) {
     }
 }
 
-void DbClient::EnsurePartition(std::chrono::system_clock::time_point tp) {
+auto DbClient::EnsurePartition(std::chrono::system_clock::time_point tp) -> void {
     try {
         auto t_time = std::chrono::system_clock::to_time_t(tp);
         std::tm tm = *std::gmtime(&t_time);
@@ -306,10 +306,10 @@ void DbClient::EnsurePartition(std::chrono::system_clock::time_point tp) {
     }
 }
 
-void DbClient::CreateRun(const std::string& run_id, 
+auto DbClient::CreateRun(const std::string& run_id, 
                         const telemetry::GenerateRequest& config, 
                         const std::string& status,
-                        const std::string& request_id) {
+                        const std::string& request_id) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -326,10 +326,10 @@ void DbClient::CreateRun(const std::string& run_id,
     }
 }
 
-void DbClient::UpdateRunStatus(const std::string& run_id, 
+auto DbClient::UpdateRunStatus(const std::string& run_id, 
                               const std::string& status, 
                               long inserted_rows,
-                              const std::string& error) {
+                              const std::string& error) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -346,7 +346,7 @@ void DbClient::UpdateRunStatus(const std::string& run_id,
     }
 }
 
-void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records) {
+auto DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records) -> void {
     if (records.empty()) return;
     
     try {
@@ -420,7 +420,7 @@ void DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records)
     }
 }
 
-void DbClient::Heartbeat(JobType type, const std::string& job_id) {
+auto DbClient::Heartbeat(JobType type, const std::string& job_id) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -437,7 +437,7 @@ void DbClient::Heartbeat(JobType type, const std::string& job_id) {
     }
 }
 
-void DbClient::InsertAlert(const Alert& alert) {
+auto DbClient::InsertAlert(const Alert& alert) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -456,7 +456,7 @@ void DbClient::InsertAlert(const Alert& alert) {
     }
 }
 
-telemetry::RunStatus DbClient::GetRunStatus(const std::string& run_id) {
+auto DbClient::GetRunStatus(const std::string& run_id) -> telemetry::RunStatus {
     telemetry::RunStatus status;
     status.set_run_id(run_id);
     try {
@@ -477,14 +477,15 @@ telemetry::RunStatus DbClient::GetRunStatus(const std::string& run_id) {
     return status;
 }
 
-std::string DbClient::CreateModelRun(const std::string& dataset_id, 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+auto DbClient::CreateModelRun(const std::string& dataset_id, 
                                      const std::string& name,
                                      const nlohmann::json& training_config,
                                      const std::string& request_id,
                                      const nlohmann::json& hpo_config,
                                      const std::string& candidate_fingerprint,
                                      const std::string& generator_version,
-                                     std::optional<long long> seed_used) {
+                                     std::optional<long long> seed_used) -> std::string {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -510,13 +511,14 @@ std::string DbClient::CreateModelRun(const std::string& dataset_id,
     return "";
 }
 
-std::string DbClient::CreateHpoTrialRun(const std::string& dataset_id,
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+auto DbClient::CreateHpoTrialRun(const std::string& dataset_id,
                                         const std::string& name,
                                         const nlohmann::json& training_config,
                                         const std::string& request_id,
                                         const std::string& parent_run_id,
                                         int trial_index,
-                                        const nlohmann::json& trial_params) {
+                                        const nlohmann::json& trial_params) -> std::string {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -531,12 +533,11 @@ std::string DbClient::CreateHpoTrialRun(const std::string& dataset_id,
     return "";
 }
 
-void DbClient::UpdateModelRunStatus(const std::string& model_run_id, 
+auto DbClient::UpdateModelRunStatus(const std::string& model_run_id, 
                                     const std::string& status, 
-                                    const std::string& artifact_path, 
+                                    const std::string& artifact_path,
                                     const std::string& error,
-                                    const nlohmann::json& error_summary) {
-    try {
+                                    const nlohmann::json& error_summary) -> void {    try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
@@ -563,7 +564,7 @@ void DbClient::UpdateModelRunStatus(const std::string& model_run_id,
     }
 }
 
-nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
+auto DbClient::GetModelRun(const std::string& model_run_id) -> nlohmann::json {
 
     nlohmann::json j;
 
@@ -665,12 +666,13 @@ nlohmann::json DbClient::GetModelRun(const std::string& model_run_id) {
     return j;
 }
 
-void DbClient::UpdateBestTrial(const std::string& parent_run_id,
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+auto DbClient::UpdateBestTrial(const std::string& parent_run_id,
                                const std::string& best_trial_run_id,
                                double best_metric_value,
                                const std::string& best_metric_name,
                                const std::string& best_metric_direction,
-                               const std::string& tie_break_basis) {
+                               const std::string& tie_break_basis) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -683,12 +685,11 @@ void DbClient::UpdateBestTrial(const std::string& parent_run_id,
     }
 }
 
-void DbClient::UpdateTrialEligibility(const std::string& model_run_id,
-                                     bool is_eligible,
-                                     const std::string& reason,
-                                     double metric_value,
-                                     const std::string& source) {
-    try {
+auto DbClient::UpdateTrialEligibility(const std::string& model_run_id,
+                                bool is_eligible,
+                                const std::string& reason,
+                                double metric_value,
+                                const std::string& source) -> void {    try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
@@ -702,9 +703,8 @@ void DbClient::UpdateTrialEligibility(const std::string& model_run_id,
     }
 }
 
-void DbClient::UpdateParentErrorAggregates(const std::string& parent_run_id,
-                                           const nlohmann::json& error_aggregates) {
-    try {
+auto DbClient::UpdateParentErrorAggregates(const std::string& parent_run_id,
+                                     const nlohmann::json& error_aggregates) -> void {    try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         PQXX_EXEC_PREPPED(W, "update_error_aggregates",
@@ -715,11 +715,11 @@ void DbClient::UpdateParentErrorAggregates(const std::string& parent_run_id,
     }
 }
 
-nlohmann::json DbClient::GetHpoTrials(const std::string& parent_run_id) {
+auto DbClient::GetHpoTrials(const std::string& parent_run_id) -> nlohmann::json {
     return GetHpoTrialsPaginated(parent_run_id, 1000, 0);
 }
 
-std::map<std::string, nlohmann::json> DbClient::GetBulkHpoTrialSummaries(const std::vector<std::string>& parent_run_ids) {
+auto DbClient::GetBulkHpoTrialSummaries(const std::vector<std::string>& parent_run_ids) -> std::map<std::string, nlohmann::json> {
     std::map<std::string, nlohmann::json> summaries;
     if (parent_run_ids.empty()) return summaries;
 
@@ -763,7 +763,7 @@ std::map<std::string, nlohmann::json> DbClient::GetBulkHpoTrialSummaries(const s
     return summaries;
 }
 
-nlohmann::json DbClient::GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) {
+auto DbClient::GetHpoTrialsPaginated(const std::string& parent_run_id, int limit, int offset) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -803,7 +803,7 @@ nlohmann::json DbClient::GetHpoTrialsPaginated(const std::string& parent_run_id,
     return out;
 }
 
-std::string DbClient::CreateInferenceRun(const std::string& model_run_id) {
+auto DbClient::CreateInferenceRun(const std::string& model_run_id) -> std::string {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -818,12 +818,11 @@ std::string DbClient::CreateInferenceRun(const std::string& model_run_id) {
     return "";
 }
 
-void DbClient::UpdateInferenceRunStatus(const std::string& inference_id, 
-                                        const std::string& status, 
-                                        int anomaly_count, 
-                                        const nlohmann::json& details,
-                                        double latency_ms) {
-    try {
+auto DbClient::UpdateInferenceRunStatus(const std::string& inference_id, 
+                                          const std::string& status, 
+                                          int anomaly_count, 
+                                          const nlohmann::json& details,
+                                          double latency_ms) -> void {    try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         PQXX_EXEC_PREPPED(W, "update_inference_run",
@@ -834,11 +833,12 @@ void DbClient::UpdateInferenceRunStatus(const std::string& inference_id,
     }
 }
 
-nlohmann::json DbClient::ListGenerationRuns(int limit,
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+auto DbClient::ListGenerationRuns(int limit,
                                             int offset,
                                             const std::string& status,
                                             const std::string& created_from,
-                                            const std::string& created_to) {
+                                            const std::string& created_to) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -880,7 +880,7 @@ nlohmann::json DbClient::ListGenerationRuns(int limit,
     return out;
 }
 
-nlohmann::json DbClient::GetDatasetDetail(const std::string& run_id) {
+auto DbClient::GetDatasetDetail(const std::string& run_id) -> nlohmann::json {
     nlohmann::json j;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -907,7 +907,7 @@ nlohmann::json DbClient::GetDatasetDetail(const std::string& run_id) {
     return j;
 }
 
-nlohmann::json DbClient::GetDatasetSamples(const std::string& run_id, int limit) {
+auto DbClient::GetDatasetSamples(const std::string& run_id, int limit) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -932,7 +932,7 @@ nlohmann::json DbClient::GetDatasetSamples(const std::string& run_id, int limit)
     return out;
 }
 
-nlohmann::json DbClient::GetDatasetRecord(const std::string& run_id, long record_id) {
+auto DbClient::GetDatasetRecord(const std::string& run_id, long record_id) -> nlohmann::json {
     nlohmann::json j;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -955,6 +955,7 @@ nlohmann::json DbClient::GetDatasetRecord(const std::string& run_id, long record
     return j;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 nlohmann::json DbClient::ListModelRuns(int limit,
                                        int offset,
                                        const std::string& status,
@@ -1020,6 +1021,7 @@ nlohmann::json DbClient::ListModelRuns(int limit,
     return out;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 nlohmann::json DbClient::ListInferenceRuns(const std::string& dataset_id,
                                            const std::string& model_run_id,
                                            int limit,
@@ -1131,7 +1133,7 @@ nlohmann::json DbClient::GetScoredDatasetsForModel(const std::string& model_run_
     return out;
 }
 
-nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) {
+auto DbClient::GetDatasetSummary(const std::string& run_id, int topk) -> nlohmann::json {
     nlohmann::json j;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -1225,7 +1227,7 @@ nlohmann::json DbClient::GetDatasetSummary(const std::string& run_id, int topk) 
     return j;
 }
 
-nlohmann::json DbClient::GetTopK(const std::string& run_id,
+auto DbClient::GetTopK(const std::string& run_id,
                                  const std::string& column,
                                  int k,
                                  const std::string& region,
@@ -1233,7 +1235,7 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
                                  const std::string& anomaly_type,
                                  const std::string& start_time,
                                  const std::string& end_time,
-                                 bool include_total_distinct) {
+                                 bool include_total_distinct) -> nlohmann::json {
     if (!IsValidDimension(column)) {
         throw std::invalid_argument("Invalid column: " + column);
     }
@@ -1291,16 +1293,15 @@ nlohmann::json DbClient::GetTopK(const std::string& run_id,
     return out;
 }
 
-nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
-                                       const std::vector<std::string>& metrics,
-                                       const std::vector<std::string>& aggs,
-                                       int bucket_seconds,
-                                       const std::string& region,
-                                       const std::string& is_anomaly,
-                                       const std::string& anomaly_type,
-                                       const std::string& start_time,
-                                       const std::string& end_time) {
-    // Validate all metrics against allowlist to prevent SQL injection
+auto DbClient::GetTimeSeries(const std::string& run_id,
+                                     const std::vector<std::string>& metrics,
+                                     const std::vector<std::string>& aggs,
+                                     int bucket_seconds,
+                                     const std::string& region,
+                                     const std::string& is_anomaly,
+                                     const std::string& anomaly_type,
+                                     const std::string& start_time,
+                                     const std::string& end_time) -> nlohmann::json {    // Validate all metrics against allowlist to prevent SQL injection
     for (const auto& metric : metrics) {
         if (!IsValidMetric(metric)) {
             throw std::invalid_argument("Invalid metric: " + metric);
@@ -1373,17 +1374,16 @@ nlohmann::json DbClient::GetTimeSeries(const std::string& run_id,
     return out;
 }
 
-nlohmann::json DbClient::GetHistogram(const std::string& run_id,
-                                      const std::string& metric,
-                                      int bins,
-                                      double min_val,
-                                      double max_val,
-                                      const std::string& region,
-                                      const std::string& is_anomaly,
-                                      const std::string& anomaly_type,
-                                      const std::string& start_time,
-                                      const std::string& end_time) {
-    // Validate metric against allowlist to prevent SQL injection
+auto DbClient::GetHistogram(const std::string& run_id,
+                                   const std::string& metric,
+                                   int bins,
+                                   double min_val,
+                                   double max_val,
+                                   const std::string& region,
+                                   const std::string& is_anomaly,
+                                   const std::string& anomaly_type,
+                                   const std::string& start_time,
+                                   const std::string& end_time) -> nlohmann::json {    // Validate metric against allowlist to prevent SQL injection
     if (!IsValidMetric(metric)) {
         throw std::invalid_argument("Invalid metric: " + metric);
     }
@@ -1455,7 +1455,7 @@ nlohmann::json DbClient::GetHistogram(const std::string& run_id,
     return out;
 }
 
-nlohmann::json DbClient::GetMetricStats(const std::string& run_id, const std::string& metric) {
+auto DbClient::GetMetricStats(const std::string& run_id, const std::string& metric) -> nlohmann::json {
     if (!IsValidMetric(metric)) {
         throw std::invalid_argument("Invalid metric: " + metric);
     }
@@ -1485,7 +1485,7 @@ nlohmann::json DbClient::GetMetricStats(const std::string& run_id, const std::st
     return j;
 }
 
-nlohmann::json DbClient::GetDatasetMetricsSummary(const std::string& run_id) {
+auto DbClient::GetDatasetMetricsSummary(const std::string& run_id) -> nlohmann::json {
     static const std::vector<std::string> kMetrics = {
         "cpu_usage", "memory_usage", "disk_utilization", "network_rx_rate", "network_tx_rate"
     };
@@ -1524,10 +1524,9 @@ nlohmann::json DbClient::GetDatasetMetricsSummary(const std::string& run_id) {
     return out;
 }
 
-std::string DbClient::CreateScoreJob(const std::string& dataset_id, 
-                                    const std::string& model_run_id,
-                                    const std::string& request_id) {
-    try {
+auto DbClient::CreateScoreJob(const std::string& dataset_id, 
+                               const std::string& model_run_id,
+                               const std::string& request_id) -> std::string {    try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
@@ -1547,13 +1546,12 @@ std::string DbClient::CreateScoreJob(const std::string& dataset_id,
     return "";
 }
 
-void DbClient::UpdateScoreJob(const std::string& job_id,
-                              const std::string& status,
-                              long total_rows,
-                              long processed_rows,
-                              long last_record_id,
-                              const std::string& error) {
-    try {
+auto DbClient::UpdateScoreJob(const std::string& job_id,
+                        const std::string& status,
+                        long total_rows,
+                        long processed_rows,
+                        long last_record_id,
+                        const std::string& error) -> void {    try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         if (status == "COMPLETED") {
@@ -1572,7 +1570,7 @@ void DbClient::UpdateScoreJob(const std::string& job_id,
     }
 }
 
-nlohmann::json DbClient::GetScoreJob(const std::string& job_id) {
+auto DbClient::GetScoreJob(const std::string& job_id) -> nlohmann::json {
     nlohmann::json j;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -1599,13 +1597,14 @@ nlohmann::json DbClient::GetScoreJob(const std::string& job_id) {
     return j;
 }
 
-nlohmann::json DbClient::ListScoreJobs(int limit,
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+auto DbClient::ListScoreJobs(int limit,
                                        int offset,
                                        const std::string& status,
                                        const std::string& dataset_id,
                                        const std::string& model_run_id,
                                        const std::string& created_from,
-                                       const std::string& created_to) {
+                                       const std::string& created_to) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -1650,10 +1649,9 @@ nlohmann::json DbClient::ListScoreJobs(int limit,
     return out;
 }
 
-std::vector<IDbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const std::string& dataset_id,
-                                                                        long last_record_id,
-                                                                        int limit) {
-    std::vector<IDbClient::ScoringRow> rows;
+auto DbClient::FetchScoringRowsAfterRecord(const std::string& dataset_id,
+                                                        long last_record_id,
+                                                        int limit) -> std::vector<IDbClient::ScoringRow> {    std::vector<IDbClient::ScoringRow> rows;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
@@ -1678,9 +1676,9 @@ std::vector<IDbClient::ScoringRow> DbClient::FetchScoringRowsAfterRecord(const s
     return rows;
 }
 
-void DbClient::InsertDatasetScores(const std::string& dataset_id,
+auto DbClient::InsertDatasetScores(const std::string& dataset_id,
                                    const std::string& model_run_id,
-                                   const std::vector<std::pair<long, std::pair<double, bool>>>& scores) {
+                                   const std::vector<std::pair<long, std::pair<double, bool>>>& scores) -> void {
     if (scores.empty()) return;
     auto start = std::chrono::steady_clock::now();
     try {
@@ -1732,7 +1730,7 @@ void DbClient::InsertDatasetScores(const std::string& dataset_id,
     }
 }
 
-long DbClient::GetDatasetRecordCount(const std::string& dataset_id) {
+auto DbClient::GetDatasetRecordCount(const std::string& dataset_id) -> long {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
@@ -1744,14 +1742,13 @@ long DbClient::GetDatasetRecordCount(const std::string& dataset_id) {
     }
 }
 
-nlohmann::json DbClient::GetScores(const std::string& dataset_id,
-                                   const std::string& model_run_id,
-                                   int limit,
-                                   int offset,
-                                   bool only_anomalies,
-                                   double min_score,
-                                   double max_score) {
-    nlohmann::json out = nlohmann::json::object();
+auto DbClient::GetScores(const std::string& dataset_id,
+                             const std::string& model_run_id,
+                             int limit,
+                             int offset,
+                             bool only_anomalies,
+                             double min_score,
+                             double max_score) -> nlohmann::json {    nlohmann::json out = nlohmann::json::object();
     out["items"] = nlohmann::json::array();
     auto start = std::chrono::steady_clock::now();
     try {
@@ -1854,11 +1851,10 @@ nlohmann::json DbClient::GetScores(const std::string& dataset_id,
     return out;
 }
 
-nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
-                                        const std::string& model_run_id,
-                                        int points,
-                                        int max_samples) {
-    nlohmann::json out;
+auto DbClient::GetEvalMetrics(const std::string& dataset_id,
+                                  const std::string& model_run_id,
+                                  int points,
+                                  int max_samples) -> nlohmann::json {    nlohmann::json out;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
@@ -1932,10 +1928,9 @@ nlohmann::json DbClient::GetEvalMetrics(const std::string& dataset_id,
     return out;
 }
 
-nlohmann::json DbClient::GetErrorDistribution(const std::string& dataset_id,
-                                              const std::string& model_run_id,
-                                              const std::string& group_by) {
-    if (!IsValidDimension(group_by)) {
+auto DbClient::GetErrorDistribution(const std::string& dataset_id,
+                                        const std::string& model_run_id,
+                                        const std::string& group_by) -> nlohmann::json {    if (!IsValidDimension(group_by)) {
         throw std::invalid_argument("Invalid group_by: " + group_by);
     }
     nlohmann::json out = nlohmann::json::array();
@@ -1969,7 +1964,7 @@ nlohmann::json DbClient::GetErrorDistribution(const std::string& dataset_id,
     return out;
 }
 
-void DbClient::DeleteDatasetWithScores(const std::string& dataset_id) {
+auto DbClient::DeleteDatasetWithScores(const std::string& dataset_id) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -2000,19 +1995,18 @@ void DbClient::DeleteDatasetWithScores(const std::string& dataset_id) {
     }
 }
 
-nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
-                                              int limit,
-                                              int offset,
-                                              const std::string& start_time,
-                                              const std::string& end_time,
-                                              const std::string& is_anomaly,
-                                              const std::string& anomaly_type,
-                                              const std::string& host_id,
-                                              const std::string& region,
-                                              const std::string& sort_by,
-                                              const std::string& sort_order,
-                                              const std::string& anchor_time) {
-    nlohmann::json out = nlohmann::json::object();
+auto DbClient::SearchDatasetRecords(const std::string& run_id,
+                                        int limit,
+                                        int offset,
+                                        const std::string& start_time,
+                                        const std::string& end_time,
+                                        const std::string& is_anomaly,
+                                        const std::string& anomaly_type,
+                                        const std::string& host_id,
+                                        const std::string& region,
+                                        const std::string& sort_by,
+                                        const std::string& sort_order,
+                                        const std::string& anchor_time) -> nlohmann::json {    nlohmann::json out = nlohmann::json::object();
     out["items"] = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -2092,9 +2086,9 @@ nlohmann::json DbClient::SearchDatasetRecords(const std::string& run_id,
     return out;
 }
 
-bool DbClient::TryTransitionModelRunStatus(const std::string& model_run_id,
+auto DbClient::TryTransitionModelRunStatus(const std::string& model_run_id,
                                            const std::string& expected_current,
-                                           const std::string& next_status) {
+                                           const std::string& next_status) -> bool {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -2108,9 +2102,9 @@ bool DbClient::TryTransitionModelRunStatus(const std::string& model_run_id,
     }
 }
 
-bool DbClient::TryTransitionScoreJobStatus(const std::string& job_id,
+auto DbClient::TryTransitionScoreJobStatus(const std::string& job_id,
                                            const std::string& expected_current,
-                                           const std::string& next_status) {
+                                           const std::string& next_status) -> bool {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);

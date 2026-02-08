@@ -8,7 +8,7 @@
 #include <chrono>
 
 // Helper to generate UUID string
-std::string GenerateUUID() {
+auto GenerateUUID() -> std::string {
     uuid_t binuuid;
     uuid_generate_random(binuuid);
     char uuid[37];
@@ -16,8 +16,8 @@ std::string GenerateUUID() {
     return std::string(uuid);
 }
 
-Status TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* context, const GenerateRequest* request,
-                                              GenerateResponse* response) {
+auto TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* context, const GenerateRequest* request,
+                                              GenerateResponse* response) -> Status {
     std::string run_id = GenerateUUID();
     spdlog::info("Received GenerateTelemetry request. Tier: {}, HostCount: {}, RunID: {}", 
                  request->tier(), request->host_count(), run_id);
@@ -55,8 +55,8 @@ Status TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* c
 }
 
 
-Status TelemetryServiceImpl::GetRun([[maybe_unused]] ServerContext* context, const GetRunRequest* request,
-                                   RunStatus* response) {
+auto TelemetryServiceImpl::GetRun([[maybe_unused]] ServerContext* context, const GetRunRequest* request,
+                                   RunStatus* response) -> Status {
     spdlog::info("Received GetRun request for RunID: {}", request->run_id());
     
     auto db = db_factory_();

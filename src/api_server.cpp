@@ -25,8 +25,7 @@
 
 #include <uuid/uuid.h>
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
 std::string FormatServerTime() {
     auto now = std::chrono::system_clock::now();
@@ -99,6 +98,7 @@ static const char* ClassifyTrainError(const std::string& msg) {
     return telemetry::obs::kErrInternal;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_str)
 {
     size_t pool_size = 5;
@@ -131,6 +131,7 @@ ApiServer::ApiServer(const std::string& grpc_target, const std::string& db_conn_
     Initialize();
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 ApiServer::ApiServer(const std::string& grpc_target, std::shared_ptr<IDbClient> db_client)
     : grpc_target_(grpc_target), db_client_(db_client)
 {
@@ -2123,6 +2124,7 @@ void ApiServer::SendJson(httplib::Response& res, nlohmann::json j, int status, c
     res.set_content(j.dump(), "application/json");
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void ApiServer::SendError(httplib::Response& res, 
                         const std::string& msg, 
                         int status,
@@ -2171,5 +2173,4 @@ void ApiServer::ValidateRoutes() {
     }
 }
 
-} // namespace api
-} // namespace telemetry
+} // namespace telemetry::api

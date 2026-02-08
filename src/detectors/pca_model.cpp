@@ -12,8 +12,7 @@
 #include "obs/metrics.h"
 #include "obs/error_codes.h"
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 using json = nlohmann::json;
 
@@ -164,5 +163,4 @@ size_t PcaModel::EstimateMemoryUsage() const {
     return usage;
 }
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly
