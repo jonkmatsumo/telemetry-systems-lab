@@ -207,6 +207,7 @@ add_executable(unit_tests
     tests/unit/test_time_parsing.cpp
     tests/unit/test_db_connection_pool.cpp
     tests/unit/test_db_transaction.cpp
+    tests/unit/test_heartbeat_reconciliation.cpp
     tests/unit/test_pca_model_cache.cpp
     tests/unit/test_job_state_machine.cpp
     tests/unit/test_job_reconciler.cpp
@@ -251,3 +252,4 @@ target_link_libraries(api_health_tests PRIVATE GTest::GTest GTest::Main nlohmann
 if(HTTPLIB_FOUND)
     target_link_libraries(api_health_tests PRIVATE PkgConfig::HTTPLIB)
 endif()
+

@@ -48,10 +48,10 @@ auto DbClient::PrepareStatements(pqxx::connection& C) -> void {
               
     C.prepare("get_run_status",
               "SELECT status, inserted_rows, error, request_id FROM generation_runs WHERE run_id = $1");
-
-    C.prepare("heartbeat_generation", "UPDATE generation_runs SET updated_at = NOW() WHERE run_id = $1");
-    C.prepare("heartbeat_model_run", "UPDATE model_runs SET updated_at = NOW() WHERE model_run_id = $1");
-    C.prepare("heartbeat_score_job", "UPDATE dataset_score_jobs SET updated_at = NOW() WHERE job_id = $1");
+    
+    C.prepare("heartbeat_generation", "UPDATE generation_runs SET heartbeat_at = NOW(), updated_at = NOW() WHERE run_id = $1");
+    C.prepare("heartbeat_model_run", "UPDATE model_runs SET heartbeat_at = NOW(), updated_at = NOW() WHERE model_run_id = $1");
+    C.prepare("heartbeat_score_job", "UPDATE dataset_score_jobs SET heartbeat_at = NOW(), updated_at = NOW() WHERE job_id = $1");
 
     C.prepare("insert_alert",
               "INSERT INTO alerts (host_id, run_id, timestamp, severity, detector_source, score, details) "
@@ -66,13 +66,13 @@ auto DbClient::PrepareStatements(pqxx::connection& C) -> void {
               "VALUES ($1, $2, 'PENDING', $3, $4, $5, $6, $7) RETURNING model_run_id");
 
     C.prepare("update_model_run_completed",
-              "UPDATE model_runs SET status=$1, artifact_path=$2, completed_at=NOW(), updated_at=NOW() WHERE model_run_id=$3");
+              "UPDATE model_runs SET status=$1, artifact_path=$2, completed_at=NOW(), updated_at=NOW(), heartbeat_at=NOW() WHERE model_run_id=$3");
 
     C.prepare("update_model_run_failed",
-              "UPDATE model_runs SET status=$1, error=$2, error_summary=$3, completed_at=NOW(), updated_at=NOW() WHERE model_run_id=$4");
+              "UPDATE model_runs SET status=$1, error=$2, error_summary=$3, completed_at=NOW(), updated_at=NOW(), heartbeat_at=NOW() WHERE model_run_id=$4");
 
     C.prepare("update_model_run_status",
-              "UPDATE model_runs SET status=$1, updated_at=NOW() WHERE model_run_id=$2");
+              "UPDATE model_runs SET status=$1, updated_at=NOW(), heartbeat_at=NOW() WHERE model_run_id=$2");
 
     C.prepare("get_model_run",
               "SELECT model_run_id, dataset_id, name, status, artifact_path, error, created_at, completed_at, request_id, training_config, "
@@ -140,15 +140,15 @@ auto DbClient::PrepareStatements(pqxx::connection& C) -> void {
               "VALUES ($1, $2, 'PENDING', $3) RETURNING job_id");
 
     C.prepare("update_score_job_completed",
-              "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, updated_at=NOW(), completed_at=NOW() "
+              "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, updated_at=NOW(), heartbeat_at=NOW(), completed_at=NOW() "
               "WHERE job_id=$5");
 
     C.prepare("update_score_job_error",
-              "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, error=$5, updated_at=NOW() "
+              "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, error=$5, updated_at=NOW(), heartbeat_at=NOW() "
               "WHERE job_id=$6");
 
     C.prepare("update_score_job_status",
-              "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, updated_at=NOW() "
+              "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, updated_at=NOW(), heartbeat_at=NOW() "
               "WHERE job_id=$5");
 
     C.prepare("get_score_job",
@@ -244,20 +244,36 @@ auto DbClient::ReconcileStaleJobs(std::optional<std::chrono::seconds> stale_ttl)
         
         std::string condition = "status IN ('RUNNING', 'PENDING')";
         if (stale_ttl.has_value()) {
-            condition += " AND updated_at < NOW() - INTERVAL '" + std::to_string(stale_ttl->count()) + " seconds'";
+            condition += " AND heartbeat_at < NOW() - INTERVAL '" + std::to_string(stale_ttl->count()) + " seconds'";
         }
 
         std::string error_msg = stale_ttl.has_value() ? "Stale job detected (heartbeat timeout)" : "System restart/recovery";
 
         std::string error_q = scope->txn().quote(error_msg);
-        std::string suffix = " SET status='FAILED', error=" + error_q + ", updated_at=NOW() WHERE " + condition;
+        std::string suffix = " SET status='FAILED', error=" + error_q + ", updated_at=NOW(), heartbeat_at=NOW() WHERE " + condition;
 
-        PQXX_EXEC_PARAMS(scope->txn(), "UPDATE dataset_score_jobs" + suffix);
-        PQXX_EXEC_PARAMS(scope->txn(), "UPDATE model_runs" + suffix);
-        PQXX_EXEC_PARAMS(scope->txn(), "UPDATE generation_runs" + suffix);
+        // Count how many we are about to reconcile for metrics
+        // In a real system we might want to do this more precisely per type
+        
+        auto res_score = PQXX_EXEC_PARAMS(scope->txn(), "UPDATE dataset_score_jobs" + suffix + " RETURNING job_id");
+        auto res_model = PQXX_EXEC_PARAMS(scope->txn(), "UPDATE model_runs" + suffix + " RETURNING model_run_id");
+        auto res_gen = PQXX_EXEC_PARAMS(scope->txn(), "UPDATE generation_runs" + suffix + " RETURNING run_id");
         
         scope->commit();
-        spdlog::info("Reconciled stale jobs (TTL={}).", stale_ttl.has_value() ? std::to_string(stale_ttl->count()) + "s" : "all");
+        
+        if (!res_score.empty()) {
+            telemetry::obs::EmitCounter("reconciled_jobs_total", static_cast<long>(res_score.size()), "count", "lifecycle", {{"job_type", "score_job"}});
+        }
+        if (!res_model.empty()) {
+            telemetry::obs::EmitCounter("reconciled_jobs_total", static_cast<long>(res_model.size()), "count", "lifecycle", {{"job_type", "model_run"}});
+        }
+        if (!res_gen.empty()) {
+            telemetry::obs::EmitCounter("reconciled_jobs_total", static_cast<long>(res_gen.size()), "count", "lifecycle", {{"job_type", "generation"}});
+        }
+
+        spdlog::info("Reconciled stale jobs (TTL={}). Reconciled: score={}, model={}, gen={}", 
+                     stale_ttl.has_value() ? std::to_string(stale_ttl->count()) + "s" : "all",
+                     res_score.size(), res_model.size(), res_gen.size());
     } catch (const std::exception& e) {
         spdlog::error("Failed to reconcile stale jobs: {}", e.what());
     }
@@ -547,8 +563,7 @@ auto DbClient::UpdateModelRunStatus(const std::string& model_run_id,
                                     const std::string& error,
                                     const nlohmann::json& error_summary) -> void {
     try {
-        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
-        pqxx::work W(C);
+        auto scope = BeginTransaction("UpdateModelRunStatus");
         
         std::string summary_str;
         const char* summary_ptr = nullptr;
@@ -558,16 +573,16 @@ auto DbClient::UpdateModelRunStatus(const std::string& model_run_id,
         }
 
         if (status == "COMPLETED") {
-             PQXX_EXEC_PREPPED(W, "update_model_run_completed",
+             PQXX_EXEC_PREPPED(scope->txn(), "update_model_run_completed",
                           status, artifact_path, model_run_id);
         } else if (status == "FAILED" || status == "CANCELLED" || status == "CANCELED") {
-             PQXX_EXEC_PREPPED(W, "update_model_run_failed",
+             PQXX_EXEC_PREPPED(scope->txn(), "update_model_run_failed",
                           status, error, summary_ptr, model_run_id);
         } else {
-             PQXX_EXEC_PREPPED(W, "update_model_run_status",
+             PQXX_EXEC_PREPPED(scope->txn(), "update_model_run_status",
                           status, model_run_id);
         }
-        W.commit();
+        scope->commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to update model run {}: {}", model_run_id, e.what());
     }
@@ -1575,19 +1590,18 @@ auto DbClient::UpdateScoreJob(const std::string& job_id,
                         long processed_rows,
                         long last_record_id,
                         const std::string& error) -> void {    try {
-        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
-        pqxx::work W(C);
+        auto scope = BeginTransaction("UpdateScoreJob");
         if (status == "COMPLETED") {
-            PQXX_EXEC_PREPPED(W, "update_score_job_completed",
+            PQXX_EXEC_PREPPED(scope->txn(), "update_score_job_completed",
                  status, total_rows, processed_rows, last_record_id, job_id);
         } else if (!error.empty()) {
-            PQXX_EXEC_PREPPED(W, "update_score_job_error",
+            PQXX_EXEC_PREPPED(scope->txn(), "update_score_job_error",
                  status, total_rows, processed_rows, last_record_id, error, job_id);
         } else {
-            PQXX_EXEC_PREPPED(W, "update_score_job_status",
+            PQXX_EXEC_PREPPED(scope->txn(), "update_score_job_status",
                  status, total_rows, processed_rows, last_record_id, job_id);
         }
-        W.commit();
+        scope->commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to update score job {}: {}", job_id, e.what());
     }
@@ -2123,11 +2137,10 @@ auto DbClient::TryTransitionModelRunStatus(const std::string& model_run_id,
                                            const std::string& expected_current,
                                            const std::string& next_status) -> bool { // NOLINT(bugprone-easily-swappable-parameters)
     try {
-        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
-        pqxx::work W(C);
-        auto res = PQXX_EXEC_PREPPED(W, "transition_model_run_status",
+        auto scope = BeginTransaction("TryTransitionModelRunStatus");
+        auto res = PQXX_EXEC_PREPPED(scope->txn(), "transition_model_run_status",
                                   next_status, model_run_id, expected_current);
-        W.commit();
+        scope->commit();
         return res.affected_rows() > 0;
     } catch (const std::exception& e) {
         spdlog::error("Failed to transition model run status: {}", e.what());
@@ -2139,11 +2152,10 @@ auto DbClient::TryTransitionScoreJobStatus(const std::string& job_id,
                                            const std::string& expected_current,
                                            const std::string& next_status) -> bool { // NOLINT(bugprone-easily-swappable-parameters)
     try {
-        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
-        pqxx::work W(C);
-        auto res = PQXX_EXEC_PREPPED(W, "transition_score_job_status",
+        auto scope = BeginTransaction("TryTransitionScoreJobStatus");
+        auto res = PQXX_EXEC_PREPPED(scope->txn(), "transition_score_job_status",
                                   next_status, job_id, expected_current);
-        W.commit();
+        scope->commit();
         return res.affected_rows() > 0;
     } catch (const std::exception& e) {
         spdlog::error("Failed to transition score job status: {}", e.what());
