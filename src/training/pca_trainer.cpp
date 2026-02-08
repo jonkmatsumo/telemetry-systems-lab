@@ -114,8 +114,8 @@ static auto enforce_component_sign(linalg::Vector& v) -> void {
     }
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 static 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 auto TrainPcaFromStream(const std::function<void(const std::function<void(const linalg::Vector&)>&)>& for_each,
                                       size_t dim,
                                       int n_components,
@@ -206,8 +206,9 @@ auto TrainPcaFromStream(const std::function<void(const std::function<void(const 
 
     return artifact;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
                                   const std::string& dataset_id,
                                   int n_components,
@@ -241,7 +242,9 @@ auto TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
                  dataset_id, iter.TotalRowsProcessed(), duration_ms);
     return artifact;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
                            const std::string& dataset_id,
                            int n_components,
@@ -263,7 +266,9 @@ auto TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
     
     return TrainPcaFromDbBatched(std::move(manager), dataset_id, n_components, percentile, batch_size, std::move(heartbeat));
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
                                 int n_components,
                                 double percentile) -> PcaArtifact {
@@ -274,6 +279,7 @@ auto TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
     };
     return TrainPcaFromStream(for_each, telemetry::anomaly::FeatureVector::kSize, n_components, percentile);
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
 auto WriteArtifactJson(const PcaArtifact& artifact, const std::string& output_path) -> void {
     json j;

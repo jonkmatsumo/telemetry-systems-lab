@@ -480,7 +480,7 @@ auto DbClient::GetRunStatus(const std::string& run_id) -> telemetry::RunStatus {
     return status;
 }
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::CreateModelRun(const std::string& dataset_id, 
                                      const std::string& name,
                                      const nlohmann::json& training_config,
@@ -513,8 +513,9 @@ auto DbClient::CreateModelRun(const std::string& dataset_id,
     }
     return "";
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::CreateHpoTrialRun(const std::string& dataset_id,
                                         const std::string& name,
                                         const nlohmann::json& training_config,
@@ -536,12 +537,11 @@ auto DbClient::CreateHpoTrialRun(const std::string& dataset_id,
     return "";
 }
 
-// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::UpdateModelRunStatus(const std::string& model_run_id, 
                                     const std::string& status, 
                                     const std::string& artifact_path,
                                     const std::string& error,
-                                    const nlohmann::json& error_summary) -> void { // NOLINTEND(bugprone-easily-swappable-parameters)
+                                    const nlohmann::json& error_summary) -> void {
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
@@ -823,6 +823,7 @@ auto DbClient::CreateInferenceRun(const std::string& model_run_id) -> std::strin
     return "";
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::UpdateInferenceRunStatus(const std::string& inference_id, 
                                           const std::string& status, 
                                           int anomaly_count, 
@@ -837,8 +838,9 @@ auto DbClient::UpdateInferenceRunStatus(const std::string& inference_id,
         spdlog::error("Failed to update inference run {}: {}", inference_id, e.what());
     }
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::ListGenerationRuns(int limit,
                                             int offset,
                                             const std::string& status,
@@ -884,6 +886,7 @@ auto DbClient::ListGenerationRuns(int limit,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
 auto DbClient::GetDatasetDetail(const std::string& run_id) -> nlohmann::json {
     nlohmann::json j;
@@ -960,7 +963,7 @@ auto DbClient::GetDatasetRecord(const std::string& run_id, long record_id) -> nl
     return j;
 }
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::ListModelRuns(int limit,
                                int offset,
                                const std::string& status,
@@ -1026,7 +1029,7 @@ auto DbClient::ListModelRuns(int limit,
     return out;
 }
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::ListInferenceRuns(const std::string& dataset_id,
                                            const std::string& model_run_id,
                                            int limit,
@@ -1073,6 +1076,7 @@ auto DbClient::ListInferenceRuns(const std::string& dataset_id,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
 auto DbClient::GetInferenceRun(const std::string& inference_id) -> nlohmann::json {
     nlohmann::json j;
@@ -1385,6 +1389,7 @@ auto DbClient::GetTimeSeries(const std::string& run_id,
     return out;
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::GetHistogram(const std::string& run_id,
                                    const std::string& metric,
                                    int bins,
@@ -1394,7 +1399,7 @@ auto DbClient::GetHistogram(const std::string& run_id,
                                    const std::string& is_anomaly,
                                    const std::string& anomaly_type,
                                    const std::string& start_time,
-                                   const std::string& end_time) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)    // Validate metric against allowlist to prevent SQL injection
+                                   const std::string& end_time) -> nlohmann::json {
     if (!IsValidMetric(metric)) {
         throw std::invalid_argument("Invalid metric: " + metric);
     }
@@ -1608,7 +1613,7 @@ auto DbClient::GetScoreJob(const std::string& job_id) -> nlohmann::json {
     return j;
 }
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::ListScoreJobs(int limit,
                                        int offset,
                                        const std::string& status,

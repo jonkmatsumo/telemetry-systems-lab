@@ -67,6 +67,7 @@ struct PcaArtifact {
     int n_components = 0;
 };
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
                            const std::string& dataset_id,
                            int n_components,
@@ -83,6 +84,7 @@ auto TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
 auto TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
                                 int n_components,
                                 double percentile) -> PcaArtifact;
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
 void WriteArtifactJson(const PcaArtifact& artifact,
                        const std::string& output_path);
