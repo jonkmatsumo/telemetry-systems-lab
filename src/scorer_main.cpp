@@ -18,7 +18,7 @@
 using namespace telemetry;
 using namespace telemetry::anomaly;
 
-int main(int argc, char** argv) {
+auto main(int argc, char** argv) -> int {
     // Initialize logger
     auto console = spdlog::stdout_color_mt("console");
     spdlog::set_default_logger(console);
@@ -98,7 +98,9 @@ int main(int argc, char** argv) {
             r.cpu_usage = 50.0 + (i % 10); 
             r.memory_usage = 60.0;
             // Diff behavior for host-2 to see variety
-            if (host == "host-2") r.cpu_usage += 20.0;
+            if (host == "host-2") {
+                r.cpu_usage += 20.0;
+            }
 
             r.disk_utilization = 30.0;
             r.network_rx_rate = 100.0;

@@ -7,8 +7,7 @@
 #include <chrono>
 #include "detectors/pca_model.h"
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
 /**
  * @brief Thread-safe in-memory cache for PCA models to avoid redundant artifact loading.
@@ -21,14 +20,14 @@ public:
      * @param ttl_seconds Time-to-live for cache entries (fallback invalidation).
      */
     explicit PcaModelCache(size_t max_entries = 100, 
-                           size_t max_bytes = 512 * 1024 * 1024, // 512MB default
+                           size_t max_bytes = 512ull * 1024ull * 1024ull, // 512MB default
                            int ttl_seconds = 3600);
 
     /**
      * @brief Gets a model from cache or loads it from artifact_path if missing.
      */
-    std::shared_ptr<PcaModel> GetOrCreate(const std::string& model_run_id, 
-                                          const std::string& artifact_path);
+    auto GetOrCreate(const std::string& model_run_id, 
+                     const std::string& artifact_path) -> std::shared_ptr<PcaModel>;
 
     /**
      * @brief Explicitly removes an entry from the cache.
@@ -48,7 +47,7 @@ public:
         long long misses;
         long long evictions;
     };
-    CacheStats GetStats() const;
+    auto GetStats() const -> CacheStats;
 
 private:
     struct CacheEntry {
@@ -73,5 +72,4 @@ private:
     long long evictions_ = 0;
 };
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly

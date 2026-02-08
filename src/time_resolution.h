@@ -67,10 +67,10 @@ inline auto SelectBucketSeconds(const std::string& start_time, const std::string
     }
     auto delta = std::chrono::duration_cast<std::chrono::seconds>(*end - *start);
     auto seconds = delta.count();
-    if (seconds <= 6 * 3600) { return 300; }       // 5m
-    if (seconds <= 2 * 86400) { return 3600; }     // 1h
-    if (seconds <= 30 * 86400) { return 21600; }   // 6h
-    if (seconds <= 180 * 86400) { return 86400; }  // 1d
+    if (seconds <= 6L * 3600L) { return 300; }       // 5m
+    if (seconds <= 2L * 86400L) { return 3600; }     // 1h
+    if (seconds <= 30L * 86400L) { return 21600; }   // 6h
+    if (seconds <= 180L * 86400L) { return 86400; }  // 1d
     return 604800;                             // 7d
 }
 

@@ -18,8 +18,8 @@ namespace telemetry::api {
 class ApiServer {
 public:
     friend class ApiServerTestPeer;
-    ApiServer(const std::string& grpc_target, const std::string& db_conn_str);
-    ApiServer(const std::string& grpc_target, std::shared_ptr<IDbClient> db_client);
+    ApiServer(std::string grpc_target, std::string db_conn_str);
+    ApiServer(std::string grpc_target, std::shared_ptr<IDbClient> db_client);
     ~ApiServer();
 
     void Start(const std::string& host, int port);
@@ -76,14 +76,18 @@ private:
 
     // Helpers
     void SendJson(httplib::Response& res, nlohmann::json j, int status = 200, const std::string& request_id = "");
-    void SendError(httplib::Response& res, 
-                   const std::string& msg, 
-                   int status = 400,
-                   const std::string& code = "E_INTERNAL",
-                   const std::string& request_id = "");
-    static int GetIntParam(const httplib::Request& req, const std::string& key, int def);
-    static double GetDoubleParam(const httplib::Request& req, const std::string& key, double def);
-    static std::string GetStrParam(const httplib::Request& req, const std::string& key);
+    struct ApiErrorArgs {
+        httplib::Response& res;
+        std::string message;
+        int status = 400;
+        std::string code = "E_INTERNAL";
+        std::string request_id = "";
+    };
+
+    void SendError(const ApiErrorArgs& args);
+    static auto GetIntParam(const httplib::Request& req, const std::string& key, int def) -> int;
+    static auto GetDoubleParam(const httplib::Request& req, const std::string& key, double def) -> double;
+    static auto GetStrParam(const httplib::Request& req, const std::string& key) -> std::string;
 
     httplib::Server svr_;
     std::unique_ptr<telemetry::TelemetryService::Stub> stub_;

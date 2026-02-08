@@ -11,7 +11,7 @@ TEST(ApiResponseMetaTest, TruncationDependsOnTotalDistinct) {
 }
 
 TEST(ApiResponseMetaTest, BuildResponseMetaUsesNullTotalDistinct) {
-    auto meta = BuildResponseMeta(10, 5, false, std::nullopt, "top_k_limit");
+    auto meta = BuildResponseMeta({10, 5, false, std::nullopt, "top_k_limit"});
     EXPECT_EQ(meta["limit"].get<int>(), 10);
     EXPECT_EQ(meta["returned"].get<int>(), 5);
     EXPECT_FALSE(meta["truncated"].get<bool>());
@@ -20,7 +20,7 @@ TEST(ApiResponseMetaTest, BuildResponseMetaUsesNullTotalDistinct) {
 }
 
 TEST(ApiResponseMetaTest, BuildResponseMetaIncludesBinsInfo) {
-    auto meta = BuildResponseMeta(500, 50, true, std::nullopt, "max_bins_cap", 500, 50);
+    auto meta = BuildResponseMeta({500, 50, true, std::nullopt, "max_bins_cap", 500, 50});
     EXPECT_EQ(meta["limit"].get<int>(), 500);
     EXPECT_EQ(meta["returned"].get<int>(), 50);
     EXPECT_TRUE(meta["truncated"].get<bool>());

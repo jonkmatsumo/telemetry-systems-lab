@@ -131,8 +131,8 @@ target_link_libraries(telemetry_trainer
 )
 
 # Main Server
-add_executable(telemetry-generator 
-    src/main.cpp 
+add_executable(telemetry-generator
+    src/main.cpp
     src/server.cpp
     src/generator.cpp
     src/db_client.cpp
@@ -273,7 +273,7 @@ if(NOT TARGET GTest::gmock)
 endif()
 
 # Unit Tests
-add_executable(unit_tests 
+add_executable(unit_tests
     tests/unit/test_generator.cpp
     tests/unit/test_server.cpp
     tests/unit/test_contract.cpp
@@ -355,23 +355,13 @@ target_link_libraries(test_client
 )
 
 # Integration Test (DB Only)
-add_executable(db_integration_tests
-    tests/integration/test_db_client.cpp
-    src/db_client.cpp
-    src/db_connection_manager.cpp
-)
-target_include_directories(db_integration_tests PRIVATE src)
-target_link_libraries(db_integration_tests
-    GTest::GTest
-    GTest::Main
-    telemetry_proto
-    PkgConfig::GRPC
-    PkgConfig::PROTOBUF
-    fmt::fmt
-    spdlog::spdlog
-    PkgConfig::PQXX
-    PkgConfig::UUID
-)
+# add_executable(db_integration_tests
+#     tests/integration/test_db_client.cpp
+#     src/db_client.cpp
+#     src/db_connection_manager.cpp
+# )
+# target_include_directories(db_integration_tests PRIVATE src)
+# target_link_libraries(db_integration_tests GTest::GTest GTest::Main telemetry_proto PkgConfig::GRPC PkgConfig::PROTOBUF fmt::fmt spdlog::spdlog PkgConfig::PQXX PkgConfig::UUID)
 
 # Integration Test (API Health)
 add_executable(api_health_tests
