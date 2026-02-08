@@ -567,6 +567,7 @@ auto DbClient::UpdateModelRunStatus(const std::string& model_run_id,
     } catch (const std::exception& e) {
         spdlog::error("Failed to update model run {}: {}", model_run_id, e.what());
     }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 }
 
 auto DbClient::GetModelRun(const std::string& model_run_id) -> nlohmann::json {
@@ -1028,6 +1029,7 @@ auto DbClient::ListModelRuns(int limit,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
 // NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::ListInferenceRuns(const std::string& dataset_id,
@@ -1470,6 +1472,7 @@ auto DbClient::GetHistogram(const std::string& run_id,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
 auto DbClient::GetMetricStats(const std::string& run_id, const std::string& metric) -> nlohmann::json {
     if (!IsValidMetric(metric)) {
@@ -1664,6 +1667,7 @@ auto DbClient::ListScoreJobs(int limit,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
 auto DbClient::FetchScoringRowsAfterRecord(const std::string& dataset_id,
                                                         long last_record_id,
