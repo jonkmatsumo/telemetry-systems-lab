@@ -8,8 +8,7 @@
 #include <chrono>
 #include <string>
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
 class ApiServerErrorTest : public ::testing::Test {
 protected:
@@ -99,5 +98,4 @@ TEST_F(ApiServerErrorTest, ReturnsInvalidArgument) {
     EXPECT_EQ(j["error"]["code"], "E_HTTP_INVALID_ARGUMENT");
 }
 
-} // namespace api
-} // namespace telemetry
+} // namespace telemetry::api

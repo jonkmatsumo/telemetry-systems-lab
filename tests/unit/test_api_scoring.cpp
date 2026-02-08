@@ -10,8 +10,7 @@
 #define TELEMETRY_SOURCE_DIR "."
 #endif
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
 class ApiServerTestPeer {
 public:
@@ -78,5 +77,4 @@ TEST_F(ApiScoringTest, ScoringJobFailsOnFetchError) {
     EXPECT_EQ(mock_db->last_job_error, "Simulated fetch failure");
 }
 
-} // namespace api
-} // namespace telemetry
+} // namespace telemetry::api

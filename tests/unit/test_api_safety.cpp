@@ -8,8 +8,7 @@
 #include <chrono>
 #include <string>
 
-namespace telemetry {
-namespace api {
+namespace telemetry::api {
 
 class ApiServerSafetyTest : public ::testing::Test {
 protected:
@@ -97,5 +96,4 @@ TEST_F(ApiServerSafetyTest, InferenceValidatesFeatureSize) {
     // Let's stick to that.
 }
 
-} // namespace api
-} // namespace telemetry
+} // namespace telemetry::api
