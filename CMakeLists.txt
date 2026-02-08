@@ -236,8 +236,19 @@ target_link_libraries(telemetry-train-pca
 # Tests
 enable_testing()
 find_package(GTest REQUIRED)
-# Some environments have gmock in GTest, others separate.
+# In some environments GMock is part of GTest, in others it's separate.
 find_package(GMock QUIET)
+
+# Ensure GTest::gmock exists as a target for easier linking
+if(NOT TARGET GTest::gmock)
+    if(TARGET gmock)
+        add_library(GTest::gmock ALIAS gmock)
+    elseif(GMock_FOUND)
+        add_library(GTest::gmock INTERFACE IMPORTED)
+        target_include_directories(GTest::gmock INTERFACE ${GMock_INCLUDE_DIRS})
+        target_link_libraries(GTest::gmock INTERFACE ${GMock_LIBRARIES})
+    endif()
+endif()
 
 # Unit Tests
 add_executable(unit_tests 
@@ -285,6 +296,9 @@ add_executable(unit_tests
     src/detectors/pca_model.cpp
     src/alert_manager.cpp
 )
+
+# Disable clang-tidy for generated protobuf code
+set_target_properties(telemetry_proto PROPERTIES CXX_CLANG_TIDY "")
 
 target_include_directories(unit_tests PRIVATE src tests)
 target_compile_definitions(unit_tests PRIVATE TELEMETRY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
