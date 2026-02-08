@@ -1237,8 +1237,8 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
             
             if (hpo_config.contains("search_space")) {
                 auto ss = hpo_config["search_space"];
-                if (ss.contains("n_components")) hpo.search_space.n_components = ss["n_components"].get<std::vector<int>>();
-                if (ss.contains("percentile")) hpo.search_space.percentile = ss["percentile"].get<std::vector<double>>();
+                if (ss.contains("n_components")) { hpo.search_space.n_components = ss["n_components"].get<std::vector<int>>(); }
+                if (ss.contains("percentile")) { hpo.search_space.percentile = ss["percentile"].get<std::vector<double>>(); }
             }
 
             auto errors = telemetry::training::ValidateHpoConfig(hpo);
@@ -1291,8 +1291,8 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
             if (hpo_config.contains("seed")) { hpo.seed = hpo_config["seed"].get<int>(); }
             if (hpo_config.contains("search_space")) {
                 auto ss = hpo_config["search_space"];
-                if (ss.contains("n_components")) hpo.search_space.n_components = ss["n_components"].get<std::vector<int>>();
-                if (ss.contains("percentile")) hpo.search_space.percentile = ss["percentile"].get<std::vector<double>>();
+                if (ss.contains("n_components")) { hpo.search_space.n_components = ss["n_components"].get<std::vector<int>>(); }
+                if (ss.contains("percentile")) { hpo.search_space.percentile = ss["percentile"].get<std::vector<double>>(); }
             }
 
             auto trials = telemetry::training::GenerateTrials(hpo, dataset_id);
