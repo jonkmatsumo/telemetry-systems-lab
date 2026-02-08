@@ -42,6 +42,7 @@
 
 # Build Directory
 build/
+build_san/
 
 # Generated Artifacts
 # Allow default model for tests, but ignore other runs
