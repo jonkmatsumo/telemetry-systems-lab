@@ -12,6 +12,14 @@ public:
         return std::make_shared<SimpleDbConnectionManager>("dummy");
     }
 
+    std::unique_ptr<telemetry::db::TransactionScope> BeginTransaction(const std::string& /*name*/ = "unnamed") override {
+        // Mock implementation that doesn't actually connect to a DB
+        // But TransactionScope constructor will try to get a connection.
+        // For tests that don't use the connection, we can return nullptr or a dummy.
+        // If a test DOES use it, it should probably be an integration test or use a real DB.
+        return nullptr; 
+    }
+
     MOCK_METHOD(void, ReconcileStaleJobs, (std::optional<std::chrono::seconds> stale_ttl), (override));
     MOCK_METHOD(void, EnsurePartition, (std::chrono::system_clock::time_point tp), (override));
     MOCK_METHOD(void, CreateRun, (const std::string& run_id, const telemetry::GenerateRequest& config, const std::string& status, const std::string& request_id), (override));
