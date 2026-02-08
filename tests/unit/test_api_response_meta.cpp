@@ -16,7 +16,8 @@ TEST(ApiResponseMetaTest, BuildResponseMetaUsesNullTotalDistinct) {
     EXPECT_EQ(meta["returned"].get<int>(), 5);
     EXPECT_FALSE(meta["truncated"].get<bool>());
     EXPECT_TRUE(meta["total_distinct"].is_null());
-    EXPECT_EQ(meta["reason"].get<std::string>(), "top_k_limit");
+    std::string reason = meta["reason"].get<std::string>();
+    EXPECT_EQ(reason, "top_k_limit");
 }
 
 TEST(ApiResponseMetaTest, BuildResponseMetaIncludesBinsInfo) {
