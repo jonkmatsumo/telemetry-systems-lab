@@ -237,34 +237,31 @@ target_link_libraries(telemetry-train-pca
 )
 
 # Tests
-enable_testing()
-find_package(GTest REQUIRED)
-# In some environments GMock is part of GTest, in others it's separate.
-find_package(GMock QUIET)
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+)
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
 
-# Ensure GTest::gmock exists as a target for easier linking
+enable_testing()
+
+# Ensure GTest targets exist as aliases for compatibility
+if(NOT TARGET GTest::GTest)
+    if(TARGET gtest)
+        add_library(GTest::GTest ALIAS gtest)
+    endif()
+endif()
+if(NOT TARGET GTest::Main)
+    if(TARGET gtest_main)
+        add_library(GTest::Main ALIAS gtest_main)
+    endif()
+endif()
 if(NOT TARGET GTest::gmock)
     if(TARGET gmock)
         add_library(GTest::gmock ALIAS gmock)
-    elseif(GMock_FOUND)
-        add_library(GTest::gmock INTERFACE IMPORTED)
-        target_include_directories(GTest::gmock INTERFACE ${GMock_INCLUDE_DIRS})
-        target_link_libraries(GTest::gmock INTERFACE ${GMock_LIBRARIES})
-    else()
-        # Try PkgConfig
-        pkg_check_modules(PKG_GMOCK gmock)
-        if(PKG_GMOCK_FOUND)
-            add_library(GTest::gmock INTERFACE IMPORTED)
-            target_include_directories(GTest::gmock INTERFACE ${PKG_GMOCK_INCLUDE_DIRS})
-            target_link_libraries(GTest::gmock INTERFACE ${PKG_GMOCK_LIBRARIES})
-            message(STATUS "Found GMock via PkgConfig")
-        else()
-             # Fallback: simpler setups might have gmock inside GTest or standard include paths
-             # Attempt to link GTest::GTest and hope it contains gmock or it's implicitly found
-             message(STATUS "GMock not explicitly found, assuming it is bundled with GTest or available in system include paths")
-             add_library(GTest::gmock INTERFACE IMPORTED)
-             target_link_libraries(GTest::gmock INTERFACE GTest::GTest)
-        endif()
     endif()
 endif()
 

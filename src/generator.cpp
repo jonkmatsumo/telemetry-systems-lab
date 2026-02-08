@@ -24,7 +24,7 @@ auto ParseTime(const std::string& iso) -> std::chrono::system_clock::time_point 
 Generator::Generator(const telemetry::GenerateRequest& request, 
                      std::string run_id, 
                      std::shared_ptr<IDbClient> db_client)
-    : config_(request), run_id_(run_id), db_(db_client), rng_(static_cast<unsigned long long>(request.seed())) {
+    : config_(request), run_id_(std::move(run_id)), db_(std::move(db_client)), rng_(static_cast<unsigned long long>(request.seed())) {
     
     const char* env_queue_size = std::getenv("GENERATOR_WRITE_QUEUE_SIZE");
     if (env_queue_size) {

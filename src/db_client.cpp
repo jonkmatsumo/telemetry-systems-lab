@@ -1326,13 +1326,15 @@ auto DbClient::GetTimeSeries(const std::string& run_id,
         std::string select = bucket_expr + " AS bucket_ts";
         for (const auto& metric : metrics) {
             for (const auto& agg : aggs) {
-                std::string col = metric;
-                std::string alias = metric + "_" + agg;
-                if (agg == "mean") select += ", AVG(" + col + ") AS " + alias;
-                else if (agg == "min") select += ", MIN(" + col + ") AS " + alias;
-                else if (agg == "max") select += ", MAX(" + col + ") AS " + alias;
-                else if (agg == "p50") select += ", PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY " + col + ") AS " + alias;
-                else if (agg == "p95") select += ", PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY " + col + ") AS " + alias;
+                const std::string& col = metric;
+                std::string alias = metric;
+                alias += "_";
+                alias += agg;
+                if (agg == "mean") { select += ", AVG("; select += col; select += ") AS "; select += alias; }
+                else if (agg == "min") { select += ", MIN("; select += col; select += ") AS "; select += alias; }
+                else if (agg == "max") { select += ", MAX("; select += col; select += ") AS "; select += alias; }
+                else if (agg == "p50") { select += ", PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY "; select += col; select += ") AS "; select += alias; }
+                else if (agg == "p95") { select += ", PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "; select += col; select += ") AS "; select += alias; }
             }
         }
         select += ", COUNT(*) AS bucket_count";
@@ -1858,7 +1860,8 @@ auto DbClient::GetScores(const std::string& dataset_id,
 auto DbClient::GetEvalMetrics(const std::string& dataset_id,
                                   const std::string& model_run_id,
                                   int points,
-                                  int max_samples) -> nlohmann::json {    nlohmann::json out;
+                                  int max_samples) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)
+    nlohmann::json out;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::nontransaction N(C);
@@ -1934,14 +1937,15 @@ auto DbClient::GetEvalMetrics(const std::string& dataset_id,
 
 auto DbClient::GetErrorDistribution(const std::string& dataset_id,
                                         const std::string& model_run_id,
-                                        const std::string& group_by) -> nlohmann::json {    if (!IsValidDimension(group_by)) {
+                                        const std::string& group_by) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)
+    if (!IsValidDimension(group_by)) {
         throw std::invalid_argument("Invalid group_by: " + group_by);
     }
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
-        std::string col = group_by;
+        const std::string& col = group_by;
         std::string query =
             "SELECT " + col + ", "
             "COUNT(*), AVG(s.reconstruction_error), "
