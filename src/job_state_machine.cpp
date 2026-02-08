@@ -34,7 +34,6 @@ auto JobStateMachine::IsTransitionAllowed(JobState current, JobState next) -> bo
         case JobState::COMPLETED:
         case JobState::FAILED:
         case JobState::CANCELLED:
-            return false; // Terminal states
         default:
             return false;
     }

@@ -85,7 +85,10 @@ TEST_F(ApiServerErrorTest, ReturnsInvalidArgument) {
     nlohmann::json body;
     body["model_run_id"] = "test";
     std::vector<nlohmann::json> samples;
-    for(int i=0; i<1001; ++i) samples.push_back({});
+    samples.reserve(1001);
+    for(int i=0; i<1001; ++i) {
+        samples.emplace_back();
+    }
     body["samples"] = samples;
 
     auto res = cli.Post("/inference", body.dump(), "application/json");
