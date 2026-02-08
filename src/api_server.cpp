@@ -47,7 +47,7 @@ auto GenerateUuid() -> std::string {
     uuid_generate(out);
     std::array<char, 37> str{};
     uuid_unparse(out, str.data());
-    return std::string(str.data());
+    return std::string{str.data()};
 }
 
 auto GetRequestId(const httplib::Request& req) -> std::string {
@@ -276,7 +276,8 @@ void ApiServer::Initialize() {
         log.AddFields({{"score_job_id", job_id}});
         job_manager_->CancelJob(job_id);
         res.status = 200;
-        res.set_content("{\"status\":\"CANCEL_REQUESTED\", \"job_id\":\"" + job_id + "\", \"request_id\":\"" + rid + "\"}", "application/json");
+        nlohmann::json j_resp = {{"status", "CANCEL_REQUESTED"}, {"job_id", job_id}, {"request_id", rid}};
+        res.set_content(j_resp.dump(), "application/json");
     });
 
     svr_.Get("/models/([a-zA-Z0-9-]+)/eval", [this](const httplib::Request& req, httplib::Response& res) {
@@ -343,7 +344,7 @@ void ApiServer::Initialize() {
         int count = 0;
         std::vector<std::string> new_trial_ids;
         for (const auto& t : failed_trials) {
-            if (count >= rerun_limit) break;
+            if (count >= rerun_limit) { break; }
 
             std::string trial_name = t["name"];
             if (trial_name.find("_rerun_") == std::string::npos) {
@@ -380,7 +381,7 @@ void ApiServer::Initialize() {
         std::string rid = GetRequestId(req);
         telemetry::obs::HttpRequestLogScope log({req, res, "api_server", rid});
         res.status = 200;
-        res.set_content("{\"status\":\"OK\"}", "application/json");
+        res.set_content(R"({"status":"OK"})", "application/json");
     });
 
     svr_.Get("/readyz", [this](const httplib::Request& req, httplib::Response& res) {
@@ -389,10 +390,10 @@ void ApiServer::Initialize() {
         try {
             auto C = db_manager_->GetConnection();
             res.status = 200;
-            res.set_content("{\"status\":\"READY\"}", "application/json");
+            res.set_content(R"({"status":"READY"})", "application/json");
         } catch (const std::exception& e) {
             log.RecordError({telemetry::obs::kErrDbConnectFailed, e.what(), 503});
-            SendError({res, "{\"status\":\"UNREADY\", \"reason\":\"DB_CONNECTION_FAILED\"}", 503, telemetry::obs::kErrDbConnectFailed, rid});
+            SendError({res, R"({"status":"UNREADY", "reason":"DB_CONNECTION_FAILED"})", 503, telemetry::obs::kErrDbConnectFailed, rid});
         }
     });
 
@@ -742,7 +743,7 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
     std::stringstream ms(metrics_param);
     std::string token;
     while (std::getline(ms, token, ',')) {
-        if (!token.empty()) metrics.push_back(token);
+        if (!token.empty()) { metrics.push_back(token); }
     }
     if (metrics.empty()) {
         log.RecordError({telemetry::obs::kErrHttpInvalidArgument, "metrics required", 400});
@@ -758,18 +759,18 @@ void ApiServer::HandleDatasetTimeSeries(const httplib::Request& req, httplib::Re
     std::vector<std::string> aggs;
     std::stringstream as(aggs_param.empty() ? "mean" : aggs_param);
     while (std::getline(as, token, ',')) {
-        if (!token.empty()) aggs.push_back(token);
+        if (!token.empty()) { aggs.push_back(token); }
     }
 
     int bucket_seconds = 3600;
-    if (bucket == "1m") bucket_seconds = 60;
-    else if (bucket == "5m") bucket_seconds = 300;
-    else if (bucket == "15m") bucket_seconds = 900;
-    else if (bucket == "1h") bucket_seconds = 3600;
-    else if (bucket == "6h") bucket_seconds = 21600;
-    else if (bucket == "1d") bucket_seconds = 86400;
-    else if (bucket == "7d") bucket_seconds = 604800;
-    else if (bucket.empty() || bucket == "auto") bucket_seconds = telemetry::api::SelectBucketSeconds(start_time, end_time);
+    if (bucket == "1m") { bucket_seconds = 60; }
+    else if (bucket == "5m") { bucket_seconds = 300; }
+    else if (bucket == "15m") { bucket_seconds = 900; }
+    else if (bucket == "1h") { bucket_seconds = 3600; }
+    else if (bucket == "6h") { bucket_seconds = 21600; }
+    else if (bucket == "1d") { bucket_seconds = 86400; }
+    else if (bucket == "7d") { bucket_seconds = 604800; }
+    else if (bucket.empty() || bucket == "auto") { bucket_seconds = telemetry::api::SelectBucketSeconds(start_time, end_time); }
 
     bool debug = GetStrParam(req, "debug") == "true";
     std::optional<std::pair<std::string, std::string>> baseline_window;
@@ -1029,7 +1030,7 @@ void ApiServer::OrchestrateTuning(TuningTask task) {
         
         if (!db_client_->TryTransitionModelRunStatus(task.parent_run_id, "PENDING", "RUNNING")) {
             auto model_info = db_client_->GetModelRun(task.parent_run_id);
-            if (model_info.value("status", "") != "RUNNING") return;
+            if (model_info.value("status", "") != "RUNNING") { return; }
         }
 
         std::vector<std::string> trial_ids;
@@ -1126,7 +1127,7 @@ void ApiServer::RunPcaTraining(const std::string& model_run_id,
             auto model_info = db_client_->GetModelRun(model_run_id);
             std::string current_status = model_info.value("status", "UNKNOWN");
             spdlog::warn("Model {} transition PENDING->RUNNING failed (current status: {}).", model_run_id, current_status);
-            if (current_status != "RUNNING") return;
+            if (current_status != "RUNNING") { return; }
         }
 
         std::string output_dir = "artifacts/pca/" + model_run_id;
@@ -1256,8 +1257,8 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
             preflight_resp["estimated_candidates"] = preflight.estimated_candidates;
             preflight_resp["effective_trials"] = preflight.effective_trials;
             std::string cap_reason = "NONE";
-            if (preflight.capped_by == telemetry::training::HpoCapReason::MAX_TRIALS) cap_reason = "MAX_TRIALS";
-            else if (preflight.capped_by == telemetry::training::HpoCapReason::GRID_CAP) cap_reason = "GRID_CAP";
+            if (preflight.capped_by == telemetry::training::HpoCapReason::MAX_TRIALS) { cap_reason = "MAX_TRIALS"; }
+            else if (preflight.capped_by == telemetry::training::HpoCapReason::GRID_CAP) { cap_reason = "GRID_CAP"; }
             preflight_resp["capped_by"] = cap_reason;
 
             fingerprint = telemetry::training::ComputeCandidateFingerprint(hpo);
@@ -1287,7 +1288,7 @@ void ApiServer::HandleTrainModel(const httplib::Request& req, httplib::Response&
             hpo.algorithm = hpo_config.value("algorithm", "grid");
             hpo.max_trials = hpo_config.value("max_trials", 10);
             hpo.max_concurrency = hpo_config.value("max_concurrency", 2);
-            if (hpo_config.contains("seed")) hpo.seed = hpo_config["seed"].get<int>();
+            if (hpo_config.contains("seed")) { hpo.seed = hpo_config["seed"].get<int>(); }
             if (hpo_config.contains("search_space")) {
                 auto ss = hpo_config["search_space"];
                 if (ss.contains("n_components")) hpo.search_space.n_components = ss["n_components"].get<std::vector<int>>();
@@ -1364,8 +1365,8 @@ void ApiServer::HandleListModels(const httplib::Request& req, httplib::Response&
         
         std::vector<std::string> parent_run_ids;
         for (auto& m : models) {
-            if (!m.contains("parent_run_id")) m["parent_run_id"] = nullptr;
-            if (!m.contains("trial_index")) m["trial_index"] = nullptr;
+            if (!m.contains("parent_run_id")) { m["parent_run_id"] = nullptr; }
+            if (!m.contains("trial_index")) { m["trial_index"] = nullptr; }
             
             // Identify potential parents (hpo_config is present and not null usually indicates intent, 
             // but checking if it is a child is safer: parent_run_id is null)
@@ -1402,9 +1403,9 @@ void ApiServer::HandleListModels(const httplib::Request& req, httplib::Response&
                         long completed = sc.value("COMPLETED", 0);
                         long failed = sc.value("FAILED", 0);
                         
-                        if (running > 0 || pending > 0) m["status"] = "RUNNING";
-                        else if (completed > 0) m["status"] = "COMPLETED";
-                        else if (failed > 0) m["status"] = "FAILED";
+                        if (running > 0 || pending > 0) { m["status"] = "RUNNING"; }
+                        else if (completed > 0) { m["status"] = "COMPLETED"; }
+                        else if (failed > 0) { m["status"] = "FAILED"; }
                     }
                 }
             }
@@ -1435,10 +1436,10 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
         }
 
         // Add HPO helper fields for UI if they are null
-        if (!j.contains("hpo_config") || j["hpo_config"].is_null()) j["hpo_config"] = nullptr;
-        if (!j.contains("parent_run_id") || j["parent_run_id"].is_null()) j["parent_run_id"] = nullptr;
-        if (!j.contains("trial_index") || j["trial_index"].is_null()) j["trial_index"] = nullptr;
-        if (!j.contains("trial_params") || j["trial_params"].is_null()) j["trial_params"] = nullptr;
+        if (!j.contains("hpo_config") || j["hpo_config"].is_null()) { j["hpo_config"] = nullptr; }
+        if (!j.contains("parent_run_id") || j["parent_run_id"].is_null()) { j["parent_run_id"] = nullptr; }
+        if (!j.contains("trial_index") || j["trial_index"].is_null()) { j["trial_index"] = nullptr; }
+        if (!j.contains("trial_params") || j["trial_params"].is_null()) { j["trial_params"] = nullptr; }
 
         // If it's a parent, fetch trials and aggregate status
         if (!j["hpo_config"].is_null()) {
@@ -1449,9 +1450,9 @@ void ApiServer::HandleGetModelDetail(const httplib::Request& req, httplib::Respo
             std::map<std::string, int> error_counts;
             for (const auto& t : trials) {
                 std::string st = t["status"];
-                if (st == "PENDING") pending++;
-                else if (st == "RUNNING") running++;
-                else if (st == "COMPLETED") completed++;
+                if (st == "PENDING") { pending++; }
+                else if (st == "RUNNING") { running++; }
+                else if (st == "COMPLETED") { completed++; }
                 else if (st == "FAILED") {
                     failed++;
                     if (t.contains("error_summary") && !t["error_summary"].is_null() && t["error_summary"].contains("code")) {
@@ -1703,7 +1704,7 @@ void ApiServer::HandleInference(const httplib::Request& req, httplib::Response& 
             r["is_anomaly"] = score.is_anomaly;
             r["score"] = score.reconstruction_error;
             results.push_back(r);
-            if (score.is_anomaly) anomaly_count++;
+            if (score.is_anomaly) { anomaly_count++; }
         }
 
         auto end = std::chrono::steady_clock::now();
@@ -1895,7 +1896,7 @@ auto ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                 const int batch = 5000;
                 while (!stop_flag->load()) {
                     auto rows = db_client_->FetchScoringRowsAfterRecord(dataset_id, last_record, batch);
-                    if (rows.empty()) break;
+                    if (rows.empty()) { break; }
                     std::vector<std::pair<long, std::pair<double, bool>>> scores;
                     scores.reserve(rows.size());
                     for (const auto& r : rows) {
