@@ -16,24 +16,24 @@ namespace telemetry::anomaly {
 
 using json = nlohmann::json;
 
-static linalg::Vector vec_sub(const linalg::Vector& a, const linalg::Vector& b) {
-    if (a.size() != b.size()) throw std::runtime_error("vec_sub dimension mismatch");
+static auto vec_sub(const linalg::Vector& a, const linalg::Vector& b) -> linalg::Vector {
+    if (a.size() != b.size()) { throw std::runtime_error("vec_sub dimension mismatch"); }
     linalg::Vector out(a.size(), 0.0);
-    for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] - b[i];
+    for (size_t i = 0; i < a.size(); ++i) { out[i] = a[i] - b[i]; }
     return out;
 }
 
-static linalg::Vector vec_add(const linalg::Vector& a, const linalg::Vector& b) {
-    if (a.size() != b.size()) throw std::runtime_error("vec_add dimension mismatch");
+static auto vec_add(const linalg::Vector& a, const linalg::Vector& b) -> linalg::Vector {
+    if (a.size() != b.size()) { throw std::runtime_error("vec_add dimension mismatch"); }
     linalg::Vector out(a.size(), 0.0);
-    for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] + b[i];
+    for (size_t i = 0; i < a.size(); ++i) { out[i] = a[i] + b[i]; }
     return out;
 }
 
-static linalg::Vector vec_div(const linalg::Vector& a, const linalg::Vector& b) {
-    if (a.size() != b.size()) throw std::runtime_error("vec_div dimension mismatch");
+static auto vec_div(const linalg::Vector& a, const linalg::Vector& b) -> linalg::Vector {
+    if (a.size() != b.size()) { throw std::runtime_error("vec_div dimension mismatch"); }
     linalg::Vector out(a.size(), 0.0);
-    for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] / b[i];
+    for (size_t i = 0; i < a.size(); ++i) { out[i] = a[i] / b[i]; }
     return out;
 }
 
@@ -42,9 +42,9 @@ auto PcaModel::Load(const std::string& artifact_path) -> void {
     nlohmann::json start_fields = {{"artifact_path", artifact_path}};
     if (telemetry::obs::HasContext()) {
         const auto& ctx = telemetry::obs::GetContext();
-        if (!ctx.request_id.empty()) start_fields["request_id"] = ctx.request_id;
-        if (!ctx.model_run_id.empty()) start_fields["model_run_id"] = ctx.model_run_id;
-        if (!ctx.inference_run_id.empty()) start_fields["inference_run_id"] = ctx.inference_run_id;
+        if (!ctx.request_id.empty()) { start_fields["request_id"] = ctx.request_id; }
+        if (!ctx.model_run_id.empty()) { start_fields["model_run_id"] = ctx.model_run_id; }
+        if (!ctx.inference_run_id.empty()) { start_fields["inference_run_id"] = ctx.inference_run_id; }
     }
     telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "model_load_start", "model", start_fields);
     std::ifstream f(artifact_path);
@@ -74,9 +74,9 @@ auto PcaModel::Load(const std::string& artifact_path) -> void {
     // Components are stored as list of lists (k x d)
     auto raw_components = j["model"]["components"].get<std::vector<std::vector<double>>>();
     int k = static_cast<int>(raw_components.size());
-    if (k == 0) throw std::runtime_error("No PCA components found");
+    if (k == 0) { throw std::runtime_error("No PCA components found"); }
     int d = static_cast<int>(raw_components[0].size());
-    if (d != FeatureVector::kSize) throw std::runtime_error("Dimension mismatch in PCA components");
+    if (d != FeatureVector::kSize) { throw std::runtime_error("Dimension mismatch in PCA components"); }
 
     // Copy to matrix
     components_ = linalg::Matrix(static_cast<size_t>(k), static_cast<size_t>(d));

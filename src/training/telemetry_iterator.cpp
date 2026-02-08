@@ -16,9 +16,7 @@ TelemetryBatchIterator::TelemetryBatchIterator(std::shared_ptr<DbConnectionManag
                                                size_t batch_size)
     : manager_(std::move(manager)),
       dataset_id_(std::move(dataset_id)),
-      batch_size_(batch_size),
-      last_record_id_(0),
-      total_processed_(0) {}
+      batch_size_(batch_size) {}
 
 auto TelemetryBatchIterator::NextBatch(std::vector<linalg::Vector>& out_batch) -> bool {
     out_batch.clear();

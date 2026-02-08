@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS generation_runs (
     inserted_rows BIGINT NOT NULL DEFAULT 0,
     config JSONB NOT NULL,
     error TEXT NULL,
-    request_id TEXT NULL
+    request_id TEXT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Table: host_telemetry_archival
@@ -115,7 +116,8 @@ CREATE TABLE IF NOT EXISTS model_runs (
     selection_metric_source TEXT NULL,
     selection_metric_computed_at TIMESTAMPTZ NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    completed_at TIMESTAMPTZ NULL
+    completed_at TIMESTAMPTZ NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Table: inference_runs

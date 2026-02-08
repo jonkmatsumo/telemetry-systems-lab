@@ -24,12 +24,12 @@ protected:
 #include <uuid/uuid.h>
 
 // Helper
-std::string GenerateUUID() {
+auto GenerateUUID() -> std::string {
     uuid_t binuuid;
     uuid_generate_random(binuuid);
-    char uuid[37];
-    uuid_unparse_lower(binuuid, uuid);
-    return std::string(uuid);
+    std::string out(36, '\0');
+    uuid_unparse_lower(binuuid, out.data());
+    return {out};
 }
 
 TEST_F(DbClientTest, CreateAndUpdateRun) {

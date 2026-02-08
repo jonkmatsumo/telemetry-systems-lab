@@ -13,8 +13,8 @@
 
 // Compatibility macros for libpqxx 6.x vs 7.x
 #if !defined(PQXX_VERSION_MAJOR) || (PQXX_VERSION_MAJOR < 7)
-#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec_prepared(stmt, ##__VA_ARGS__)
-#define PQXX_EXEC_PARAMS(txn, query, ...) (txn).exec_params(query, ##__VA_ARGS__)
+#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec_prepared(stmt, ##__VA_ARGS__) // NOLINT(clang-diagnostic-gnu-zero-variadic-macro-arguments)
+#define PQXX_EXEC_PARAMS(txn, query, ...) (txn).exec_params(query, ##__VA_ARGS__) // NOLINT(clang-diagnostic-gnu-zero-variadic-macro-arguments)
 #else
 #define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec(pqxx::prepped{stmt}, pqxx::params{__VA_ARGS__})
 #define PQXX_EXEC_PARAMS(txn, query, ...) (txn).exec((query), pqxx::params{__VA_ARGS__})
@@ -961,12 +961,12 @@ auto DbClient::GetDatasetRecord(const std::string& run_id, long record_id) -> nl
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-nlohmann::json DbClient::ListModelRuns(int limit,
-                                       int offset,
-                                       const std::string& status,
-                                       const std::string& dataset_id,
-                                       const std::string& created_from,
-                                       const std::string& created_to) {
+auto DbClient::ListModelRuns(int limit,
+                               int offset,
+                               const std::string& status,
+                               const std::string& dataset_id,
+                               const std::string& created_from,
+                               const std::string& created_to) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -1753,13 +1753,14 @@ auto DbClient::GetDatasetRecordCount(const std::string& dataset_id) -> long {
     }
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 auto DbClient::GetScores(const std::string& dataset_id,
                              const std::string& model_run_id,
                              int limit,
                              int offset,
                              bool only_anomalies,
                              double min_score,
-                             double max_score) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)
+                             double max_score) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::object();
     out["items"] = nlohmann::json::array();
     auto start = std::chrono::steady_clock::now();
@@ -1867,7 +1868,7 @@ auto DbClient::GetScores(const std::string& dataset_id,
 auto DbClient::GetEvalMetrics(const std::string& dataset_id,
                                   const std::string& model_run_id,
                                   int points,
-                                  int max_samples) -> nlohmann::json { // NOLINTEND(bugprone-easily-swappable-parameters)
+                                  int max_samples) -> nlohmann::json {
     nlohmann::json out;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
