@@ -48,10 +48,11 @@ inline auto NowIso8601() -> std::string {
     return oss.str();
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 inline auto LogEvent(LogLevel level,
                      const std::string& event,
                      const std::string& component,
-                     const nlohmann::json& fields = nlohmann::json::object()) -> void { // NOLINT(bugprone-easily-swappable-parameters)
+                     const nlohmann::json& fields = nlohmann::json::object()) -> void { // NOLINTEND(bugprone-easily-swappable-parameters)
     nlohmann::json j = fields;
     j["ts"] = NowIso8601();
     j["level"] = LevelToString(level);

@@ -536,11 +536,13 @@ auto DbClient::CreateHpoTrialRun(const std::string& dataset_id,
     return "";
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::UpdateModelRunStatus(const std::string& model_run_id, 
                                     const std::string& status, 
                                     const std::string& artifact_path,
                                     const std::string& error,
-                                    const nlohmann::json& error_summary) -> void {    try {
+                                    const nlohmann::json& error_summary) -> void { // NOLINTEND(bugprone-easily-swappable-parameters)
+    try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
         pqxx::work W(C);
         
@@ -1230,6 +1232,7 @@ auto DbClient::GetDatasetSummary(const std::string& run_id, int topk) -> nlohman
     return j;
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::GetTopK(const std::string& run_id,
                                  const std::string& column,
                                  int k,
@@ -1238,7 +1241,7 @@ auto DbClient::GetTopK(const std::string& run_id,
                                  const std::string& anomaly_type,
                                  const std::string& start_time,
                                  const std::string& end_time,
-                                 bool include_total_distinct) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)
+                                 bool include_total_distinct) -> nlohmann::json { // NOLINTEND(bugprone-easily-swappable-parameters)
     if (!IsValidDimension(column)) {
         throw std::invalid_argument("Invalid column: " + column);
     }
@@ -1296,6 +1299,7 @@ auto DbClient::GetTopK(const std::string& run_id,
     return out;
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::GetTimeSeries(const std::string& run_id,
                                      const std::vector<std::string>& metrics,
                                      const std::vector<std::string>& aggs,
@@ -1304,7 +1308,7 @@ auto DbClient::GetTimeSeries(const std::string& run_id,
                                      const std::string& is_anomaly,
                                      const std::string& anomaly_type,
                                      const std::string& start_time,
-                                     const std::string& end_time) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)    // Validate all metrics against allowlist to prevent SQL injection
+                                     const std::string& end_time) -> nlohmann::json { // NOLINTEND(bugprone-easily-swappable-parameters)    // Validate all metrics against allowlist to prevent SQL injection
     for (const auto& metric : metrics) {
         if (!IsValidMetric(metric)) {
             throw std::invalid_argument("Invalid metric: " + metric);
@@ -1363,7 +1367,9 @@ auto DbClient::GetTimeSeries(const std::string& run_id,
             int col_idx = 1;
             for (const auto& metric : metrics) {
                 for (const auto& agg : aggs) {
-                    std::string key = metric + "_" + agg;
+                    std::string key = metric;
+                    key += "_";
+                    key += agg;
                     j[key] = row[col_idx].is_null() ? 0.0 : row[col_idx].as<double>();
                     col_idx++;
                 }
@@ -1857,10 +1863,11 @@ auto DbClient::GetScores(const std::string& dataset_id,
     return out;
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::GetEvalMetrics(const std::string& dataset_id,
                                   const std::string& model_run_id,
                                   int points,
-                                  int max_samples) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)
+                                  int max_samples) -> nlohmann::json { // NOLINTEND(bugprone-easily-swappable-parameters)
     nlohmann::json out;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -1935,9 +1942,10 @@ auto DbClient::GetEvalMetrics(const std::string& dataset_id,
     return out;
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::GetErrorDistribution(const std::string& dataset_id,
                                         const std::string& model_run_id,
-                                        const std::string& group_by) -> nlohmann::json { // NOLINT(bugprone-easily-swappable-parameters)
+                                        const std::string& group_by) -> nlohmann::json { // NOLINTEND(bugprone-easily-swappable-parameters)
     if (!IsValidDimension(group_by)) {
         throw std::invalid_argument("Invalid group_by: " + group_by);
     }
