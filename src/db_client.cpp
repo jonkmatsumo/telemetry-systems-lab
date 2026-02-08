@@ -1942,11 +1942,12 @@ auto DbClient::GetEvalMetrics(const std::string& dataset_id,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
 // NOLINTBEGIN(bugprone-easily-swappable-parameters)
 auto DbClient::GetErrorDistribution(const std::string& dataset_id,
                                         const std::string& model_run_id,
-                                        const std::string& group_by) -> nlohmann::json { // NOLINTEND(bugprone-easily-swappable-parameters)
+                                        const std::string& group_by) -> nlohmann::json {
     if (!IsValidDimension(group_by)) {
         throw std::invalid_argument("Invalid group_by: " + group_by);
     }
@@ -1980,6 +1981,7 @@ auto DbClient::GetErrorDistribution(const std::string& dataset_id,
     }
     return out;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
 auto DbClient::DeleteDatasetWithScores(const std::string& dataset_id) -> void {
     try {
