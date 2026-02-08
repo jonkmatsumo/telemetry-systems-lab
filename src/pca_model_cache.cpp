@@ -3,14 +3,15 @@
 #include <algorithm>
 #include "obs/metrics.h"
 
-namespace telemetry {
-namespace anomaly {
+namespace telemetry::anomaly {
 
-PcaModelCache::PcaModelCache(size_t max_entries, size_t max_bytes, int ttl_seconds)
-    : max_entries_(max_entries), max_bytes_(max_bytes), ttl_(ttl_seconds) {
+PcaModelCache::PcaModelCache(PcaModelCacheArgs args)
+    : max_entries_(args.max_entries), max_bytes_(args.max_bytes), ttl_(args.ttl_seconds) {
     spdlog::info("Initialized PcaModelCache with max_entries={}, max_bytes={}, ttl={}s", 
-                 max_entries_, max_bytes_, ttl_seconds);
+                 max_entries_, max_bytes_, ttl_.count());
 }
+
+PcaModelCache::PcaModelCache() : PcaModelCache(PcaModelCacheArgs{}) {}
 
 auto PcaModelCache::GetOrCreate(const std::string& model_run_id, 
                                      const std::string& artifact_path) -> std::shared_ptr<PcaModel> {
@@ -129,5 +130,4 @@ auto PcaModelCache::GetStats() const -> PcaModelCache::CacheStats {
     };
 }
 
-} // namespace anomaly
-} // namespace telemetry
+} // namespace telemetry::anomaly

@@ -15,12 +15,12 @@ public:
     void Setup() { InitializeHosts(); }
     
     // Wrapper for protected method
-    TelemetryRecord PublicGenerateRecord(const HostProfile& host, 
-                                         std::chrono::system_clock::time_point timestamp) {
+    auto PublicGenerateRecord(const HostProfile& host, 
+                                         std::chrono::system_clock::time_point timestamp) -> TelemetryRecord {
         return GenerateRecord(host, timestamp);
     }
     
-    const std::vector<HostProfile>& GetHosts() const { return hosts_; }
+    auto GetHosts() const -> const std::vector<HostProfile>& { return hosts_; }
 
     void PublicEnqueueBatch(std::vector<TelemetryRecord> batch) { EnqueueBatch(std::move(batch)); }
     void SetMaxQueueSize(size_t s) { max_queue_size_ = s; }

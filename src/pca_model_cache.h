@@ -19,9 +19,14 @@ public:
      * @param max_bytes Maximum total memory footprint in bytes.
      * @param ttl_seconds Time-to-live for cache entries (fallback invalidation).
      */
-    explicit PcaModelCache(size_t max_entries = 100, 
-                           size_t max_bytes = 512ull * 1024ull * 1024ull, // 512MB default
-                           int ttl_seconds = 3600);
+    struct PcaModelCacheArgs {
+        size_t max_entries = 100;
+        size_t max_bytes = 512ull * 1024ull * 1024ull; // 512MB default
+        int ttl_seconds = 3600;
+    };
+
+    explicit PcaModelCache(PcaModelCacheArgs args);
+    PcaModelCache();
 
     /**
      * @brief Gets a model from cache or loads it from artifact_path if missing.

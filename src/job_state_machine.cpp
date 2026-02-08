@@ -44,7 +44,7 @@ auto JobStateMachine::GetValidNextStates(JobState current) -> std::set<JobState>
     std::set<JobState> next;
     next.insert(current);
     for (int i = 0; i <= (int)JobState::CANCELLED; ++i) {
-        JobState s = static_cast<JobState>(i);
+        auto s = static_cast<JobState>(i);
         if (IsTransitionAllowed(current, s)) {
             next.insert(s);
         }

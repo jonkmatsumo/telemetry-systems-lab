@@ -30,7 +30,7 @@ TEST(PcaModelCacheTest, HitMissLogic) {
     std::string path = "tmp/test_cache_model.json";
     CreateDummyModel(path);
 
-    PcaModelCache cache(2, 1024 * 1024, 60);
+    PcaModelCache cache(PcaModelCache::PcaModelCacheArgs{2, 1024ull * 1024ull, 60});
     EXPECT_EQ(cache.GetStats().misses, 0);
     EXPECT_EQ(cache.GetStats().hits, 0);
 
@@ -58,7 +58,7 @@ TEST(PcaModelCacheTest, EvictionLogic) {
     std::string path = "tmp/test_cache_model_evict.json";
     CreateDummyModel(path);
 
-    PcaModelCache cache(2, 1024 * 1024, 60); // Max 2 entries
+    PcaModelCache cache(PcaModelCache::PcaModelCacheArgs{2, 1024ull * 1024ull, 60}); // Max 2 entries
 
     cache.GetOrCreate("m1", path);
     cache.GetOrCreate("m2", path);
@@ -88,7 +88,7 @@ TEST(PcaModelCacheTest, ByteLimitEviction) {
     size_t model_size = temp.EstimateMemoryUsage();
 
     // Set cache limit to just enough for 1 model
-    PcaModelCache cache(10, model_size + 10, 60);
+    PcaModelCache cache(PcaModelCache::PcaModelCacheArgs{10, model_size + 10, 60});
 
     cache.GetOrCreate("m1", path);
     EXPECT_EQ(cache.GetStats().size, 1);
@@ -106,7 +106,7 @@ TEST(PcaModelCacheTest, InvalidationAndTtl) {
     std::string path = "tmp/test_cache_model_ttl.json";
     CreateDummyModel(path);
 
-    PcaModelCache cache(10, 1024 * 1024, 0); // 0 TTL means everything expires immediately
+    PcaModelCache cache(PcaModelCache::PcaModelCacheArgs{10, 1024ull * 1024ull, 0}); // 0 TTL means everything expires immediately
 
     cache.GetOrCreate("m1", path);
     // Next access should be a miss due to 0 TTL
@@ -114,7 +114,7 @@ TEST(PcaModelCacheTest, InvalidationAndTtl) {
     EXPECT_EQ(cache.GetStats().misses, 2);
 
     // Explicit invalidation
-    PcaModelCache cache2(10, 1024 * 1024, 60);
+    PcaModelCache cache2(PcaModelCache::PcaModelCacheArgs{10, 1024ull * 1024ull, 60});
     cache2.GetOrCreate("m1", path);
     cache2.Invalidate("m1");
     cache2.GetOrCreate("m1", path);

@@ -9,7 +9,7 @@ TEST(PcaTrainerTest, TrainsOnSyntheticData) {
     samples.reserve(200);
 
     for (int i = 0; i < 200; ++i) {
-        double base = static_cast<double>(i % 50);
+        auto base = static_cast<double>(i % 50);
         telemetry::linalg::Vector x(5, 0.0);
         x[0] = 40.0 + base;
         x[1] = 0.8 * x[0] + 5.0;

@@ -24,10 +24,11 @@
 #include "obs/http_log.h"
 
 #include <uuid/uuid.h>
+#include <array>
 
 namespace telemetry::api {
 
-std::string FormatServerTime() {
+auto FormatServerTime() -> std::string {
     auto now = std::chrono::system_clock::now();
     auto now_t = std::chrono::system_clock::to_time_t(now);
     std::tm tm{};
@@ -41,22 +42,22 @@ std::string FormatServerTime() {
     return oss.str();
 }
 
-std::string GenerateUuid() {
+auto GenerateUuid() -> std::string {
     uuid_t out;
     uuid_generate(out);
-    char str[37];
-    uuid_unparse(out, str);
-    return std::string(str);
+    std::array<char, 37> str{};
+    uuid_unparse(out, str.data());
+    return std::string(str.data());
 }
 
-std::string GetRequestId(const httplib::Request& req) {
+auto GetRequestId(const httplib::Request& req) -> std::string {
     if (req.has_header("X-Request-ID")) {
         return req.get_header_value("X-Request-ID");
     }
     return GenerateUuid();
 }
 
-static const char* ClassifyHttpError(const std::exception& e) {
+static auto ClassifyHttpError(const std::exception& e) -> const char* {
     auto msg = std::string(e.what());
     try {
         throw; // Re-throw to check type
@@ -84,7 +85,7 @@ static const char* ClassifyHttpError(const std::exception& e) {
     }
 }
 
-static const char* ClassifyTrainError(const std::string& msg) {
+static auto ClassifyTrainError(const std::string& msg) -> const char* {
     if (msg.find("Cancelled") != std::string::npos) {
         return "E_CANCELLED";
     }
@@ -172,7 +173,7 @@ void ApiServer::Initialize() {
         try { cache_max_bytes = std::stoul(env_cache_bytes); } catch (...) {}
     }
 
-    model_cache_ = std::make_unique<telemetry::anomaly::PcaModelCache>(cache_size, cache_max_bytes, cache_ttl);
+    model_cache_ = std::make_unique<telemetry::anomaly::PcaModelCache>(telemetry::anomaly::PcaModelCache::PcaModelCacheArgs{cache_size, cache_max_bytes, cache_ttl});
 
     // Configure HTTP Server Limits
     svr_.set_payload_max_length(1024ULL * 1024ULL * 50ULL); // 50MB
