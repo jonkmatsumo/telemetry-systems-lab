@@ -22,7 +22,7 @@ void RunServer() {
     server->Wait();
 }
 
-int main() {
+auto main() -> int {
     spdlog::info("Telemetry Generator Service Starting...");
     try {
         RunServer();

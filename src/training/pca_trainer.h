@@ -49,13 +49,13 @@ struct HpoPreflight {
     HpoCapReason capped_by = HpoCapReason::NONE;
 };
 
-HpoPreflight PreflightHpoConfig(const HpoConfig& hpo);
+auto PreflightHpoConfig(const HpoConfig& hpo) -> HpoPreflight;
 
-std::vector<HpoValidationError> ValidateHpoConfig(const HpoConfig& config);
+auto ValidateHpoConfig(const HpoConfig& config) -> std::vector<HpoValidationError>;
 
-std::vector<TrainingConfig> GenerateTrials(const HpoConfig& hpo, const std::string& dataset_id);
+auto GenerateTrials(const HpoConfig& hpo, const std::string& dataset_id) -> std::vector<TrainingConfig>;
 
-std::string ComputeCandidateFingerprint(const HpoConfig& hpo);
+auto ComputeCandidateFingerprint(const HpoConfig& hpo) -> std::string;
 
 struct PcaArtifact {
     linalg::Vector scaler_mean;
@@ -67,22 +67,22 @@ struct PcaArtifact {
     int n_components = 0;
 };
 
-PcaArtifact TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
+auto TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
                            const std::string& dataset_id,
                            int n_components,
                            double percentile,
-                           std::function<void()> heartbeat = nullptr);
+                           std::function<void()> heartbeat = nullptr) -> PcaArtifact;
 
-PcaArtifact TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
+auto TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,
                                   size_t batch_size,
-                                  std::function<void()> heartbeat = nullptr);
+                                  std::function<void()> heartbeat = nullptr) -> PcaArtifact;
 
-PcaArtifact TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
+auto TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
                                 int n_components,
-                                double percentile);
+                                double percentile) -> PcaArtifact;
 
 void WriteArtifactJson(const PcaArtifact& artifact,
                        const std::string& output_path);

@@ -67,9 +67,9 @@ class PooledDbConnectionManager : public DbConnectionManager {
 public:
     using ConnectionInitializer = std::function<void(pqxx::connection&)>;
 
-    PooledDbConnectionManager(const std::string& conn_str, 
+    PooledDbConnectionManager(std::string conn_str, 
                                size_t pool_size, 
-                               std::chrono::milliseconds acquire_timeout = std::chrono::seconds(5),
+                               std::chrono::milliseconds acquire_timeout = std::chrono::milliseconds(5000),
                                ConnectionInitializer initializer = nullptr);
     ~PooledDbConnectionManager() override;
 

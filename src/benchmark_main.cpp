@@ -15,7 +15,7 @@ using namespace telemetry;
 using namespace telemetry::anomaly;
 
 // Mock Data Generator
-std::vector<TelemetryRecord> GenerateMockData(int count) {
+auto GenerateMockData(int count) -> std::vector<TelemetryRecord> {
         std::vector<TelemetryRecord> records;
         records.reserve(static_cast<size_t>(count));
         
@@ -34,7 +34,7 @@ std::vector<TelemetryRecord> GenerateMockData(int count) {
     return records;
 }
 
-int main(int argc, char** argv) {
+auto main(int argc, char** argv) -> int {
     auto console = spdlog::stdout_color_mt("console");
     spdlog::set_default_logger(console);
 
@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
             details
         );
         
-        if (!alerts.empty()) anomalies_found++;
+        if (!alerts.empty()) { anomalies_found++; }
     }
 
     auto end = std::chrono::high_resolution_clock::now();

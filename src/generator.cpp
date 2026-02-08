@@ -104,7 +104,7 @@ auto Generator::GenerateRecord(const HostProfile& host,
     // Since we are iterating, let's cast away constness or update the vector in the loop.
     // For MVP, we'll do the latter in the calling loop or just accept the const_cast for state updates 
     // (dirty but keeps signature simple for now).
-    HostProfile& mutable_host = const_cast<HostProfile&>(host);
+    auto& mutable_host = const_cast<HostProfile&>(host);
 
     TelemetryRecord r;
     r.metric_timestamp = timestamp;

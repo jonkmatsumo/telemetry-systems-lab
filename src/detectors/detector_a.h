@@ -36,8 +36,8 @@ private:
         double mad = 0.0; // Median Absolute Deviation
         
         // Compute Mean/Std from sum/sum_sq
-        auto Mean(size_t n) const -> double { return n > 0 ? sum / static_cast<double>(n) : 0.0; }
-        auto Std(size_t n) const -> double {
+        [[nodiscard]] auto Mean(size_t n) const -> double { return n > 0 ? sum / static_cast<double>(n) : 0.0; }
+        [[nodiscard]] auto Std(size_t n) const -> double {
             if (n < 2) { return 0.0; }
             double mean = Mean(n);
             double variance = (sum_sq / static_cast<double>(n)) - (mean * mean);

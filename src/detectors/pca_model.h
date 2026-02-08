@@ -22,16 +22,16 @@ public:
     void Load(const std::string& artifact_path);
 
     // Score a vector
-    PcaScore Score(const FeatureVector& vec) const;
+    [[nodiscard]] auto Score(const FeatureVector& vec) const -> PcaScore;
 
     // Accessors for testing
-    double GetThreshold() const { return threshold_; }
-    bool IsLoaded() const { return loaded_; }
+    [[nodiscard]] auto GetThreshold() const -> double { return threshold_; }
+    [[nodiscard]] auto IsLoaded() const -> bool { return loaded_; }
 
     /**
      * @brief Estimates the memory footprint of the model in bytes.
      */
-    size_t EstimateMemoryUsage() const;
+    [[nodiscard]] auto EstimateMemoryUsage() const -> size_t;
 
 private:
     bool loaded_ = false;

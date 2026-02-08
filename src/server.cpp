@@ -14,7 +14,7 @@ auto GenerateUUID() -> std::string {
     uuid_generate_random(binuuid);
     std::array<char, 37> uuid{};
     uuid_unparse_lower(binuuid, uuid.data());
-    return std::string(uuid.data());
+    return {uuid.data()};
 }
 
 auto TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* context, const GenerateRequest* request,
@@ -48,7 +48,7 @@ auto TelemetryServiceImpl::GenerateTelemetry([[maybe_unused]] ServerContext* con
         });
     } catch (const std::exception& e) {
         spdlog::error("Failed to start generation job for run {}: {}", run_id, e.what());
-        return Status(grpc::StatusCode::RESOURCE_EXHAUSTED, e.what());
+        return {grpc::StatusCode::RESOURCE_EXHAUSTED, e.what()};
     }
 
     response->set_run_id(run_id);

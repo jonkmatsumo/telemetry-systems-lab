@@ -33,7 +33,7 @@ public:
     ~JobManager();
 
     // Start a new background job. The work function receives a pointer to an atomic bool for cancellation check.
-    auto StartJob(const std::string& job_id, const std::string& request_id, std::function<void(const std::atomic<bool>*)> work) -> void;
+    auto StartJob(const std::string& job_id, const std::string& request_id, const std::function<void(const std::atomic<bool>*)>& work) -> void;
 
     // Get status of a job
     auto GetStatus(const std::string& job_id) -> JobStatus;

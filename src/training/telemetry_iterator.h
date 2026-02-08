@@ -23,8 +23,8 @@ private:
     std::shared_ptr<DbConnectionManager> manager_;
     std::string dataset_id_;
     size_t batch_size_;
-    int64_t last_record_id_;
-    size_t total_processed_;
+    int64_t last_record_id_ = 0;
+    size_t total_processed_ = 0;
 };
 
 } // namespace telemetry::training

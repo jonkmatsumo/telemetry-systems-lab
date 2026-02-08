@@ -3,11 +3,11 @@
 #include "obs/metrics.h"
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-PooledDbConnectionManager::PooledDbConnectionManager(const std::string& conn_str, 
+PooledDbConnectionManager::PooledDbConnectionManager(std::string conn_str, 
                                                      size_t pool_size, 
                                                      std::chrono::milliseconds acquire_timeout,
                                                      ConnectionInitializer initializer)
-    : conn_str_(conn_str), 
+    : conn_str_(std::move(conn_str)), 
       pool_size_(pool_size), 
       acquire_timeout_(acquire_timeout),
       initializer_(std::move(initializer)) {    
@@ -78,9 +78,9 @@ auto PooledDbConnectionManager::GetConnection() -> DbConnectionPtr {
     }
 
     // Return with custom deleter that returns to pool
-    return DbConnectionPtr(conn.release(), [this](pqxx::connection* c) {
+    return {conn.release(), [this](pqxx::connection* c) {
         this->ReleaseConnection(c);
-    });
+    }};
 }
 
 auto PooledDbConnectionManager::ReleaseConnection(pqxx::connection* conn) -> void {

@@ -16,23 +16,23 @@ struct FeatureVector {
     std::array<ValueType, kSize> data;
 
     // Direct accessors for readability
-    ValueType& cpu_usage() { return data[0]; }
-    const ValueType& cpu_usage() const { return data[0]; }
+    auto cpu_usage() -> ValueType& { return data[0]; }
+    [[nodiscard]] auto cpu_usage() const -> const ValueType& { return data[0]; }
 
-    ValueType& memory_usage() { return data[1]; }
-    const ValueType& memory_usage() const { return data[1]; }
+    auto memory_usage() -> ValueType& { return data[1]; }
+    [[nodiscard]] auto memory_usage() const -> const ValueType& { return data[1]; }
 
-    ValueType& disk_utilization() { return data[2]; }
-    const ValueType& disk_utilization() const { return data[2]; }
+    auto disk_utilization() -> ValueType& { return data[2]; }
+    [[nodiscard]] auto disk_utilization() const -> const ValueType& { return data[2]; }
 
-    ValueType& network_rx_rate() { return data[3]; }
-    const ValueType& network_rx_rate() const { return data[3]; }
+    auto network_rx_rate() -> ValueType& { return data[3]; }
+    [[nodiscard]] auto network_rx_rate() const -> const ValueType& { return data[3]; }
 
-    ValueType& network_tx_rate() { return data[4]; }
-    const ValueType& network_tx_rate() const { return data[4]; }
+    auto network_tx_rate() -> ValueType& { return data[4]; }
+    [[nodiscard]] auto network_tx_rate() const -> const ValueType& { return data[4]; }
 
     // Helper to populate from record
-    static FeatureVector FromRecord(const TelemetryRecord& record) {
+    static auto FromRecord(const TelemetryRecord& record) -> FeatureVector {
         FeatureVector v;
         v.cpu_usage() = record.cpu_usage;
         v.memory_usage() = record.memory_usage;
@@ -44,7 +44,7 @@ struct FeatureVector {
 };
 
 struct FeatureMetadata {
-    static const std::vector<std::string>& GetFeatureNames() {
+    static auto GetFeatureNames() -> const std::vector<std::string>& {
         static const std::vector<std::string> names = {
             "cpu_usage",
             "memory_usage",

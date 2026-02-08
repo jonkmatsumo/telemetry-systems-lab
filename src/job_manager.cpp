@@ -4,7 +4,7 @@
 
 namespace telemetry {
 
-JobManager::JobManager() {}
+JobManager::JobManager() = default;
 
 JobManager::~JobManager() {
     Stop();
@@ -29,7 +29,7 @@ auto JobManager::CleanupFinishedThreads() -> void {
     }
 }
 
-auto JobManager::StartJob(const std::string& job_id, const std::string& request_id, std::function<void(const std::atomic<bool>*)> work) -> void {
+auto JobManager::StartJob(const std::string& job_id, const std::string& request_id, const std::function<void(const std::atomic<bool>*)>& work) -> void {
     std::lock_guard<std::mutex> lk(mutex_);
     
     

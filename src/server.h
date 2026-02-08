@@ -38,11 +38,11 @@ public:
         job_manager_ = std::make_unique<telemetry::JobManager>();
     }
 
-    Status GenerateTelemetry(ServerContext* context, const GenerateRequest* request,
-                             GenerateResponse* response) override;
+    auto GenerateTelemetry(ServerContext* context, const GenerateRequest* request,
+                             GenerateResponse* response) -> Status override;
 
-    Status GetRun(ServerContext* context, const GetRunRequest* request,
-                  RunStatus* response) override;
+    auto GetRun(ServerContext* context, const GetRunRequest* request,
+                  RunStatus* response) -> Status override;
 
     void SetMaxConcurrentJobs(size_t n) { job_manager_->SetMaxConcurrentJobs(n); }
 
