@@ -246,6 +246,13 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+# Disable Clang-Tidy for Googletest targets
+foreach(target gtest gtest_main gmock gmock_main)
+    if(TARGET ${target})
+        set_target_properties(${target} PROPERTIES CXX_CLANG_TIDY "")
+    endif()
+endforeach()
+
 enable_testing()
 
 # Ensure GTest targets exist as aliases for compatibility

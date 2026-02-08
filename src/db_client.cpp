@@ -350,7 +350,7 @@ auto DbClient::UpdateRunStatus(const std::string& run_id,
 }
 
 auto DbClient::BatchInsertTelemetry(const std::vector<TelemetryRecord>& records) -> void {
-    if (records.empty()) return;
+    if (records.empty()) { return; }
     
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;

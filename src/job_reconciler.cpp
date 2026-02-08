@@ -11,13 +11,13 @@ JobReconciler::~JobReconciler() {
     Stop();
 }
 
-void JobReconciler::ReconcileStartup() {
+auto JobReconciler::ReconcileStartup() -> void {
     spdlog::info("Running startup job reconciliation...");
     db_->ReconcileStaleJobs(std::nullopt); // Reconcile all RUNNING/PENDING
 }
 
-void JobReconciler::Start(std::chrono::milliseconds interval) {
-    if (running_) return;
+auto JobReconciler::Start(std::chrono::milliseconds interval) -> void {
+    if (running_) { return; }
     running_ = true;
     sweeper_thread_ = std::make_unique<std::thread>([this, interval]() {
         spdlog::info("JobReconciler periodic sweeper started (interval={}ms, TTL={}s).", 
@@ -33,7 +33,7 @@ void JobReconciler::Start(std::chrono::milliseconds interval) {
     });
 }
 
-void JobReconciler::Stop() {
+auto JobReconciler::Stop() -> void {
     running_ = false;
     cv_.notify_all();
     if (sweeper_thread_ && sweeper_thread_->joinable()) {
@@ -42,7 +42,7 @@ void JobReconciler::Stop() {
     sweeper_thread_.reset();
 }
 
-void JobReconciler::RunSweep() {
+auto JobReconciler::RunSweep() -> void {
     try {
         db_->ReconcileStaleJobs(stale_ttl_);
     } catch (const std::exception& e) {

@@ -37,7 +37,7 @@ static linalg::Vector vec_div(const linalg::Vector& a, const linalg::Vector& b) 
     return out;
 }
 
-void PcaModel::Load(const std::string& artifact_path) {
+auto PcaModel::Load(const std::string& artifact_path) -> void {
     auto start = std::chrono::steady_clock::now();
     nlohmann::json start_fields = {{"artifact_path", artifact_path}};
     if (telemetry::obs::HasContext()) {
@@ -111,9 +111,9 @@ void PcaModel::Load(const std::string& artifact_path) {
     telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "model_load_end", "model", end_fields);
 }
 
-PcaScore PcaModel::Score(const FeatureVector& vec) const {
+auto PcaModel::Score(const FeatureVector& vec) const -> PcaScore {
     PcaScore result;
-    if (!loaded_) return result;
+    if (!loaded_) { return result; }
 
     // Adapt FeatureVector to vector
     // Note: FeatureVector is std::array, guaranteed contiguous
@@ -154,7 +154,7 @@ PcaScore PcaModel::Score(const FeatureVector& vec) const {
     return result;
 }
 
-size_t PcaModel::EstimateMemoryUsage() const {
+auto PcaModel::EstimateMemoryUsage() const -> size_t {
     size_t usage = sizeof(PcaModel);
     usage += cur_mean_.size() * sizeof(double);
     usage += cur_scale_.size() * sizeof(double);

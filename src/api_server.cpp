@@ -1800,7 +1800,7 @@ void ApiServer::HandleListInferenceRuns(const httplib::Request& req, httplib::Re
     }
 }
 
-void ApiServer::HandleGetInferenceRun(const httplib::Request& req, httplib::Response& res) {
+auto ApiServer::HandleGetInferenceRun(const httplib::Request& req, httplib::Response& res) -> void {
     std::string rid = GetRequestId(req);
     telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string inference_id = req.matches[1];
@@ -1819,7 +1819,7 @@ void ApiServer::HandleGetInferenceRun(const httplib::Request& req, httplib::Resp
     }
 }
 
-void ApiServer::HandleListJobs(const httplib::Request& req, httplib::Response& res) {
+auto ApiServer::HandleListJobs(const httplib::Request& req, httplib::Response& res) -> void {
     std::string rid = GetRequestId(req);
     telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     int limit = GetIntParam(req, "limit", 50);
@@ -1843,7 +1843,7 @@ void ApiServer::HandleListJobs(const httplib::Request& req, httplib::Response& r
     }
 }
 
-void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Response& res) {
+auto ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Response& res) -> void {
     std::string rid = GetRequestId(req);
     telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     try {
@@ -1906,7 +1906,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                 total = db_client_->GetDatasetRecordCount(dataset_id);
                 if (!db_client_->TryTransitionScoreJobStatus(job_id, "PENDING", "RUNNING")) {
                     auto current_job_info = db_client_->GetScoreJob(job_id);
-                    if (current_job_info.value("status", "") != "RUNNING") return;
+                    if (current_job_info.value("status", "") != "RUNNING") { return; }
                 }
                 db_client_->UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
 
@@ -2000,7 +2000,7 @@ void ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
     }
 }
 
-void ApiServer::HandleGetJobStatus(const httplib::Request& req, httplib::Response& res) {
+auto ApiServer::HandleGetJobStatus(const httplib::Request& req, httplib::Response& res) -> void {
     std::string rid = GetRequestId(req);
     telemetry::obs::HttpRequestLogScope log(req, res, "api_server", rid);
     std::string job_id = req.matches[1];
@@ -2116,7 +2116,7 @@ void ApiServer::HandleModelErrorDistribution(const httplib::Request& req, httpli
     }
 }
 
-void ApiServer::SendJson(httplib::Response& res, nlohmann::json j, int status, const std::string& request_id) {
+auto ApiServer::SendJson(httplib::Response& res, nlohmann::json j, int status, const std::string& request_id) -> void {
     if (!request_id.empty() && !j.contains("request_id")) {
         j["request_id"] = request_id;
     }
@@ -2140,8 +2140,8 @@ void ApiServer::SendError(httplib::Response& res,
     SendJson(res, j, status, request_id);
 }
 
-int ApiServer::GetIntParam(const httplib::Request& req, const std::string& key, int def) {
-    if (!req.has_param(key.c_str())) return def;
+auto ApiServer::GetIntParam(const httplib::Request& req, const std::string& key, int def) -> int {
+    if (!req.has_param(key.c_str())) { return def; }
     try {
         return std::stoi(req.get_param_value(key.c_str()));
     } catch (...) {
@@ -2149,8 +2149,8 @@ int ApiServer::GetIntParam(const httplib::Request& req, const std::string& key, 
     }
 }
 
-double ApiServer::GetDoubleParam(const httplib::Request& req, const std::string& key, double def) {
-    if (!req.has_param(key.c_str())) return def;
+auto ApiServer::GetDoubleParam(const httplib::Request& req, const std::string& key, double def) -> double {
+    if (!req.has_param(key.c_str())) { return def; }
     try {
         return std::stod(req.get_param_value(key.c_str()));
     } catch (...) {
@@ -2158,12 +2158,12 @@ double ApiServer::GetDoubleParam(const httplib::Request& req, const std::string&
     }
 }
 
-std::string ApiServer::GetStrParam(const httplib::Request& req, const std::string& key) {
-    if (!req.has_param(key.c_str())) return "";
+auto ApiServer::GetStrParam(const httplib::Request& req, const std::string& key) -> std::string {
+    if (!req.has_param(key.c_str())) { return ""; }
     return req.get_param_value(key.c_str());
 }
 
-void ApiServer::ValidateRoutes() {
+auto ApiServer::ValidateRoutes() -> void {
     // Basic sanity check: ensure registry matches expected count
     // We don't do deep introspection of httplib because it's hard.
     if (kRequiredRoutes.size() != 35) {

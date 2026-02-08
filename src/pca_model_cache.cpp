@@ -12,8 +12,8 @@ PcaModelCache::PcaModelCache(size_t max_entries, size_t max_bytes, int ttl_secon
                  max_entries_, max_bytes_, ttl_seconds);
 }
 
-std::shared_ptr<PcaModel> PcaModelCache::GetOrCreate(const std::string& model_run_id, 
-                                                    const std::string& artifact_path) {
+auto PcaModelCache::GetOrCreate(const std::string& model_run_id, 
+                                     const std::string& artifact_path) -> std::shared_ptr<PcaModel> {
     std::unique_lock<std::mutex> lock(mutex_);
     auto now = std::chrono::steady_clock::now();
 
@@ -77,7 +77,7 @@ std::shared_ptr<PcaModel> PcaModelCache::GetOrCreate(const std::string& model_ru
     return model;
 }
 
-void PcaModelCache::Invalidate(const std::string& model_run_id) {
+auto PcaModelCache::Invalidate(const std::string& model_run_id) -> void {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = cache_.find(model_run_id);
     if (it != cache_.end()) {
@@ -87,21 +87,21 @@ void PcaModelCache::Invalidate(const std::string& model_run_id) {
     }
 }
 
-void PcaModelCache::Clear() {
+auto PcaModelCache::Clear() -> void {
     std::lock_guard<std::mutex> lock(mutex_);
     cache_.clear();
     current_bytes_ = 0;
     telemetry::obs::EmitGauge("model_cache_bytes_used", 0.0, "bytes", "model_cache");
 }
 
-void PcaModelCache::EnsureCapacity(size_t additional_bytes) {
+auto PcaModelCache::EnsureCapacity(size_t additional_bytes) -> void {
     while (!cache_.empty() && (current_bytes_ + additional_bytes > max_bytes_)) {
         EvictLru();
     }
 }
 
-void PcaModelCache::EvictLru() {
-    if (cache_.empty()) return;
+auto PcaModelCache::EvictLru() -> void {
+    if (cache_.empty()) { return; }
 
     auto oldest = cache_.begin();
     for (auto it = cache_.begin(); it != cache_.end(); ++it) {
@@ -117,7 +117,7 @@ void PcaModelCache::EvictLru() {
     telemetry::obs::EmitCounter("model_cache_evictions", 1, "evictions", "model_cache");
 }
 
-PcaModelCache::CacheStats PcaModelCache::GetStats() const {
+auto PcaModelCache::GetStats() const -> PcaModelCache::CacheStats {
     std::lock_guard<std::mutex> lock(mutex_);
     return {
         cache_.size(),

@@ -37,14 +37,14 @@ public:
         LogEvent(LogLevel::Info, "http_request_start", component_, fields_);
     }
 
-    void AddFields(const nlohmann::json& extra) {
+    auto AddFields(const nlohmann::json& extra) -> void {
         for (auto it = extra.begin(); it != extra.end(); ++it) {
             fields_[it.key()] = it.value();
         }
     }
 
-    void RecordError(const std::string& error_code, const std::string& message, int status_code) {
-        if (error_logged_) return;
+    auto RecordError(const std::string& error_code, const std::string& message, int status_code) -> void {
+        if (error_logged_) { return; }
         auto duration_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - start_).count();
         nlohmann::json payload = fields_;
@@ -57,7 +57,7 @@ public:
     }
 
     ~HttpRequestLogScope() {
-        if (error_logged_) return;
+        if (error_logged_) { return; }
         auto duration_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - start_).count();
         nlohmann::json payload = fields_;

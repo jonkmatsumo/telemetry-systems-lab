@@ -27,7 +27,7 @@ enum class ErrorType {
 };
 
 ErrorType ClassifyError(int status_code) {
-    if (status_code >= 400 && status_code < 500) return ErrorType::CLIENT_ERROR;
+    if (status_code >= 400 && status_code < 500) { return ErrorType::CLIENT_ERROR; }
     return ErrorType::SERVER_ERROR;
 }
 

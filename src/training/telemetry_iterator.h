@@ -12,12 +12,12 @@ namespace telemetry::training {
 class TelemetryBatchIterator {
 public:
     TelemetryBatchIterator(std::shared_ptr<DbConnectionManager> manager,
-                           const std::string& dataset_id,
+                           std::string dataset_id,
                            size_t batch_size);
 
-    bool NextBatch(std::vector<linalg::Vector>& out_batch);
-    void Reset();
-    size_t TotalRowsProcessed() const;
+    auto NextBatch(std::vector<linalg::Vector>& out_batch) -> bool;
+    auto Reset() -> void;
+    [[nodiscard]] auto TotalRowsProcessed() const -> size_t;
 
 private:
     std::shared_ptr<DbConnectionManager> manager_;

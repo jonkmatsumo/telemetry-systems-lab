@@ -4,18 +4,18 @@
 
 // Compatibility macro for libpqxx 6.x vs 7.x
 #if !defined(PQXX_VERSION_MAJOR) || (PQXX_VERSION_MAJOR < 7)
-#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec_prepared(stmt, ##__VA_ARGS__)
+#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec_prepared(stmt, ##__VA_ARGS__) // NOLINT(clang-diagnostic-gnu-zero-variadic-macro-arguments)
 #else
-#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec(pqxx::prepped{stmt}, pqxx::params{__VA_ARGS__})
+#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec(pqxx::prepped{stmt}, pqxx::params{__VA_ARGS__}) // NOLINT(clang-diagnostic-gnu-zero-variadic-macro-arguments)
 #endif
 
 namespace telemetry::training {
 
 TelemetryBatchIterator::TelemetryBatchIterator(std::shared_ptr<DbConnectionManager> manager,
-                                               const std::string& dataset_id,
+                                               std::string dataset_id,
                                                size_t batch_size)
     : manager_(std::move(manager)),
-      dataset_id_(dataset_id),
+      dataset_id_(std::move(dataset_id)),
       batch_size_(batch_size),
       last_record_id_(0),
       total_processed_(0) {}
