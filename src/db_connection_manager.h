@@ -39,16 +39,16 @@ class SimpleDbConnectionManager : public DbConnectionManager {
 public:
     using ConnectionInitializer = std::function<void(pqxx::connection&)>;
 
-    explicit SimpleDbConnectionManager(const std::string& conn_str, ConnectionInitializer initializer = nullptr) 
-        : conn_str_(conn_str), initializer_(std::move(initializer)) {}
+    explicit SimpleDbConnectionManager(std::string conn_str, ConnectionInitializer initializer = nullptr) 
+        : conn_str_(std::move(conn_str)), initializer_(std::move(initializer)) {}
 
     auto GetConnection() -> DbConnectionPtr override {
         auto conn = new pqxx::connection(conn_str_);
         if (initializer_) {
             initializer_(*conn);
         }
-        return DbConnectionPtr(conn, 
-                              [](pqxx::connection* c) { delete c; });
+        return {conn, 
+                [](pqxx::connection* c) { delete c; }};
     }
 
     [[nodiscard]] auto GetConnectionString() const -> std::string override {

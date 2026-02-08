@@ -11,7 +11,7 @@ namespace telemetry::metrics {
 
 class MetricsRegistry {
 public:
-    static MetricsRegistry& Instance() {
+    static auto Instance() -> MetricsRegistry& {
         static MetricsRegistry instance;
         return instance;
     }
@@ -36,8 +36,8 @@ public:
         auto& h = histograms_[key];
         h.count++;
         h.sum += ms;
-        if (ms < h.min) h.min = ms;
-        if (ms > h.max) h.max = ms;
+        if (ms < h.min) { h.min = ms; }
+        if (ms > h.max) { h.max = ms; }
     }
 
     struct HistogramStats {
@@ -48,7 +48,7 @@ public:
     };
 
     // To Prometheus text format
-    std::string ToPrometheus() {
+    auto ToPrometheus() -> std::string {
         std::lock_guard<std::mutex> lock(mutex_);
         std::string out;
         for (const auto& kv : counters_) {
@@ -71,12 +71,12 @@ private:
     std::map<std::string, double> gauges_;
     std::map<std::string, HistogramStats> histograms_;
 
-    std::string SerializeKey(const std::string& name, const std::map<std::string, std::string>& labels) {
-        if (labels.empty()) return name;
+    auto SerializeKey(const std::string& name, const std::map<std::string, std::string>& labels) -> std::string {
+        if (labels.empty()) { return name; }
         std::string key = name + "{";
         bool first = true;
         for (const auto& lp : labels) {
-            if (!first) key += ",";
+            if (!first) { key += ","; }
             key += lp.first + "=\"" + lp.second + "\"";
             first = false;
         }

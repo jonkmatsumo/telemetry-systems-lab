@@ -506,7 +506,7 @@ auto DbClient::CreateModelRun(const std::string& dataset_id,
         auto res = PQXX_EXEC_PREPPED(W, "insert_model_run",
                                  dataset_id, name, request_id, training_config.dump(), hpo_ptr, fp_ptr, gv_ptr, seed_used);
         W.commit();
-        if (!res.empty()) return res[0][0].as<std::string>();
+        if (!res.empty()) { return res[0][0].as<std::string>(); }
     } catch (const std::exception& e) {
         spdlog::error("Failed to create model run: {}", e.what());
         throw;
@@ -528,7 +528,7 @@ auto DbClient::CreateHpoTrialRun(const std::string& dataset_id,
         auto res = PQXX_EXEC_PREPPED(W, "insert_hpo_trial",
                                  dataset_id, name, request_id, training_config.dump(), parent_run_id, trial_index, trial_params.dump());
         W.commit();
-        if (!res.empty()) return res[0][0].as<std::string>();
+        if (!res.empty()) { return res[0][0].as<std::string>(); }
     } catch (const std::exception& e) {
         spdlog::error("Failed to create HPO trial run: {}", e.what());
         throw;
@@ -726,7 +726,7 @@ auto DbClient::GetHpoTrials(const std::string& parent_run_id) -> nlohmann::json 
 
 auto DbClient::GetBulkHpoTrialSummaries(const std::vector<std::string>& parent_run_ids) -> std::map<std::string, nlohmann::json> {
     std::map<std::string, nlohmann::json> summaries;
-    if (parent_run_ids.empty()) return summaries;
+    if (parent_run_ids.empty()) { return summaries; }
 
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -734,7 +734,7 @@ auto DbClient::GetBulkHpoTrialSummaries(const std::vector<std::string>& parent_r
         
         std::string in_clause = "";
         for (const auto& id : parent_run_ids) {
-            if (!in_clause.empty()) in_clause += ", ";
+            if (!in_clause.empty()) { in_clause += ", "; }
             in_clause += N.quote(id);
         }
         
@@ -743,8 +743,8 @@ auto DbClient::GetBulkHpoTrialSummaries(const std::vector<std::string>& parent_r
         auto res = N.exec(query); 
         
         for (const auto& row : res) {
-            std::string pid = row[0].as<std::string>();
-            std::string status = row[1].as<std::string>();
+            auto pid = row[0].as<std::string>();
+            auto status = row[1].as<std::string>();
             long count = row[2].as<long>();
             
             if (!summaries.count(pid)) {
@@ -815,7 +815,7 @@ auto DbClient::CreateInferenceRun(const std::string& model_run_id) -> std::strin
         auto res = PQXX_EXEC_PREPPED(W, "insert_inference_run",
                                   model_run_id);
         W.commit();
-        if (!res.empty()) return res[0][0].as<std::string>();
+        if (!res.empty()) { return res[0][0].as<std::string>(); }
     } catch (const std::exception& e) {
         spdlog::error("Failed to create inference run: {}", e.what());
         throw;
@@ -852,14 +852,14 @@ auto DbClient::ListGenerationRuns(int limit,
             "SELECT run_id, status, inserted_rows, created_at, start_time, end_time, interval_seconds, host_count, tier "
             "FROM generation_runs ";
         std::vector<std::string> where;
-        if (!status.empty()) where.push_back("status = " + N.quote(status));
-        if (!created_from.empty()) where.push_back("created_at >= " + N.quote(created_from));
-        if (!created_to.empty()) where.push_back("created_at <= " + N.quote(created_to));
+        if (!status.empty()) { where.push_back("status = " + N.quote(status)); }
+        if (!created_from.empty()) { where.push_back("created_at >= " + N.quote(created_from)); }
+        if (!created_to.empty()) { where.push_back("created_at <= " + N.quote(created_to)); }
         if (!where.empty()) {
             query += "WHERE ";
             for (size_t i = 0; i < where.size(); ++i) {
                 query += where[i];
-                if (i + 1 < where.size()) query += " AND ";
+                if (i + 1 < where.size()) { query += " AND "; }
             }
             query += " ";
         }
@@ -977,15 +977,15 @@ nlohmann::json DbClient::ListModelRuns(int limit,
             "is_eligible, eligibility_reason, selection_metric_value "
             "FROM model_runs ";
         std::vector<std::string> where;
-        if (!status.empty()) where.push_back("status = " + N.quote(status));
-        if (!dataset_id.empty()) where.push_back("dataset_id = " + N.quote(dataset_id));
-        if (!created_from.empty()) where.push_back("created_at >= " + N.quote(created_from));
-        if (!created_to.empty()) where.push_back("created_at <= " + N.quote(created_to));
+        if (!status.empty()) { where.push_back("status = " + N.quote(status)); }
+        if (!dataset_id.empty()) { where.push_back("dataset_id = " + N.quote(dataset_id)); }
+        if (!created_from.empty()) { where.push_back("created_at >= " + N.quote(created_from)); }
+        if (!created_to.empty()) { where.push_back("created_at <= " + N.quote(created_to)); }
         if (!where.empty()) {
             query += "WHERE ";
             for (size_t i = 0; i < where.size(); ++i) {
                 query += where[i];
-                if (i + 1 < where.size()) query += " AND ";
+                if (i + 1 < where.size()) { query += " AND "; }
             }
             query += " ";
         }
@@ -1027,13 +1027,13 @@ nlohmann::json DbClient::ListModelRuns(int limit,
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-nlohmann::json DbClient::ListInferenceRuns(const std::string& dataset_id,
+auto DbClient::ListInferenceRuns(const std::string& dataset_id,
                                            const std::string& model_run_id,
                                            int limit,
                                            int offset,
                                            const std::string& status,
                                            const std::string& created_from,
-                                           const std::string& created_to) {
+                                           const std::string& created_to) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -1042,16 +1042,16 @@ nlohmann::json DbClient::ListInferenceRuns(const std::string& dataset_id,
             "SELECT i.inference_id, i.model_run_id, m.dataset_id, i.status, i.anomaly_count, i.latency_ms, i.created_at "
             "FROM inference_runs i JOIN model_runs m ON i.model_run_id = m.model_run_id ";
         std::vector<std::string> where;
-        if (!dataset_id.empty()) where.push_back("m.dataset_id = " + N.quote(dataset_id));
-        if (!model_run_id.empty()) where.push_back("i.model_run_id = " + N.quote(model_run_id));
-        if (!status.empty()) where.push_back("i.status = " + N.quote(status));
-        if (!created_from.empty()) where.push_back("i.created_at >= " + N.quote(created_from));
-        if (!created_to.empty()) where.push_back("i.created_at <= " + N.quote(created_to));
+        if (!dataset_id.empty()) { where.push_back("m.dataset_id = " + N.quote(dataset_id)); }
+        if (!model_run_id.empty()) { where.push_back("i.model_run_id = " + N.quote(model_run_id)); }
+        if (!status.empty()) { where.push_back("i.status = " + N.quote(status)); }
+        if (!created_from.empty()) { where.push_back("i.created_at >= " + N.quote(created_from)); }
+        if (!created_to.empty()) { where.push_back("i.created_at <= " + N.quote(created_to)); }
         if (!where.empty()) {
             base += "WHERE ";
             for (size_t i = 0; i < where.size(); ++i) {
                 base += where[i];
-                if (i + 1 < where.size()) base += " AND ";
+                if (i + 1 < where.size()) { base += " AND "; }
             }
             base += " ";
         }
@@ -1074,7 +1074,7 @@ nlohmann::json DbClient::ListInferenceRuns(const std::string& dataset_id,
     return out;
 }
 
-nlohmann::json DbClient::GetInferenceRun(const std::string& inference_id) {
+auto DbClient::GetInferenceRun(const std::string& inference_id) -> nlohmann::json {
     nlohmann::json j;
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -1096,7 +1096,7 @@ nlohmann::json DbClient::GetInferenceRun(const std::string& inference_id) {
     return j;
 }
 
-nlohmann::json DbClient::GetModelsForDataset(const std::string& dataset_id) {
+auto DbClient::GetModelsForDataset(const std::string& dataset_id) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -1117,7 +1117,7 @@ nlohmann::json DbClient::GetModelsForDataset(const std::string& dataset_id) {
     return out;
 }
 
-nlohmann::json DbClient::GetScoredDatasetsForModel(const std::string& model_run_id) {
+auto DbClient::GetScoredDatasetsForModel(const std::string& model_run_id) -> nlohmann::json {
     nlohmann::json out = nlohmann::json::array();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -1164,7 +1164,7 @@ auto DbClient::GetDatasetSummary(const std::string& run_id, int topk) -> nlohman
         long other = 0;
         int idx = 0;
         for (const auto& row : res_types) {
-            std::string type = row[0].as<std::string>();
+            auto type = row[0].as<std::string>();
             long cnt = row[1].as<long>();
             if (idx < topk) {
                 nlohmann::json entry;
@@ -1400,7 +1400,7 @@ auto DbClient::GetHistogram(const std::string& run_id,
     }
     const int MAX_BINS = 500;
     int requested_bins = bins;
-    if (bins > MAX_BINS) bins = MAX_BINS;
+    if (bins > MAX_BINS) { bins = MAX_BINS; }
 
     nlohmann::json out;
     out["requested_bins"] = requested_bins;
@@ -1507,14 +1507,14 @@ auto DbClient::GetDatasetMetricsSummary(const std::string& run_id) -> nlohmann::
         std::string select;
         for (size_t i = 0; i < kMetrics.size(); ++i) {
             select += "STDDEV(" + kMetrics[i] + ") AS " + kMetrics[i] + "_stddev";
-            if (i + 1 < kMetrics.size()) select += ", ";
+            if (i + 1 < kMetrics.size()) { select += ", "; }
         }
         auto res = W.exec("SELECT " + select + " FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id));
         if (!res.empty()) {
             std::vector<std::pair<std::string, double>> stddevs;
             for (const auto& m : kMetrics) {
                 double val = res[0][m + "_stddev"].is_null() ? 0.0 : res[0][m + "_stddev"].as<double>();
-                stddevs.push_back({m, val});
+                stddevs.emplace_back(m, val);
             }
             // Sort by stddev descending
             std::sort(stddevs.begin(), stddevs.end(), [](const auto& a, const auto& b) {
@@ -1544,12 +1544,12 @@ auto DbClient::CreateScoreJob(const std::string& dataset_id,
         // Check if job already exists
         auto existing = PQXX_EXEC_PREPPED(W, "check_score_job_exists",
              dataset_id, model_run_id);
-        if (!existing.empty()) return existing[0][0].as<std::string>();
+        if (!existing.empty()) { return existing[0][0].as<std::string>(); }
 
         auto res = PQXX_EXEC_PREPPED(W, "insert_score_job",
              dataset_id, model_run_id, request_id);
         W.commit();
-        if (!res.empty()) return res[0][0].as<std::string>();
+        if (!res.empty()) { return res[0][0].as<std::string>(); }
     } catch (const std::exception& e) {
         spdlog::error("Failed to create score job: {}", e.what());
         throw;
@@ -1624,16 +1624,16 @@ auto DbClient::ListScoreJobs(int limit,
             "SELECT job_id, dataset_id, model_run_id, status, total_rows, processed_rows, last_record_id, error, created_at, updated_at, completed_at "
             "FROM dataset_score_jobs ";
         std::vector<std::string> where;
-        if (!status.empty()) where.push_back("status = " + N.quote(status));
-        if (!dataset_id.empty()) where.push_back("dataset_id = " + N.quote(dataset_id));
-        if (!model_run_id.empty()) where.push_back("model_run_id = " + N.quote(model_run_id));
-        if (!created_from.empty()) where.push_back("created_at >= " + N.quote(created_from));
-        if (!created_to.empty()) where.push_back("created_at <= " + N.quote(created_to));
+        if (!status.empty()) { where.push_back("status = " + N.quote(status)); }
+        if (!dataset_id.empty()) { where.push_back("dataset_id = " + N.quote(dataset_id)); }
+        if (!model_run_id.empty()) { where.push_back("model_run_id = " + N.quote(model_run_id)); }
+        if (!created_from.empty()) { where.push_back("created_at >= " + N.quote(created_from)); }
+        if (!created_to.empty()) { where.push_back("created_at <= " + N.quote(created_to)); }
         if (!where.empty()) {
             query += "WHERE ";
             for (size_t i = 0; i < where.size(); ++i) {
                 query += where[i];
-                if (i + 1 < where.size()) query += " AND ";
+                if (i + 1 < where.size()) { query += " AND "; }
             }
             query += " ";
         }
@@ -1690,7 +1690,7 @@ auto DbClient::FetchScoringRowsAfterRecord(const std::string& dataset_id,
 auto DbClient::InsertDatasetScores(const std::string& dataset_id,
                                    const std::string& model_run_id,
                                    const std::vector<std::pair<long, std::pair<double, bool>>>& scores) -> void {
-    if (scores.empty()) return;
+    if (scores.empty()) { return; }
     auto start = std::chrono::steady_clock::now();
     try {
         auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
@@ -1730,8 +1730,8 @@ auto DbClient::InsertDatasetScores(const std::string& dataset_id,
         };
         if (telemetry::obs::HasContext()) {
             const auto& ctx = telemetry::obs::GetContext();
-            if (!ctx.request_id.empty()) fields["request_id"] = ctx.request_id;
-            if (!ctx.score_job_id.empty()) fields["score_job_id"] = ctx.score_job_id;
+            if (!ctx.request_id.empty()) { fields["request_id"] = ctx.request_id; }
+            if (!ctx.score_job_id.empty()) { fields["score_job_id"] = ctx.score_job_id; }
         }
         telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "db_insert", "db", fields);
     } catch (const std::exception& e) {
@@ -1857,7 +1857,7 @@ auto DbClient::GetScores(const std::string& dataset_id,
     };
     if (telemetry::obs::HasContext()) {
         const auto& ctx = telemetry::obs::GetContext();
-        if (!ctx.request_id.empty()) fields["request_id"] = ctx.request_id;
+        if (!ctx.request_id.empty()) { fields["request_id"] = ctx.request_id; }
     }
     telemetry::obs::LogEvent(telemetry::obs::LogLevel::Info, "db_query", "db", fields);
     return out;
@@ -1879,15 +1879,15 @@ auto DbClient::GetEvalMetrics(const std::string& dataset_id,
         samples.reserve(static_cast<size_t>(res.size()));
         for (const auto& row : res) {
             samples.push_back({row[0].as<double>(), row[1].as<bool>(), row[2].as<bool>()});
-            if (max_samples > 0 && static_cast<int>(samples.size()) >= max_samples) break;
+            if (max_samples > 0 && static_cast<int>(samples.size()) >= max_samples) { break; }
         }
 
         long tp = 0, fp = 0, tn = 0, fn = 0;
         for (const auto& s : samples) {
-            if (s.pred && s.label) tp++;
-            else if (s.pred && !s.label) fp++;
-            else if (!s.pred && !s.label) tn++;
-            else fn++;
+            if (s.pred && s.label) { tp++; }
+            else if (s.pred && !s.label) { fp++; }
+            else if (!s.pred && !s.label) { tn++; }
+            else { fn++; }
         }
         out["confusion"] = {{"tp", tp}, {"fp", fp}, {"tn", tn}, {"fn", fn}};
 
@@ -1900,21 +1900,21 @@ auto DbClient::GetEvalMetrics(const std::string& dataset_id,
         long positives = 0;
         long negatives = 0;
         for (const auto& s : samples) {
-            if (s.label) positives++;
-            else negatives++;
+            if (s.label) { positives++; }
+            else { negatives++; }
         }
 
         nlohmann::json roc = nlohmann::json::array();
         nlohmann::json pr = nlohmann::json::array();
         if (!samples.empty()) {
             for (int i = 0; i < n_points; ++i) {
-                size_t idx = static_cast<size_t>((static_cast<double>(i) / (n_points - 1)) * static_cast<double>(samples.size() - 1));
+                auto idx = static_cast<size_t>((static_cast<double>(i) / (n_points - 1)) * static_cast<double>(samples.size() - 1));
                 double threshold = samples[idx].err;
                 long ttp = 0, tfp = 0;
                 for (const auto& s : samples) {
                     bool pred = s.err >= threshold;
-                    if (pred && s.label) ttp++;
-                    else if (pred && !s.label) tfp++;
+                    if (pred && s.label) { ttp++; }
+                    else if (pred && !s.label) { tfp++; }
                 }
                 double tpr = positives > 0 ? static_cast<double>(ttp) / static_cast<double>(positives) : 0.0;
                 double fpr = negatives > 0 ? static_cast<double>(tfp) / static_cast<double>(negatives) : 0.0;
@@ -2044,8 +2044,8 @@ auto DbClient::SearchDatasetRecords(const std::string& run_id,
         }
 
         std::string where = "WHERE run_id = " + N.quote(run_id);
-        if (!start_time.empty()) where += " AND metric_timestamp >= " + N.quote(start_time);
-        if (!end_time.empty()) where += " AND metric_timestamp <= " + N.quote(end_time);
+        if (!start_time.empty()) { where += " AND metric_timestamp >= " + N.quote(start_time); }
+        if (!end_time.empty()) { where += " AND metric_timestamp <= " + N.quote(end_time); }
         if (!anchor_time.empty()) {
             if (sort_dir == "asc") {
                 where += " AND metric_timestamp >= " + N.quote(anchor_time);
@@ -2053,10 +2053,10 @@ auto DbClient::SearchDatasetRecords(const std::string& run_id,
                 where += " AND metric_timestamp <= " + N.quote(anchor_time);
             }
         }
-        if (!is_anomaly.empty()) where += " AND is_anomaly = " + N.quote(is_anomaly == "true");
-        if (!anomaly_type.empty()) where += " AND anomaly_type = " + N.quote(anomaly_type);
-        if (!host_id.empty()) where += " AND host_id = " + N.quote(host_id);
-        if (!region.empty()) where += " AND region = " + N.quote(region);
+        if (!is_anomaly.empty()) { where += " AND is_anomaly = " + N.quote(is_anomaly == "true"); }
+        if (!anomaly_type.empty()) { where += " AND anomaly_type = " + N.quote(anomaly_type); }
+        if (!host_id.empty()) { where += " AND host_id = " + N.quote(host_id); }
+        if (!region.empty()) { where += " AND region = " + N.quote(region); }
 
         std::string query =
             "SELECT record_id, host_id, metric_timestamp, cpu_usage, memory_usage, disk_utilization, "
