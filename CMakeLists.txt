@@ -236,6 +236,8 @@ target_link_libraries(telemetry-train-pca
 # Tests
 enable_testing()
 find_package(GTest REQUIRED)
+# Some environments have gmock in GTest, others separate.
+find_package(GMock QUIET)
 
 # Unit Tests
 add_executable(unit_tests 
@@ -289,7 +291,8 @@ target_compile_definitions(unit_tests PRIVATE TELEMETRY_SOURCE_DIR="${CMAKE_SOUR
 target_link_libraries(unit_tests
     GTest::GTest
     GTest::Main
-    GTest::gmock
+    $<$<TARGET_EXISTS:GTest::gmock>:GTest::gmock>
+    $<$<NOT:$<TARGET_EXISTS:GTest::gmock>>:gmock>
     telemetry_proto
     telemetry_linalg
     telemetry_trainer

@@ -2,6 +2,13 @@
 #include <pqxx/pqxx>
 #include <spdlog/spdlog.h>
 
+// Compatibility macro for libpqxx 6.x vs 7.x
+#if !defined(PQXX_VERSION_MAJOR) || (PQXX_VERSION_MAJOR < 7)
+#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec_prepared(stmt, __VA_ARGS__)
+#else
+#define PQXX_EXEC_PREPPED(txn, stmt, ...) (txn).exec(pqxx::prepped{stmt}, pqxx::params{__VA_ARGS__})
+#endif
+
 namespace telemetry {
 namespace training {
 
@@ -22,10 +29,10 @@ bool TelemetryBatchIterator::NextBatch(std::vector<linalg::Vector>& out_batch) {
 
         // Using keyset pagination: ORDER BY record_id LIMIT N
         // We filter by run_id (dataset_id) and record_id > last_record_id_
-        pqxx::result res = R.exec(pqxx::prepped{"get_telemetry_batch"},
-            pqxx::params{dataset_id_,
+        pqxx::result res = PQXX_EXEC_PREPPED(R, "get_telemetry_batch",
+            dataset_id_,
             last_record_id_,
-            batch_size_}
+            batch_size_
         );
 
         if (res.empty()) {

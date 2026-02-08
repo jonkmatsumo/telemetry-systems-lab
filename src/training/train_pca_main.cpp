@@ -6,6 +6,13 @@
 #include "training/pca_trainer.h"
 #include <pqxx/pqxx>
 
+// Compatibility macro for libpqxx 6.x vs 7.x
+#if !defined(PQXX_VERSION_MAJOR) || (PQXX_VERSION_MAJOR < 7)
+#define PQXX_EXEC_PARAMS(txn, query, ...) (txn).exec_params(query, __VA_ARGS__)
+#else
+#define PQXX_EXEC_PARAMS(txn, query, ...) (txn).exec((query), pqxx::params{__VA_ARGS__})
+#endif
+
 static std::string get_env(const char* key) {
     const char* val = std::getenv(key);
     return val ? std::string(val) : std::string();
@@ -54,9 +61,9 @@ int main(int argc, char** argv) {
         {
             pqxx::connection conn(db_conn_str);
             pqxx::work txn(conn);
-            auto res = txn.exec(
+            auto res = PQXX_EXEC_PARAMS(txn,
                 "SELECT COUNT(*) FROM host_telemetry_archival WHERE run_id = $1 AND is_anomaly = false",
-                pqxx::params{dataset_id}
+                dataset_id
             );
             if (!res.empty()) {
                 row_count = res[0][0].as<size_t>();
