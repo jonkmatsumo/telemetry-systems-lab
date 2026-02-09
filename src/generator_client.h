@@ -10,6 +10,15 @@
 
 namespace telemetry::api {
 
+struct GeneratorClientConfig {
+    int max_retries = 3;
+    std::chrono::milliseconds initial_backoff{100};
+    std::chrono::milliseconds max_backoff{2000};
+    int failure_threshold = 5;
+    std::chrono::seconds breaker_timeout{30};
+    std::chrono::seconds call_timeout{10};
+};
+
 /**
  * @brief Resilient client for the Telemetry Generator service.
  * Implements retries with exponential backoff, circuit breaker, and keepalives.
@@ -22,16 +31,7 @@ public:
         HalfOpen
     };
 
-    struct Config {
-        int max_retries = 3;
-        std::chrono::milliseconds initial_backoff{100};
-        std::chrono::milliseconds max_backoff{2000};
-        int failure_threshold = 5;
-        std::chrono::seconds breaker_timeout{30};
-        std::chrono::seconds call_timeout{10};
-    };
-
-    GeneratorClient(std::string target, const Config& config = Config());
+    GeneratorClient(std::string target, const GeneratorClientConfig& config = GeneratorClientConfig());
     virtual ~GeneratorClient() = default;
 
     auto GenerateTelemetry(const GenerateRequest& request, GenerateResponse& response) -> grpc::Status;
@@ -49,7 +49,7 @@ private:
     auto CanAttempt() -> bool;
 
     std::string target_;
-    Config config_;
+    GeneratorClientConfig config_;
     std::shared_ptr<grpc::Channel> channel_;
     std::unique_ptr<telemetry::TelemetryService::Stub> stub_;
 

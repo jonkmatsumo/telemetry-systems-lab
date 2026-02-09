@@ -6,7 +6,7 @@
 
 namespace telemetry::api {
 
-GeneratorClient::GeneratorClient(std::string target, Config config)
+GeneratorClient::GeneratorClient(std::string target, const GeneratorClientConfig& config)
     : target_(std::move(target)), config_(config) {
     
     grpc::ChannelArguments args;

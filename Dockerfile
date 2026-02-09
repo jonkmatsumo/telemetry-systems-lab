@@ -34,7 +34,7 @@ RUN apt-get update && apt-get install -y \
     build-essential cmake git libgrpc++-dev libprotobuf-dev \
     protobuf-compiler-grpc libpqxx-dev libfmt-dev libspdlog-dev \
     nlohmann-json3-dev libcpp-httplib-dev uuid-dev libgtest-dev \
-    pkg-config \
+    pkg-config python3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
