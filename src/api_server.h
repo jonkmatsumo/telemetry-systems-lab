@@ -12,6 +12,7 @@
 #include "job_reconciler.h"
 #include "pca_model_cache.h"
 #include "training/pca_trainer.h"
+#include "generator_client.h"
 
 namespace telemetry::api {
 
@@ -90,7 +91,7 @@ private:
     static auto GetStrParam(const httplib::Request& req, const std::string& key) -> std::string;
 
     httplib::Server svr_;
-    std::unique_ptr<telemetry::TelemetryService::Stub> stub_;
+    std::unique_ptr<GeneratorClient> generator_client_;
     std::string grpc_target_;
     std::string db_conn_str_;
     std::shared_ptr<IDbClient> db_client_;

@@ -17,6 +17,7 @@
 
 #include "contract.h"
 #include "obs/metrics.h"
+#include "db_client.h"
 
 namespace telemetry::training {
 
@@ -209,14 +210,35 @@ auto TrainPcaFromStream(const std::function<void(const std::function<void(const 
 // NOLINTEND(bugprone-easily-swappable-parameters)
 
 // NOLINTBEGIN(bugprone-easily-swappable-parameters)
-auto TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
+auto TrainPcaFromDbBatched(std::shared_ptr<IDbClient> db_client,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,
                                   size_t batch_size,
                                   std::function<void()> heartbeat) -> PcaArtifact {
     auto start = std::chrono::steady_clock::now();
-    TelemetryBatchIterator iter(std::move(manager), dataset_id, batch_size);
+    
+    // Memory Guardrail: Pre-flight check
+    size_t max_memory_bytes = 256ULL * 1024ULL * 1024ULL; // 256MB default
+    const char* env_max_mem = std::getenv("PCA_TRAIN_MAX_MEMORY_MB");
+    if (env_max_mem) {
+        try { max_memory_bytes = std::stoul(env_max_mem) * 1024ULL * 1024ULL; } catch (...) {}
+    }
+
+    long row_count = db_client->GetDatasetRecordCount(dataset_id);
+    size_t estimated_errors_size = static_cast<size_t>(row_count) * sizeof(double);
+    
+    // We also account for some overhead (RunningStats, intermediate vectors)
+    size_t safety_margin = 50ULL * 1024ULL * 1024ULL; // 50MB margin
+    
+    if (estimated_errors_size + safety_margin > max_memory_bytes) {
+        telemetry::obs::EmitCounter("pca_training_rejected_oom_total", 1, "count", "trainer", {{"reason", "preflight_limit"}});
+        throw std::runtime_error(fmt::format("Training rejected: estimated memory ({:.2f} MB) exceeds limit ({:.2f} MB)", 
+                                 static_cast<double>(estimated_errors_size + safety_margin) / (1024.0 * 1024.0),
+                                 static_cast<double>(max_memory_bytes) / (1024.0 * 1024.0)));
+    }
+
+    TelemetryBatchIterator iter(db_client->GetConnectionManager(), dataset_id, batch_size);
 
     auto for_each = [&](const std::function<void(const linalg::Vector&)>& cb) {
         iter.Reset();
@@ -234,13 +256,28 @@ auto TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
         }
     };
 
-    auto artifact = TrainPcaFromStream(for_each, telemetry::anomaly::FeatureVector::kSize, n_components, percentile);
-    auto end = std::chrono::steady_clock::now();
-    double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
-    
-    spdlog::info("PCA training completed: dataset_id={}, rows_processed={}, duration_ms={:.2f}",
-                 dataset_id, iter.TotalRowsProcessed(), duration_ms);
-    return artifact;
+    try {
+        auto artifact = TrainPcaFromStream(for_each, telemetry::anomaly::FeatureVector::kSize, n_components, percentile);
+        auto end = std::chrono::steady_clock::now();
+        double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        
+        spdlog::info("PCA training completed: dataset_id={}, rows_processed={}, duration_ms={:.2f}",
+                     dataset_id, iter.TotalRowsProcessed(), duration_ms);
+        return artifact;
+    } catch (const std::bad_alloc& e) {
+        telemetry::obs::EmitCounter("pca_training_rejected_oom_total", 1, "count", "trainer", {{"reason", "bad_alloc"}});
+        spdlog::error("PCA training failed due to OOM (bad_alloc): {}", e.what());
+        throw std::runtime_error("Training failed: Out of memory during processing");
+    }
+}
+
+auto TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
+                                  const std::string& dataset_id,
+                                  int n_components,
+                                  double percentile,
+                                  size_t batch_size,
+                                  std::function<void()> heartbeat) -> PcaArtifact {
+    return TrainPcaFromDbBatched(std::make_shared<DbClient>(manager), dataset_id, n_components, percentile, batch_size, heartbeat);
 }
 // NOLINTEND(bugprone-easily-swappable-parameters)
 

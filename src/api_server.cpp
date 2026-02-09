@@ -140,9 +140,8 @@ ApiServer::ApiServer(std::string grpc_target, std::shared_ptr<IDbClient> db_clie
 }
 
 void ApiServer::Initialize() {
-    // Initialize gRPC Stub
-    auto channel = grpc::CreateChannel(grpc_target_, grpc::InsecureChannelCredentials());
-    stub_ = telemetry::TelemetryService::NewStub(channel);
+    // Initialize Resilient gRPC Client
+    generator_client_ = std::make_unique<GeneratorClient>(grpc_target_);
 
     // Initialize JobManager
     job_manager_ = std::make_unique<JobManager>();
@@ -528,7 +527,7 @@ void ApiServer::HandleGenerateData(const httplib::Request& req, httplib::Respons
         }
 
         telemetry::GenerateResponse g_res;
-        grpc::Status status = stub_->GenerateTelemetry(&context, g_req, &g_res);
+        grpc::Status status = generator_client_->GenerateTelemetry(g_req, g_res);
 
         if (status.ok()) {
             nlohmann::json resp;
@@ -593,12 +592,11 @@ void ApiServer::HandleGetDataset(const httplib::Request& req, httplib::Response&
         spdlog::warn("DB Detail check failed, falling back to gRPC: {}", e.what());
     }
 
-    grpc::ClientContext context;
     telemetry::GetRunRequest g_req;
     g_req.set_run_id(run_id);
 
     telemetry::RunStatus g_res;
-    grpc::Status status = stub_->GetRun(&context, g_req, &g_res);
+    grpc::Status status = generator_client_->GetRun(g_req, g_res);
 
     if (status.ok()) {
         nlohmann::json resp;

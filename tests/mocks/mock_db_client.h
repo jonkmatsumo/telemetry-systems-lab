@@ -149,7 +149,7 @@ public:
     }
 
     long GetDatasetRecordCount(const std::string& /*dataset_id*/) override {
-        return 100;
+        return mock_record_count;
     }
 
     nlohmann::json ListGenerationRuns(int /*limit*/,
@@ -323,6 +323,7 @@ public:
     // Inspection helpers
     bool should_fail_insert = false;
     bool should_fail_fetch = false;
+    long mock_record_count = 100;
     std::string mock_artifact_path = "artifacts/pca/default/model.json";
     std::string last_job_id;
     std::string last_job_status;

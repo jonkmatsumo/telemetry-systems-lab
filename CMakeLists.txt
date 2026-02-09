@@ -101,7 +101,7 @@ add_library(telemetry_trainer
     src/training/telemetry_iterator.cpp
 )
 target_include_directories(telemetry_trainer PUBLIC src)
-target_link_libraries(telemetry_trainer telemetry_linalg nlohmann_json::nlohmann_json fmt::fmt spdlog::spdlog PkgConfig::PQXX)
+target_link_libraries(telemetry_trainer telemetry_linalg telemetry_proto nlohmann_json::nlohmann_json fmt::fmt spdlog::spdlog PkgConfig::PQXX)
 
 add_executable(telemetry-generator
     src/main.cpp
@@ -133,6 +133,7 @@ add_executable(telemetry-api
     src/db_client.cpp
     src/db_connection_manager.cpp
     src/pca_model_cache.cpp
+    src/generator_client.cpp
     src/job_state_machine.cpp
     src/job_reconciler.cpp
     src/preprocessing.cpp
@@ -144,7 +145,7 @@ add_executable(telemetry-api
 target_include_directories(telemetry-api PRIVATE src)
 target_link_libraries(telemetry-api telemetry_proto telemetry_linalg telemetry_trainer PkgConfig::GRPC PkgConfig::PROTOBUF fmt::fmt spdlog::spdlog PkgConfig::PQXX PkgConfig::UUID nlohmann_json::nlohmann_json Threads::Threads)
 if(HTTPLIB_FOUND)
-    target_link_libraries(telemetry-api PkgConfig::HTTPLIB)
+    target_link_libraries(telemetry-api PRIVATE PkgConfig::HTTPLIB)
 endif()
 
 add_executable(telemetry-benchmark
@@ -157,9 +158,9 @@ add_executable(telemetry-benchmark
 target_include_directories(telemetry-benchmark PRIVATE src)
 target_link_libraries(telemetry-benchmark telemetry_linalg fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json)
 
-add_executable(telemetry-train-pca src/training/train_pca_main.cpp)
+add_executable(telemetry-train-pca src/training/train_pca_main.cpp src/db_client.cpp src/db_connection_manager.cpp)
 target_include_directories(telemetry-train-pca PRIVATE src)
-target_link_libraries(telemetry-train-pca telemetry_trainer)
+target_link_libraries(telemetry-train-pca telemetry_trainer PkgConfig::PQXX PkgConfig::UUID)
 
 include(FetchContent)
 FetchContent_Declare(googletest URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip)
@@ -208,6 +209,8 @@ add_executable(unit_tests
     tests/unit/test_db_connection_pool.cpp
     tests/unit/test_db_transaction.cpp
     tests/unit/test_heartbeat_reconciliation.cpp
+    tests/unit/test_pca_memory_guardrails.cpp
+    tests/unit/test_generator_client.cpp
     tests/unit/test_pca_model_cache.cpp
     tests/unit/test_job_state_machine.cpp
     tests/unit/test_job_reconciler.cpp
@@ -220,6 +223,7 @@ add_executable(unit_tests
     src/db_client.cpp
     src/db_connection_manager.cpp
     src/pca_model_cache.cpp
+    src/generator_client.cpp
     src/job_state_machine.cpp
     src/job_reconciler.cpp
     src/route_registry.cpp
@@ -232,15 +236,15 @@ add_executable(unit_tests
 )
 target_include_directories(unit_tests PRIVATE src tests)
 target_compile_definitions(unit_tests PRIVATE TELEMETRY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-target_link_libraries(unit_tests GTest::GTest GTest::Main $<$<TARGET_EXISTS:GTest::gmock>:GTest::gmock> $<$<NOT:$<TARGET_EXISTS:GTest::gmock>>:gmock> telemetry_proto telemetry_linalg telemetry_trainer PkgConfig::GRPC PkgConfig::PROTOBUF fmt::fmt spdlog::spdlog PkgConfig::PQXX PkgConfig::UUID nlohmann_json::nlohmann_json)
+target_link_libraries(unit_tests PRIVATE GTest::GTest GTest::Main telemetry_proto telemetry_linalg telemetry_trainer PkgConfig::GRPC PkgConfig::PROTOBUF fmt::fmt spdlog::spdlog PkgConfig::PQXX PkgConfig::UUID)
 if(HTTPLIB_FOUND)
-    target_link_libraries(unit_tests PkgConfig::HTTPLIB)
+    target_link_libraries(unit_tests PRIVATE PkgConfig::HTTPLIB)
 endif()
 add_test(NAME UnitTests COMMAND unit_tests)
 set_tests_properties(UnitTests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 add_executable(test_client tests/client.cpp)
-target_link_libraries(test_client telemetry_proto PkgConfig::GRPC PkgConfig::PROTOBUF)
+target_link_libraries(test_client PRIVATE telemetry_proto PkgConfig::GRPC PkgConfig::PROTOBUF)
 
 add_executable(db_integration_tests tests/integration/test_db_client.cpp src/db_client.cpp src/db_connection_manager.cpp)
 target_include_directories(db_integration_tests PRIVATE src)
@@ -252,4 +256,3 @@ target_link_libraries(api_health_tests PRIVATE GTest::GTest GTest::Main nlohmann
 if(HTTPLIB_FOUND)
     target_link_libraries(api_health_tests PRIVATE PkgConfig::HTTPLIB)
 endif()
-

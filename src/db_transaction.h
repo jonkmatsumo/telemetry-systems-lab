@@ -17,7 +17,7 @@ namespace telemetry::db {
  */
 class TransactionScope {
 public:
-    explicit TransactionScope(std::shared_ptr<DbConnectionManager> manager, std::string name = "unnamed")
+    explicit TransactionScope(const std::shared_ptr<DbConnectionManager>& manager, std::string name = "unnamed")
         : name_(std::move(name)), 
           conn_ptr_(manager->GetConnection()), 
           work_(*conn_ptr_) {
@@ -41,9 +41,9 @@ public:
     }
 
     TransactionScope(const TransactionScope&) = delete;
-    TransactionScope& operator=(const TransactionScope&) = delete;
+    auto operator=(const TransactionScope&) -> TransactionScope& = delete;
     TransactionScope(TransactionScope&&) = delete;
-    TransactionScope& operator=(TransactionScope&&) = delete;
+    auto operator=(TransactionScope&&) -> TransactionScope& = delete;
 
     void commit() {
         if (committed_) {
@@ -60,8 +60,8 @@ public:
         telemetry::obs::EmitHistogram("db_transaction_duration_ms", duration, "ms", "db", {{"name", name_}, {"outcome", "commit"}});
     }
 
-    pqxx::work& txn() { return work_; }
-    pqxx::connection& conn() { return *conn_ptr_; }
+    auto txn() -> pqxx::work& { return work_; }
+    auto conn() -> pqxx::connection& { return *conn_ptr_; }
 
 private:
     std::string name_;
