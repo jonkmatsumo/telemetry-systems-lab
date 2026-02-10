@@ -131,8 +131,7 @@ target_link_libraries(telemetry-train-pca PRIVATE telemetry_trainer PkgConfig::P
 
 include(FetchContent)
 FetchContent_Declare(googletest 
-    URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    URL "https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip"
 )
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
