@@ -35,7 +35,8 @@ find_package(nlohmann_json REQUIRED)
 set(PROTO_SRC proto/telemetry.proto)
 set(PROTO_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR})
 find_program(PROTOC_EXECUTABLE protoc REQUIRED)
-execute_process(COMMAND mkdir -p ${PROTO_GEN_DIR})
+find_program(GRPC_CPP_PLUGIN_EXECUTABLE grpc_cpp_plugin REQUIRED)
+file(MAKE_DIRECTORY ${PROTO_GEN_DIR})
 
 add_custom_command(
     OUTPUT ${PROTO_GEN_DIR}/telemetry.grpc.pb.cc ${PROTO_GEN_DIR}/telemetry.grpc.pb.h
@@ -43,10 +44,11 @@ add_custom_command(
     COMMAND ${PROTOC_EXECUTABLE}
         --grpc_out=${PROTO_GEN_DIR}
         --cpp_out=${PROTO_GEN_DIR}
-        --plugin=protoc-gen-grpc=`which grpc_cpp_plugin`
+        --plugin=protoc-gen-grpc=${GRPC_CPP_PLUGIN_EXECUTABLE}
         -I ${CMAKE_CURRENT_SOURCE_DIR}/proto
         ${CMAKE_CURRENT_SOURCE_DIR}/proto/telemetry.proto
     DEPENDS ${PROTO_SRC}
+    VERBATIM
 )
 
 add_library(telemetry_proto
@@ -68,7 +70,8 @@ add_library(telemetry_trainer
     src/training/telemetry_iterator.cpp
 )
 target_include_directories(telemetry_trainer PUBLIC src)
-target_link_libraries(telemetry_trainer PRIVATE telemetry_linalg telemetry_proto nlohmann_json::nlohmann_json fmt::fmt spdlog::spdlog PkgConfig::PQXX)
+target_link_libraries(telemetry_trainer PUBLIC telemetry_linalg telemetry_proto)
+target_link_libraries(telemetry_trainer PRIVATE nlohmann_json::nlohmann_json fmt::fmt spdlog::spdlog PkgConfig::PQXX)
 
 add_executable(telemetry-generator
     src/main.cpp
@@ -127,7 +130,8 @@ target_link_libraries(telemetry-benchmark PRIVATE telemetry_linalg fmt::fmt spdl
 
 add_executable(telemetry-train-pca src/training/train_pca_main.cpp src/db_client.cpp src/db_connection_manager.cpp)
 target_include_directories(telemetry-train-pca PRIVATE src)
-target_link_libraries(telemetry-train-pca PRIVATE telemetry_trainer PkgConfig::PQXX PkgConfig::UUID)
+target_link_libraries(telemetry-train-pca PRIVATE telemetry_trainer telemetry_proto nlohmann_json::nlohmann_json fmt::fmt spdlog::spdlog PkgConfig::GRPC PkgConfig::PROTOBUF PkgConfig::PQXX PkgConfig::UUID)
+add_dependencies(telemetry-train-pca telemetry_proto)
 
 include(FetchContent)
 FetchContent_Declare(googletest 
