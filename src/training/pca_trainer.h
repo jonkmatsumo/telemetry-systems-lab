@@ -75,14 +75,14 @@ auto TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
                            double percentile,
                            std::function<void()> heartbeat = nullptr) -> PcaArtifact;
 
-auto TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
+auto TrainPcaFromDbBatched(const std::shared_ptr<DbConnectionManager>& manager,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,
                                   size_t batch_size,
                                   std::function<void()> heartbeat = nullptr) -> PcaArtifact;
 
-auto TrainPcaFromDbBatched(std::shared_ptr<IDbClient> db_client,
+auto TrainPcaFromDbBatched(const std::shared_ptr<IDbClient>& db_client,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,

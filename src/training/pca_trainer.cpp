@@ -210,7 +210,7 @@ auto TrainPcaFromStream(const std::function<void(const std::function<void(const 
 // NOLINTEND(bugprone-easily-swappable-parameters)
 
 // NOLINTBEGIN(bugprone-easily-swappable-parameters)
-auto TrainPcaFromDbBatched(std::shared_ptr<IDbClient> db_client,
+auto TrainPcaFromDbBatched(const std::shared_ptr<IDbClient>& db_client,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,
@@ -271,13 +271,13 @@ auto TrainPcaFromDbBatched(std::shared_ptr<IDbClient> db_client,
     }
 }
 
-auto TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
+auto TrainPcaFromDbBatched(const std::shared_ptr<DbConnectionManager>& manager,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,
                                   size_t batch_size,
                                   std::function<void()> heartbeat) -> PcaArtifact {
-    return TrainPcaFromDbBatched(std::make_shared<DbClient>(manager), dataset_id, n_components, percentile, batch_size, heartbeat);
+    return TrainPcaFromDbBatched(std::make_shared<DbClient>(manager), dataset_id, n_components, percentile, batch_size, std::move(heartbeat));
 }
 // NOLINTEND(bugprone-easily-swappable-parameters)
 
