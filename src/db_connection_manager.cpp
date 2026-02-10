@@ -33,7 +33,7 @@ auto PooledDbConnectionManager::GetConnection() -> DbConnectionPtr {
     })) {
         total_timeouts_++;
         telemetry::obs::EmitCounter("db_pool_timeouts_total", 1, "timeouts", "db_pool");
-        spdlog::error("Timeout acquiring DB connection after {}ms. Pool size: {}, In-use: {}", 
+        spdlog::warn("Timeout acquiring DB connection after {}ms. Pool size: {}, In-use: {}",
                      acquire_timeout_.count(), pool_size_, in_use_count_);
         throw std::runtime_error("DB connection acquisition timeout");
     }
@@ -54,7 +54,7 @@ auto PooledDbConnectionManager::GetConnection() -> DbConnectionPtr {
                 initializer_(*conn);
             }
         } catch (const std::exception& e) {
-            spdlog::error("Failed to create new DB connection: {}", e.what());
+            spdlog::warn("Failed to create new DB connection: {}", e.what());
             // If we fail here, we don't increment in_use_count_
             cv_.notify_one(); // Wake up anyone waiting for space
             throw;
