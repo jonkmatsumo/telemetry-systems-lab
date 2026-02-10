@@ -37,6 +37,11 @@ public:
                                  const std::string& status, 
                                  long inserted_rows,
                                  const std::string& error = "") -> void = 0;
+    virtual auto TryTransitionGenerationRunStatus(const std::string& run_id,
+                                                  const std::string& expected_current,
+                                                  const std::string& next_status,
+                                                  long inserted_rows,
+                                                  const std::string& error = "") -> bool = 0;
 
     virtual auto BatchInsertTelemetry(const std::vector<TelemetryRecord>& records) -> void = 0;
 
