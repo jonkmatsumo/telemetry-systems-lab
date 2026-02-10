@@ -18,13 +18,27 @@ protected:
     }
 };
 
-// We can't easily mock the gRPC stub without more refactoring (e.g. template or interface for stub)
-// But we can test the state machine logic if we make a few internal things accessible 
-// or test via a real but failing endpoint.
+class FakeGeneratorStub : public IGeneratorStub {
+public:
+    grpc::Status next_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "Unavailable");
+    int call_count = 0;
+
+    grpc::Status GenerateTelemetry(grpc::ClientContext*, const telemetry::GenerateRequest&, telemetry::GenerateResponse*) override {
+        call_count++;
+        return next_status;
+    }
+    grpc::Status GetRun(grpc::ClientContext*, const telemetry::GetRunRequest&, telemetry::RunStatus*) override {
+        call_count++;
+        return next_status;
+    }
+};
 
 TEST_F(GeneratorClientTest, BreakerOpensOnFailures) {
-    // Point to a likely non-existent port to force failures
-    GeneratorClient client("localhost:50099", GetTestConfig());
+    auto stub = std::make_unique<FakeGeneratorStub>();
+    stub->next_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "Unavailable");
+    auto* stub_ptr = stub.get();
+    
+    GeneratorClient client(std::move(stub), GetTestConfig());
     
     GenerateRequest req;
     GenerateResponse res;
@@ -40,15 +54,20 @@ TEST_F(GeneratorClientTest, BreakerOpensOnFailures) {
     EXPECT_EQ(client.GetBreakerState(), GeneratorClient::BreakerState::Open);
     
     // Attempt 3: Should be rejected immediately by breaker
+    int count_before = stub_ptr->call_count;
     status = client.GenerateTelemetry(req, res);
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(status.error_code(), grpc::StatusCode::UNAVAILABLE);
     EXPECT_EQ(status.error_message(), "Circuit breaker is open");
+    EXPECT_EQ(stub_ptr->call_count, count_before);
 }
 
 TEST_F(GeneratorClientTest, BreakerHalfOpenAfterTimeout) {
     auto cfg = GetTestConfig();
-    GeneratorClient client("localhost:50099", cfg);
+    auto stub = std::make_unique<FakeGeneratorStub>();
+    stub->next_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "Unavailable");
+    
+    GeneratorClient client(std::move(stub), cfg);
     
     GenerateRequest req;
     GenerateResponse res;
@@ -62,10 +81,11 @@ TEST_F(GeneratorClientTest, BreakerHalfOpenAfterTimeout) {
     std::this_thread::sleep_for(cfg.breaker_timeout + std::chrono::milliseconds(50));
     
     // Next attempt should be allowed (HalfOpen)
-    // It will still fail because endpoint is dead, but it shouldn't be "rejected" by breaker immediately
     auto status = client.GenerateTelemetry(req, res);
     EXPECT_FALSE(status.ok());
+    // Should NOT be "Circuit breaker is open", but the actual error from stub
     EXPECT_NE(status.error_message(), "Circuit breaker is open");
+    EXPECT_EQ(status.error_message(), "Unavailable");
 }
 
 } // namespace telemetry::api
