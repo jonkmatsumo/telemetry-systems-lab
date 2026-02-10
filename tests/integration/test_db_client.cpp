@@ -99,9 +99,13 @@ TEST_F(DbClientTest, EmptyBatch) {
 TEST(DbClientFailureTest, InvalidConnection) {
     DbClient client("postgresql://baduser:badpass@localhost:5432/bad_db");
     telemetry::GenerateRequest req;
-    // Should catch exception internally and log error (no throw from API surface)
-    // CreateRun logs error but doesn't throw.
-    ASSERT_NO_THROW(client.CreateRun("id", req, "PENDING"));
+    EXPECT_ANY_THROW(client.CreateRun("id", req, "PENDING"));
+    EXPECT_ANY_THROW(client.UpdateRunStatus("id", "RUNNING", 1));
+    EXPECT_ANY_THROW(client.Heartbeat(IDbClient::JobType::Generation, "id"));
+    EXPECT_ANY_THROW(client.UpdateModelRunStatus("id", "FAILED", "", "write failed"));
+    EXPECT_ANY_THROW(client.UpdateInferenceRunStatus("id", "FAILED", 0, nlohmann::json::array(), 0.0));
+    EXPECT_ANY_THROW(client.UpdateScoreJob("id", "FAILED", 0, 0, 0, "write failed"));
+    EXPECT_ANY_THROW(client.ReconcileStaleJobs());
 }
 
 TEST_F(DbClientTest, ListFiltersAndPagination) {

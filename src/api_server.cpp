@@ -431,42 +431,47 @@ void ApiServer::Initialize() {
         telemetry::obs::HttpRequestLogScope log({req, res, "api_server", rid});
         std::string model_run_id = req.matches[1];
         log.AddFields({{"model_run_id", model_run_id}});
-        
-        auto j = db_client_->GetModelRun(model_run_id);
-        if (j.empty()) {
-            log.RecordError({telemetry::obs::kErrHttpNotFound, "Model run not found", 404});
-            SendError({res, "Model run not found", 404, telemetry::obs::kErrHttpNotFound, rid});
-            return;
-        }
 
-        std::string status = j["status"];
-        if (status == "COMPLETED" || status == "FAILED" || status == "CANCELLED") {
-            SendError({res, "Cannot cancel terminal run", 400, "E_TERMINAL", rid});
-            return;
-        }
+        try {
+            auto j = db_client_->GetModelRun(model_run_id);
+            if (j.empty()) {
+                log.RecordError({telemetry::obs::kErrHttpNotFound, "Model run not found", 404});
+                SendError({res, "Model run not found", 404, telemetry::obs::kErrHttpNotFound, rid});
+                return;
+            }
 
-        // 1. If it's a parent, cancel all trials
-        if (!j["hpo_config"].is_null()) {
-            auto trials = db_client_->GetHpoTrials(model_run_id);
-            for (const auto& t : trials) {
-                std::string tid = t["model_run_id"];
-                std::string tst = t["status"];
-                if (tst == "PENDING" || tst == "RUNNING") {
-                    job_manager_->CancelJob("train-" + tid);
-                    db_client_->UpdateModelRunStatus(tid, "CANCELLED", "", "Cancelled by parent tuning run request");
-                    db_client_->UpdateTrialEligibility(tid, false, "CANCELED", 0.0);
+            std::string status = j["status"];
+            if (status == "COMPLETED" || status == "FAILED" || status == "CANCELLED") {
+                SendError({res, "Cannot cancel terminal run", 400, "E_TERMINAL", rid});
+                return;
+            }
+
+            // 1. If it's a parent, cancel all trials.
+            if (!j["hpo_config"].is_null()) {
+                auto trials = db_client_->GetHpoTrials(model_run_id);
+                for (const auto& t : trials) {
+                    std::string tid = t["model_run_id"];
+                    std::string tst = t["status"];
+                    if (tst == "PENDING" || tst == "RUNNING") {
+                        job_manager_->CancelJob("train-" + tid);
+                        db_client_->UpdateModelRunStatus(tid, "CANCELLED", "", "Cancelled by parent tuning run request");
+                        db_client_->UpdateTrialEligibility(tid, false, "CANCELED", 0.0);
+                    }
                 }
             }
-        }
 
-        // 2. Cancel the run itself (or parent)
-        job_manager_->CancelJob("train-" + model_run_id);
-        db_client_->UpdateModelRunStatus(model_run_id, "CANCELLED", "", "Cancelled by user request");
-        
-        nlohmann::json resp;
-        resp["status"] = "CANCEL_REQUESTED";
-        resp["model_run_id"] = model_run_id;
-        SendJson(res, resp, 200, rid);
+            // 2. Cancel the run itself (or parent).
+            job_manager_->CancelJob("train-" + model_run_id);
+            db_client_->UpdateModelRunStatus(model_run_id, "CANCELLED", "", "Cancelled by user request");
+
+            nlohmann::json resp;
+            resp["status"] = "CANCEL_REQUESTED";
+            resp["model_run_id"] = model_run_id;
+            SendJson(res, resp, 200, rid);
+        } catch (const std::exception& e) {
+            log.RecordError({telemetry::obs::kErrDbQueryFailed, e.what(), 500});
+            SendError({res, e.what(), 500, telemetry::obs::kErrDbQueryFailed, rid});
+        }
     });
 
     // Model listing route
