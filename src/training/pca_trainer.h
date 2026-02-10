@@ -69,7 +69,7 @@ struct PcaArtifact {
 };
 
 // NOLINTBEGIN(bugprone-easily-swappable-parameters)
-auto TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
+auto TrainPcaFromDb(const std::shared_ptr<DbConnectionManager>& manager,
                            const std::string& dataset_id,
                            int n_components,
                            double percentile,

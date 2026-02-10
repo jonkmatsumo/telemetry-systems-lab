@@ -282,7 +282,7 @@ auto TrainPcaFromDbBatched(const std::shared_ptr<DbConnectionManager>& manager,
 // NOLINTEND(bugprone-easily-swappable-parameters)
 
 // NOLINTBEGIN(bugprone-easily-swappable-parameters)
-auto TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
+auto TrainPcaFromDb(const std::shared_ptr<DbConnectionManager>& manager,
                            const std::string& dataset_id,
                            int n_components,
                            double percentile,
@@ -301,7 +301,7 @@ auto TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
     spdlog::info("Starting PCA training: dataset_id={}, n_components={}, batch_size={}", 
                  dataset_id, n_components, batch_size);
     
-    return TrainPcaFromDbBatched(std::move(manager), dataset_id, n_components, percentile, batch_size, std::move(heartbeat));
+    return TrainPcaFromDbBatched(manager, dataset_id, n_components, percentile, batch_size, std::move(heartbeat));
 }
 // NOLINTEND(bugprone-easily-swappable-parameters)
 
