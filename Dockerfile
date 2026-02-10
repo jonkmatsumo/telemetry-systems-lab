@@ -18,6 +18,8 @@ COPY --chown=flutteruser:flutteruser web_ui/pubspec.* web_ui/
 RUN cd web_ui && flutter pub get
 
 COPY --chown=flutteruser:flutteruser web_ui/ web_ui/
+# Keep defaults: wasm dry-run and icon tree-shake messages are informational only.
+# We intentionally keep them visible to surface wasm readiness and bundle-size changes.
 RUN cd web_ui && flutter build web --release
 
 # Stage 1b: Flutter Dev Environment
