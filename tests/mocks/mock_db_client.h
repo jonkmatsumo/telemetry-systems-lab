@@ -9,7 +9,7 @@
 class MockDbClient : public IDbClient {
 public:
     std::shared_ptr<DbConnectionManager> GetConnectionManager() override {
-        return std::make_shared<SimpleDbConnectionManager>("dummy");
+        return std::make_shared<SimpleDbConnectionManager>("host=localhost port=5432 dbname=postgres user=postgres password=postgres");
     }
 
     std::unique_ptr<telemetry::db::TransactionScope> BeginTransaction(const std::string& /*name*/ = "unnamed") override {
