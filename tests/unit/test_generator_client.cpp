@@ -36,11 +36,11 @@ public:
     grpc::Status next_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "Unavailable");
     int call_count = 0;
 
-    grpc::Status GenerateTelemetry(grpc::ClientContext&, const telemetry::GenerateRequest&, telemetry::GenerateResponse&) override {
+    auto GenerateTelemetry(grpc::ClientContext&, const telemetry::GenerateRequest&, telemetry::GenerateResponse&) -> grpc::Status override {
         call_count++;
         return next_status;
     }
-    grpc::Status GetRun(grpc::ClientContext&, const telemetry::GetRunRequest&, telemetry::RunStatus&) override {
+    auto GetRun(grpc::ClientContext&, const telemetry::GetRunRequest&, telemetry::RunStatus&) -> grpc::Status override {
         call_count++;
         return next_status;
     }
