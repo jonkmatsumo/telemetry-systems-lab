@@ -1,14 +1,24 @@
 #pragma once
 
 #include <grpcpp/grpcpp.h>
-#include <memory>
-#include <string>
-#include <functional>
-#include <mutex>
 #include <chrono>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
 #include "telemetry.grpc.pb.h"
 
 namespace telemetry::api {
+
+struct IGeneratorStub {
+    virtual ~IGeneratorStub() = default;
+    virtual grpc::Status GenerateTelemetry(grpc::ClientContext* context,
+                                           const telemetry::GenerateRequest& request,
+                                           telemetry::GenerateResponse* response) = 0;
+    virtual grpc::Status GetRun(grpc::ClientContext* context,
+                                const telemetry::GetRunRequest& request,
+                                telemetry::RunStatus* response) = 0;
+};
 
 struct GeneratorClientConfig {
     int max_retries = 3;
@@ -34,15 +44,8 @@ public:
     GeneratorClient(std::string target, const GeneratorClientConfig& config = GeneratorClientConfig());
     virtual ~GeneratorClient() = default;
 
-    // Abstract interface for the gRPC stub to allow testing without gRPC internals
-    class IGeneratorStub {
-    public:
-        virtual ~IGeneratorStub() = default;
-        virtual grpc::Status GenerateTelemetry(grpc::ClientContext* context, const telemetry::GenerateRequest& request, telemetry::GenerateResponse* response) = 0;
-        virtual grpc::Status GetRun(grpc::ClientContext* context, const telemetry::GetRunRequest& request, telemetry::RunStatus* response) = 0;
-    };
-
     GeneratorClient(std::unique_ptr<IGeneratorStub> stub, const GeneratorClientConfig& config = GeneratorClientConfig());
+    GeneratorClient(std::shared_ptr<IGeneratorStub> stub, const GeneratorClientConfig& config = GeneratorClientConfig());
 
     auto GenerateTelemetry(const GenerateRequest& request, GenerateResponse& response) -> grpc::Status;
     auto GetRun(const GetRunRequest& request, RunStatus& response) -> grpc::Status;
@@ -50,9 +53,9 @@ public:
     auto GetBreakerState() const -> BreakerState;
 
 private:
-    using GrpcCall = std::function<grpc::Status(grpc::ClientContext*)>;
+    using GrpcCall = std::function<grpc::Status(grpc::ClientContext&)>;
 
-    auto ExecuteWithResilience(const std::string& method_name, const GrpcCall& call) -> grpc::Status;
+    auto ExecuteWithResilience(std::string method_name, GrpcCall call) -> grpc::Status;
     auto ShouldRetry(const grpc::Status& status) -> bool;
     void RecordSuccess();
     void RecordFailure();
@@ -61,7 +64,7 @@ private:
     std::string target_;
     GeneratorClientConfig config_;
     std::shared_ptr<grpc::Channel> channel_;
-    std::unique_ptr<IGeneratorStub> stub_;
+    std::shared_ptr<IGeneratorStub> stub_;
 
     mutable std::mutex mutex_;
     BreakerState state_ = BreakerState::Closed;

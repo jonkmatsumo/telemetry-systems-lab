@@ -1,22 +1,27 @@
 #include "generator_client.h"
-#include <spdlog/spdlog.h>
-#include <thread>
 #include <random>
+#include <stdexcept>
+#include <thread>
+#include <spdlog/spdlog.h>
 #include "obs/metrics.h"
 
 namespace telemetry::api {
 
-class RealGeneratorStub : public GeneratorClient::IGeneratorStub {
+class GrpcGeneratorStubAdapter : public IGeneratorStub {
 public:
-    explicit RealGeneratorStub(std::unique_ptr<telemetry::TelemetryService::Stub> stub) : stub_(std::move(stub)) {}
+    explicit GrpcGeneratorStubAdapter(std::unique_ptr<telemetry::TelemetryService::StubInterface> stub)
+        : stub_(std::move(stub)) {}
+
     grpc::Status GenerateTelemetry(grpc::ClientContext* context, const telemetry::GenerateRequest& request, telemetry::GenerateResponse* response) override {
         return stub_->GenerateTelemetry(context, request, response);
     }
+
     grpc::Status GetRun(grpc::ClientContext* context, const telemetry::GetRunRequest& request, telemetry::RunStatus* response) override {
         return stub_->GetRun(context, request, response);
     }
+
 private:
-    std::unique_ptr<telemetry::TelemetryService::Stub> stub_;
+    std::unique_ptr<telemetry::TelemetryService::StubInterface> stub_;
 };
 
 GeneratorClient::GeneratorClient(std::string target, const GeneratorClientConfig& config)
@@ -28,21 +33,28 @@ GeneratorClient::GeneratorClient(std::string target, const GeneratorClientConfig
     args.SetInt(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS, 1);
     
     channel_ = grpc::CreateCustomChannel(target_, grpc::InsecureChannelCredentials(), args);
-    stub_ = std::make_unique<RealGeneratorStub>(telemetry::TelemetryService::NewStub(channel_));
+    stub_ = std::make_shared<GrpcGeneratorStubAdapter>(telemetry::TelemetryService::NewStub(channel_));
 }
 
-GeneratorClient::GeneratorClient(std::unique_ptr<GeneratorClient::IGeneratorStub> stub, const GeneratorClientConfig& config)
-    : target_("in-memory"), config_(config), stub_(std::move(stub)) {}
+GeneratorClient::GeneratorClient(std::unique_ptr<IGeneratorStub> stub, const GeneratorClientConfig& config)
+    : GeneratorClient(std::shared_ptr<IGeneratorStub>(std::move(stub)), config) {}
+
+GeneratorClient::GeneratorClient(std::shared_ptr<IGeneratorStub> stub, const GeneratorClientConfig& config)
+    : target_("in-memory"), config_(config), stub_(std::move(stub)) {
+    if (!stub_) {
+        throw std::invalid_argument("GeneratorClient stub must not be null");
+    }
+}
 
 auto GeneratorClient::GenerateTelemetry(const GenerateRequest& request, GenerateResponse& response) -> grpc::Status {
-    return ExecuteWithResilience("GenerateTelemetry", [&](grpc::ClientContext* context) {
-        return stub_->GenerateTelemetry(context, request, &response);
+    return ExecuteWithResilience("GenerateTelemetry", [this, &request, &response](grpc::ClientContext& context) {
+        return stub_->GenerateTelemetry(&context, request, &response);
     });
 }
 
 auto GeneratorClient::GetRun(const GetRunRequest& request, RunStatus& response) -> grpc::Status {
-    return ExecuteWithResilience("GetRun", [&](grpc::ClientContext* context) {
-        return stub_->GetRun(context, request, &response);
+    return ExecuteWithResilience("GetRun", [this, &request, &response](grpc::ClientContext& context) {
+        return stub_->GetRun(&context, request, &response);
     });
 }
 
@@ -51,7 +63,7 @@ auto GeneratorClient::GetBreakerState() const -> BreakerState {
     return state_;
 }
 
-auto GeneratorClient::ExecuteWithResilience(const std::string& method_name, const GrpcCall& call) -> grpc::Status {
+auto GeneratorClient::ExecuteWithResilience(std::string method_name, GrpcCall call) -> grpc::Status {
     if (!CanAttempt()) {
         telemetry::obs::EmitCounter("grpc_generator_rejected_breaker_total", 1, "count", "grpc", {{"method", method_name}});
         return {grpc::StatusCode::UNAVAILABLE, "Circuit breaker is open"};
@@ -65,7 +77,8 @@ auto GeneratorClient::ExecuteWithResilience(const std::string& method_name, cons
         grpc::ClientContext context;
         context.set_deadline(std::chrono::system_clock::now() + config_.call_timeout);
 
-        status = call(&context);
+        // RPC is invoked synchronously while the per-attempt context is in scope.
+        status = call(context);
 
         if (status.ok()) {
             RecordSuccess();
