@@ -42,7 +42,6 @@ public:
         virtual grpc::Status GetRun(grpc::ClientContext* context, const telemetry::GetRunRequest& request, telemetry::RunStatus* response) = 0;
     };
 
-    GeneratorClient(std::string target, const GeneratorClientConfig& config = GeneratorClientConfig());
     GeneratorClient(std::unique_ptr<IGeneratorStub> stub, const GeneratorClientConfig& config = GeneratorClientConfig());
 
     auto GenerateTelemetry(const GenerateRequest& request, GenerateResponse& response) -> grpc::Status;

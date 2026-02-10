@@ -18,7 +18,7 @@ protected:
     }
 };
 
-class FakeGeneratorStub : public IGeneratorStub {
+class FakeGeneratorStub : public GeneratorClient::IGeneratorStub {
 public:
     grpc::Status next_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "Unavailable");
     int call_count = 0;

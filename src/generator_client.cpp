@@ -6,7 +6,7 @@
 
 namespace telemetry::api {
 
-class RealGeneratorStub : public IGeneratorStub {
+class RealGeneratorStub : public GeneratorClient::IGeneratorStub {
 public:
     explicit RealGeneratorStub(std::unique_ptr<telemetry::TelemetryService::Stub> stub) : stub_(std::move(stub)) {}
     grpc::Status GenerateTelemetry(grpc::ClientContext* context, const telemetry::GenerateRequest& request, telemetry::GenerateResponse* response) override {
@@ -31,7 +31,7 @@ GeneratorClient::GeneratorClient(std::string target, const GeneratorClientConfig
     stub_ = std::make_unique<RealGeneratorStub>(telemetry::TelemetryService::NewStub(channel_));
 }
 
-GeneratorClient::GeneratorClient(std::unique_ptr<IGeneratorStub> stub, const GeneratorClientConfig& config)
+GeneratorClient::GeneratorClient(std::unique_ptr<GeneratorClient::IGeneratorStub> stub, const GeneratorClientConfig& config)
     : target_("in-memory"), config_(config), stub_(std::move(stub)) {}
 
 auto GeneratorClient::GenerateTelemetry(const GenerateRequest& request, GenerateResponse& response) -> grpc::Status {
