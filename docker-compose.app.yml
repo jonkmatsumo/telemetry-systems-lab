@@ -4,7 +4,7 @@ services:
       context: .
       target: dev
     container_name: telemetry_generator_dev
-    command: [ "sh", "-c", "cmake -B build -S . && make -C build -j$$(nproc) all && ./build/telemetry-generator" ]
+    command: [ "sh", "-c", "cmake -B build -S . && cmake --build build -j$$(nproc) --target telemetry-generator && ./build/telemetry-generator" ]
     env_file: .env
     environment:
       DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:${DB_PORT_INTERNAL}/telemetry"
