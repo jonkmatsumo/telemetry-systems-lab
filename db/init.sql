@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS generation_runs (
     config JSONB NOT NULL,
     error TEXT NULL,
     request_id TEXT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Table: host_telemetry_archival
@@ -63,6 +64,7 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_region_ts ON host_telemetry_archival(re
 CREATE INDEX IF NOT EXISTS idx_telemetry_run_ts ON host_telemetry_archival(run_id, metric_timestamp);
 CREATE INDEX IF NOT EXISTS idx_telemetry_run_type ON host_telemetry_archival(run_id, anomaly_type);
 CREATE INDEX IF NOT EXISTS idx_generation_runs_request_id ON generation_runs(request_id);
+CREATE INDEX IF NOT EXISTS idx_generation_runs_heartbeat ON generation_runs(heartbeat_at) WHERE status IN ('RUNNING', 'PENDING');
 -- BRIN index is good for naturally ordered time-series data
 CREATE INDEX IF NOT EXISTS idx_telemetry_brin_ts ON host_telemetry_archival USING BRIN(metric_timestamp);
 -- GIN index for JSONB labels querying
@@ -117,7 +119,8 @@ CREATE TABLE IF NOT EXISTS model_runs (
     selection_metric_computed_at TIMESTAMPTZ NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Table: inference_runs
@@ -135,6 +138,7 @@ CREATE TABLE IF NOT EXISTS inference_runs (
 CREATE INDEX IF NOT EXISTS idx_model_runs_dataset_id ON model_runs(dataset_id);
 CREATE INDEX IF NOT EXISTS idx_model_runs_request_id ON model_runs(request_id);
 CREATE INDEX IF NOT EXISTS idx_model_runs_parent_id ON model_runs(parent_run_id);
+CREATE INDEX IF NOT EXISTS idx_model_runs_heartbeat ON model_runs(heartbeat_at) WHERE status IN ('RUNNING', 'PENDING');
 CREATE INDEX IF NOT EXISTS idx_inference_model_id ON inference_runs(model_run_id);
 
 -- Table: dataset_score_jobs
@@ -151,7 +155,8 @@ CREATE TABLE IF NOT EXISTS dataset_score_jobs (
     request_id TEXT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    completed_at TIMESTAMPTZ NULL
+    completed_at TIMESTAMPTZ NULL,
+    heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS dataset_scores (
@@ -165,5 +170,6 @@ CREATE TABLE IF NOT EXISTS dataset_scores (
 );
 
 CREATE INDEX IF NOT EXISTS idx_score_jobs_request_id ON dataset_score_jobs(request_id);
+CREATE INDEX IF NOT EXISTS idx_score_jobs_heartbeat ON dataset_score_jobs(heartbeat_at) WHERE status IN ('RUNNING', 'PENDING');
 CREATE INDEX IF NOT EXISTS idx_scores_dataset_model ON dataset_scores(dataset_id, model_run_id);
 CREATE INDEX IF NOT EXISTS idx_scores_record_id ON dataset_scores(record_id);

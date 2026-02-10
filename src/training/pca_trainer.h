@@ -7,6 +7,7 @@
 #include "linalg/matrix.h"
 
 #include "db_connection_manager.h"
+#include "idb_client.h"
 
 namespace telemetry::training {
 
@@ -75,6 +76,13 @@ auto TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
                            std::function<void()> heartbeat = nullptr) -> PcaArtifact;
 
 auto TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
+                                  const std::string& dataset_id,
+                                  int n_components,
+                                  double percentile,
+                                  size_t batch_size,
+                                  std::function<void()> heartbeat = nullptr) -> PcaArtifact;
+
+auto TrainPcaFromDbBatched(std::shared_ptr<IDbClient> db_client,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,

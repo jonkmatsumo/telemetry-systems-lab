@@ -34,6 +34,10 @@ public:
         return manager_;
     }
 
+    auto BeginTransaction(const std::string& name = "unnamed") -> std::unique_ptr<telemetry::db::TransactionScope> override {
+        return std::make_unique<telemetry::db::TransactionScope>(manager_, name);
+    }
+
     // Runs the retention cleanup procedure.
     auto RunRetentionCleanup(int retention_days) -> void;
 

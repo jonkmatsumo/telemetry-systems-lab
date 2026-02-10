@@ -121,6 +121,8 @@ jobs:
           git config --global --add safe.directory $GITHUB_WORKSPACE/web_ui
           cd web_ui
           flutter pub get
+          # Wasm dry-run and tree-shaken icon messages are warnings, not CI-fatal errors.
+          # Keep defaults enabled so compatibility and size regressions remain visible.
           flutter build web --release
 
   clang-tidy:
@@ -162,4 +164,3 @@ jobs:
         run: cmake --build build -j$(nproc)
       - name: Run Unit Tests with Sanitizers
         run: ./build/unit_tests
-

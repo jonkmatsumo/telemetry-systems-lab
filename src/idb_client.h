@@ -6,12 +6,20 @@
 #include <optional>
 #include <nlohmann/json.hpp>
 #include "telemetry.grpc.pb.h"
+#include "db_transaction.h"
 
 class IDbClient {
 public:
     virtual ~IDbClient() = default;
 
     virtual auto GetConnectionManager() -> std::shared_ptr<DbConnectionManager> = 0;
+
+    /**
+     * @brief Begins a new database transaction.
+     * @param name A descriptive name for the transaction (used in telemetry).
+     * @return A unique_ptr to a TransactionScope.
+     */
+    virtual auto BeginTransaction(const std::string& name = "unnamed") -> std::unique_ptr<telemetry::db::TransactionScope> = 0;
 
     // Marks any 'RUNNING' or 'PENDING' jobs as 'FAILED' if they are stale.
     // If stale_ttl is provided, only jobs not updated within that time are reconciled.

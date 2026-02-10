@@ -15,41 +15,8 @@ if(TREAT_WARNINGS_AS_ERRORS OR DEFINED ENV{CI})
     message(STATUS "Treating warnings as errors (-Werror)")
 endif()
 
-# Sanitizers
-option(ENABLE_ASAN "Enable Address Sanitizer" OFF)
-option(ENABLE_UBSAN "Enable Undefined Behavior Sanitizer" OFF)
-option(ENABLE_TSAN "Enable Thread Sanitizer" OFF)
-option(ENABLE_CLANG_TIDY "Enable Clang-Tidy" OFF)
-
-if(ENABLE_CLANG_TIDY)
-    find_program(CLANG_TIDY_EXE NAMES "clang-tidy")
-    if(CLANG_TIDY_EXE)
-        set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
-        message(STATUS "Clang-Tidy enabled")
-    else()
-        message(WARNING "Clang-Tidy not found")
-    endif()
-endif()
-
-if(ENABLE_ASAN)
-    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
-    add_link_options(-fsanitize=address)
-    message(STATUS "Address Sanitizer enabled")
-endif()
-
-if(ENABLE_UBSAN)
-    add_compile_options(-fsanitize=undefined)
-    add_link_options(-fsanitize=undefined)
-    message(STATUS "Undefined Behavior Sanitizer enabled")
-endif()
-
-if(ENABLE_TSAN)
-    if(ENABLE_ASAN OR ENABLE_UBSAN)
-        message(FATAL_ERROR "Thread Sanitizer cannot be combined with ASAN/UBSAN")
-    endif()
-    add_compile_options(-fsanitize=thread)
-    add_link_options(-fsanitize=thread)
-    message(STATUS "Thread Sanitizer enabled")
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
 endif()
 
 find_package(PkgConfig REQUIRED)
@@ -68,7 +35,8 @@ find_package(nlohmann_json REQUIRED)
 set(PROTO_SRC proto/telemetry.proto)
 set(PROTO_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR})
 find_program(PROTOC_EXECUTABLE protoc REQUIRED)
-execute_process(COMMAND mkdir -p ${PROTO_GEN_DIR})
+find_program(GRPC_CPP_PLUGIN_EXECUTABLE grpc_cpp_plugin REQUIRED)
+file(MAKE_DIRECTORY ${PROTO_GEN_DIR})
 
 add_custom_command(
     OUTPUT ${PROTO_GEN_DIR}/telemetry.grpc.pb.cc ${PROTO_GEN_DIR}/telemetry.grpc.pb.h
@@ -76,10 +44,11 @@ add_custom_command(
     COMMAND ${PROTOC_EXECUTABLE}
         --grpc_out=${PROTO_GEN_DIR}
         --cpp_out=${PROTO_GEN_DIR}
-        --plugin=protoc-gen-grpc=`which grpc_cpp_plugin`
+        --plugin=protoc-gen-grpc=${GRPC_CPP_PLUGIN_EXECUTABLE}
         -I ${CMAKE_CURRENT_SOURCE_DIR}/proto
         ${CMAKE_CURRENT_SOURCE_DIR}/proto/telemetry.proto
     DEPENDS ${PROTO_SRC}
+    VERBATIM
 )
 
 add_library(telemetry_proto
@@ -89,7 +58,7 @@ add_library(telemetry_proto
     ${PROTO_GEN_DIR}/telemetry.pb.h
 )
 set_target_properties(telemetry_proto PROPERTIES CXX_CLANG_TIDY "")
-target_link_libraries(telemetry_proto PkgConfig::GRPC PkgConfig::PROTOBUF)
+target_link_libraries(telemetry_proto PRIVATE PkgConfig::GRPC PkgConfig::PROTOBUF)
 target_include_directories(telemetry_proto PUBLIC ${PROTO_GEN_DIR})
 target_compile_options(telemetry_proto PRIVATE -Wno-conversion -Wno-nullability-extension)
 
@@ -101,7 +70,8 @@ add_library(telemetry_trainer
     src/training/telemetry_iterator.cpp
 )
 target_include_directories(telemetry_trainer PUBLIC src)
-target_link_libraries(telemetry_trainer telemetry_linalg nlohmann_json::nlohmann_json fmt::fmt spdlog::spdlog PkgConfig::PQXX)
+target_link_libraries(telemetry_trainer PUBLIC telemetry_linalg telemetry_proto)
+target_link_libraries(telemetry_trainer PRIVATE nlohmann_json::nlohmann_json fmt::fmt spdlog::spdlog PkgConfig::PQXX)
 
 add_executable(telemetry-generator
     src/main.cpp
@@ -112,7 +82,7 @@ add_executable(telemetry-generator
     src/job_manager.cpp
 )
 target_include_directories(telemetry-generator PRIVATE src)
-target_link_libraries(telemetry-generator telemetry_proto PkgConfig::GRPC PkgConfig::PROTOBUF fmt::fmt spdlog::spdlog PkgConfig::PQXX PkgConfig::UUID)
+target_link_libraries(telemetry-generator PRIVATE telemetry_proto PkgConfig::GRPC PkgConfig::PROTOBUF fmt::fmt spdlog::spdlog PkgConfig::PQXX PkgConfig::UUID)
 
 add_executable(telemetry-scorer
     src/scorer_main.cpp
@@ -124,7 +94,7 @@ add_executable(telemetry-scorer
     src/alert_manager.cpp
 )
 target_include_directories(telemetry-scorer PRIVATE src)
-target_link_libraries(telemetry-scorer telemetry_proto telemetry_linalg telemetry_trainer PkgConfig::GRPC PkgConfig::PROTOBUF fmt::fmt spdlog::spdlog PkgConfig::PQXX PkgConfig::UUID nlohmann_json::nlohmann_json)
+target_link_libraries(telemetry-scorer PRIVATE telemetry_proto telemetry_linalg telemetry_trainer PkgConfig::GRPC PkgConfig::PROTOBUF fmt::fmt spdlog::spdlog PkgConfig::PQXX PkgConfig::UUID nlohmann_json::nlohmann_json)
 
 add_executable(telemetry-api
     src/api_main.cpp
@@ -133,6 +103,7 @@ add_executable(telemetry-api
     src/db_client.cpp
     src/db_connection_manager.cpp
     src/pca_model_cache.cpp
+    src/generator_client.cpp
     src/job_state_machine.cpp
     src/job_reconciler.cpp
     src/preprocessing.cpp
@@ -142,9 +113,9 @@ add_executable(telemetry-api
     src/job_manager.cpp
 )
 target_include_directories(telemetry-api PRIVATE src)
-target_link_libraries(telemetry-api telemetry_proto telemetry_linalg telemetry_trainer PkgConfig::GRPC PkgConfig::PROTOBUF fmt::fmt spdlog::spdlog PkgConfig::PQXX PkgConfig::UUID nlohmann_json::nlohmann_json Threads::Threads)
+target_link_libraries(telemetry-api PRIVATE telemetry_proto telemetry_linalg telemetry_trainer PkgConfig::GRPC PkgConfig::PROTOBUF fmt::fmt spdlog::spdlog PkgConfig::PQXX PkgConfig::UUID nlohmann_json::nlohmann_json Threads::Threads)
 if(HTTPLIB_FOUND)
-    target_link_libraries(telemetry-api PkgConfig::HTTPLIB)
+    target_link_libraries(telemetry-api PRIVATE PkgConfig::HTTPLIB)
 endif()
 
 add_executable(telemetry-benchmark
@@ -155,14 +126,17 @@ add_executable(telemetry-benchmark
     src/alert_manager.cpp
 )
 target_include_directories(telemetry-benchmark PRIVATE src)
-target_link_libraries(telemetry-benchmark telemetry_linalg fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json)
+target_link_libraries(telemetry-benchmark PRIVATE telemetry_linalg fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json)
 
-add_executable(telemetry-train-pca src/training/train_pca_main.cpp)
+add_executable(telemetry-train-pca src/training/train_pca_main.cpp src/db_client.cpp src/db_connection_manager.cpp)
 target_include_directories(telemetry-train-pca PRIVATE src)
-target_link_libraries(telemetry-train-pca telemetry_trainer)
+target_link_libraries(telemetry-train-pca PRIVATE telemetry_trainer telemetry_proto nlohmann_json::nlohmann_json fmt::fmt spdlog::spdlog PkgConfig::GRPC PkgConfig::PROTOBUF PkgConfig::PQXX PkgConfig::UUID)
+add_dependencies(telemetry-train-pca telemetry_proto)
 
 include(FetchContent)
-FetchContent_Declare(googletest URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip)
+FetchContent_Declare(googletest 
+    URL "https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip"
+)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
@@ -206,6 +180,10 @@ add_executable(unit_tests
     tests/unit/test_api_scoring.cpp
     tests/unit/test_time_parsing.cpp
     tests/unit/test_db_connection_pool.cpp
+    tests/unit/test_db_transaction.cpp
+    tests/unit/test_heartbeat_reconciliation.cpp
+    tests/unit/test_pca_memory_guardrails.cpp
+    tests/unit/test_generator_client.cpp
     tests/unit/test_pca_model_cache.cpp
     tests/unit/test_job_state_machine.cpp
     tests/unit/test_job_reconciler.cpp
@@ -218,6 +196,7 @@ add_executable(unit_tests
     src/db_client.cpp
     src/db_connection_manager.cpp
     src/pca_model_cache.cpp
+    src/generator_client.cpp
     src/job_state_machine.cpp
     src/job_reconciler.cpp
     src/route_registry.cpp
@@ -230,15 +209,29 @@ add_executable(unit_tests
 )
 target_include_directories(unit_tests PRIVATE src tests)
 target_compile_definitions(unit_tests PRIVATE TELEMETRY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-target_link_libraries(unit_tests GTest::GTest GTest::Main $<$<TARGET_EXISTS:GTest::gmock>:GTest::gmock> $<$<NOT:$<TARGET_EXISTS:GTest::gmock>>:gmock> telemetry_proto telemetry_linalg telemetry_trainer PkgConfig::GRPC PkgConfig::PROTOBUF fmt::fmt spdlog::spdlog PkgConfig::PQXX PkgConfig::UUID nlohmann_json::nlohmann_json)
+target_link_libraries(unit_tests PRIVATE 
+    GTest::GTest 
+    GTest::Main 
+    GTest::gmock
+    telemetry_proto 
+    telemetry_linalg 
+    telemetry_trainer 
+    PkgConfig::GRPC 
+    PkgConfig::PROTOBUF 
+    fmt::fmt 
+    spdlog::spdlog 
+    PkgConfig::PQXX 
+    PkgConfig::UUID 
+    nlohmann_json::nlohmann_json
+)
 if(HTTPLIB_FOUND)
-    target_link_libraries(unit_tests PkgConfig::HTTPLIB)
+    target_link_libraries(unit_tests PRIVATE PkgConfig::HTTPLIB)
 endif()
 add_test(NAME UnitTests COMMAND unit_tests)
 set_tests_properties(UnitTests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 add_executable(test_client tests/client.cpp)
-target_link_libraries(test_client telemetry_proto PkgConfig::GRPC PkgConfig::PROTOBUF)
+target_link_libraries(test_client PRIVATE telemetry_proto PkgConfig::GRPC PkgConfig::PROTOBUF)
 
 add_executable(db_integration_tests tests/integration/test_db_client.cpp src/db_client.cpp src/db_connection_manager.cpp)
 target_include_directories(db_integration_tests PRIVATE src)
