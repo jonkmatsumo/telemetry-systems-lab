@@ -18,7 +18,7 @@ protected:
     }
 };
 
-class FakeGeneratorStub : public GeneratorClient::IGeneratorStub {
+class FakeGeneratorStub : public IGeneratorStub {
 public:
     grpc::Status next_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "Unavailable");
     int call_count = 0;
@@ -34,11 +34,10 @@ public:
 };
 
 TEST_F(GeneratorClientTest, BreakerOpensOnFailures) {
-    auto stub = std::make_unique<FakeGeneratorStub>();
+    auto stub = std::make_shared<FakeGeneratorStub>();
     stub->next_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "Unavailable");
-    auto* stub_ptr = stub.get();
     
-    GeneratorClient client(std::move(stub), GetTestConfig());
+    GeneratorClient client(stub, GetTestConfig());
     
     GenerateRequest req;
     GenerateResponse res;
@@ -46,28 +45,30 @@ TEST_F(GeneratorClientTest, BreakerOpensOnFailures) {
     // Attempt 1: Should fail and record failure
     auto status = client.GenerateTelemetry(req, res);
     EXPECT_FALSE(status.ok());
+    EXPECT_EQ(stub->call_count, 2);
     EXPECT_EQ(client.GetBreakerState(), GeneratorClient::BreakerState::Closed);
     
     // Attempt 2: Should fail and open breaker
     status = client.GenerateTelemetry(req, res);
     EXPECT_FALSE(status.ok());
+    EXPECT_EQ(stub->call_count, 4);
     EXPECT_EQ(client.GetBreakerState(), GeneratorClient::BreakerState::Open);
     
     // Attempt 3: Should be rejected immediately by breaker
-    int count_before = stub_ptr->call_count;
+    int count_before = stub->call_count;
     status = client.GenerateTelemetry(req, res);
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(status.error_code(), grpc::StatusCode::UNAVAILABLE);
     EXPECT_EQ(status.error_message(), "Circuit breaker is open");
-    EXPECT_EQ(stub_ptr->call_count, count_before);
+    EXPECT_EQ(stub->call_count, count_before);
 }
 
 TEST_F(GeneratorClientTest, BreakerHalfOpenAfterTimeout) {
     auto cfg = GetTestConfig();
-    auto stub = std::make_unique<FakeGeneratorStub>();
+    auto stub = std::make_shared<FakeGeneratorStub>();
     stub->next_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "Unavailable");
     
-    GeneratorClient client(std::move(stub), cfg);
+    GeneratorClient client(stub, cfg);
     
     GenerateRequest req;
     GenerateResponse res;
