@@ -12,12 +12,12 @@ namespace telemetry::api {
 
 struct IGeneratorStub {
     virtual ~IGeneratorStub() = default;
-    virtual grpc::Status GenerateTelemetry(grpc::ClientContext& context,
-                                           const telemetry::GenerateRequest& request,
-                                           telemetry::GenerateResponse& response) = 0;
-    virtual grpc::Status GetRun(grpc::ClientContext& context,
-                                const telemetry::GetRunRequest& request,
-                                telemetry::RunStatus& response) = 0;
+    virtual auto GenerateTelemetry(grpc::ClientContext& context,
+                                    const telemetry::GenerateRequest& request,
+                                    telemetry::GenerateResponse& response) -> grpc::Status = 0;
+    virtual auto GetRun(grpc::ClientContext& context,
+                        const telemetry::GetRunRequest& request,
+                        telemetry::RunStatus& response) -> grpc::Status = 0;
 };
 
 struct GeneratorClientConfig {
@@ -55,7 +55,7 @@ public:
 private:
     using GrpcCall = std::function<grpc::Status(grpc::ClientContext&)>;
 
-    auto ExecuteWithResilience(std::string method_name, GrpcCall call) -> grpc::Status;
+    auto ExecuteWithResilience(const std::string& method_name, const GrpcCall& call) -> grpc::Status;
     auto ShouldRetry(const grpc::Status& status) -> bool;
     void RecordSuccess();
     void RecordFailure();

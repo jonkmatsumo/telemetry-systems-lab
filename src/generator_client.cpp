@@ -12,11 +12,11 @@ public:
     explicit GrpcGeneratorStubAdapter(std::unique_ptr<telemetry::TelemetryService::StubInterface> stub)
         : stub_(std::move(stub)) {}
 
-    grpc::Status GenerateTelemetry(grpc::ClientContext& context, const telemetry::GenerateRequest& request, telemetry::GenerateResponse& response) override {
+    auto GenerateTelemetry(grpc::ClientContext& context, const telemetry::GenerateRequest& request, telemetry::GenerateResponse& response) -> grpc::Status override {
         return stub_->GenerateTelemetry(&context, request, &response);
     }
 
-    grpc::Status GetRun(grpc::ClientContext& context, const telemetry::GetRunRequest& request, telemetry::RunStatus& response) override {
+    auto GetRun(grpc::ClientContext& context, const telemetry::GetRunRequest& request, telemetry::RunStatus& response) -> grpc::Status override {
         return stub_->GetRun(&context, request, &response);
     }
 
@@ -63,7 +63,7 @@ auto GeneratorClient::GetBreakerState() const -> BreakerState {
     return state_;
 }
 
-auto GeneratorClient::ExecuteWithResilience(std::string method_name, GrpcCall call) -> grpc::Status {
+auto GeneratorClient::ExecuteWithResilience(const std::string& method_name, const GrpcCall& call) -> grpc::Status {
     if (!CanAttempt()) {
         telemetry::obs::EmitCounter("grpc_generator_rejected_breaker_total", 1, "count", "grpc", {{"method", method_name}});
         return {grpc::StatusCode::UNAVAILABLE, "Circuit breaker is open"};
