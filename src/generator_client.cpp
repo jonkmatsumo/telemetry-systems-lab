@@ -6,6 +6,19 @@
 
 namespace telemetry::api {
 
+class RealGeneratorStub : public IGeneratorStub {
+public:
+    explicit RealGeneratorStub(std::unique_ptr<telemetry::TelemetryService::Stub> stub) : stub_(std::move(stub)) {}
+    grpc::Status GenerateTelemetry(grpc::ClientContext* context, const telemetry::GenerateRequest& request, telemetry::GenerateResponse* response) override {
+        return stub_->GenerateTelemetry(context, request, response);
+    }
+    grpc::Status GetRun(grpc::ClientContext* context, const telemetry::GetRunRequest& request, telemetry::RunStatus* response) override {
+        return stub_->GetRun(context, request, response);
+    }
+private:
+    std::unique_ptr<telemetry::TelemetryService::Stub> stub_;
+};
+
 GeneratorClient::GeneratorClient(std::string target, const GeneratorClientConfig& config)
     : target_(std::move(target)), config_(config) {
     
@@ -15,8 +28,11 @@ GeneratorClient::GeneratorClient(std::string target, const GeneratorClientConfig
     args.SetInt(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS, 1);
     
     channel_ = grpc::CreateCustomChannel(target_, grpc::InsecureChannelCredentials(), args);
-    stub_ = telemetry::TelemetryService::NewStub(channel_);
+    stub_ = std::make_unique<RealGeneratorStub>(telemetry::TelemetryService::NewStub(channel_));
 }
+
+GeneratorClient::GeneratorClient(std::unique_ptr<IGeneratorStub> stub, const GeneratorClientConfig& config)
+    : target_("in-memory"), config_(config), stub_(std::move(stub)) {}
 
 auto GeneratorClient::GenerateTelemetry(const GenerateRequest& request, GenerateResponse& response) -> grpc::Status {
     return ExecuteWithResilience("GenerateTelemetry", [&](grpc::ClientContext* context) {
