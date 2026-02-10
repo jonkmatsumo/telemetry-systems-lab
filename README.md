@@ -101,14 +101,19 @@ docker restart telemetry_generator_dev telemetry_api_dev
 
 - **Fresh DB**: `db/init.sql` is applied automatically by `docker-compose.infra.yml`.
 - **Existing DB**: You must apply incremental migrations.
+- `db/init.sql` is the canonical schema snapshot and must stay in sync with `db/migrations`.
+- Validate schema parity locally with:
+```bash
+PGHOST=localhost PGPORT=5434 PGUSER=postgres PGPASSWORD=password PGDATABASE=postgres \
+  ./scripts/check_schema_drift.sh
+```
 
 Example (docker):
 ```bash
 # Apply migrations in order
-docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260127_add_analytics.sql
-docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260128_add_score_job_progress.sql
-docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260129_add_request_id_to_jobs.sql
-docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260129_retention_policy.sql
+for f in $(ls db/migrations/*.sql | sort); do
+  docker exec -i telemetry_postgres psql -U postgres -d telemetry < "$f"
+done
 ```
 
 ## Usage

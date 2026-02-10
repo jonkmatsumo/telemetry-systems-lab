@@ -80,13 +80,21 @@ jobs:
             libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
             libpqxx-dev libfmt-dev libspdlog-dev uuid-dev libgtest-dev google-mock \
             libeigen3-dev nlohmann-json3-dev libcpp-httplib-dev \
-            pkg-config ccache
+            pkg-config ccache postgresql-client
+
+      - name: Check schema drift (init.sql vs migrations)
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: password
+          PGDATABASE: postgres
+        run: ./scripts/check_schema_drift.sh
 
       - name: Initialize Database Schema
         env:
           PGPASSWORD: password
         run: |
-          sudo apt-get install -y postgresql-client
           psql -h localhost -U postgres -d telemetry -f db/init.sql
 
       - name: Configure CMake
