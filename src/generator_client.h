@@ -15,7 +15,7 @@ struct GeneratorClientConfig {
     std::chrono::milliseconds initial_backoff{100};
     std::chrono::milliseconds max_backoff{2000};
     int failure_threshold = 5;
-    std::chrono::seconds breaker_timeout{30};
+    std::chrono::milliseconds breaker_timeout{30000};
     std::chrono::seconds call_timeout{10};
 };
 
