@@ -70,6 +70,49 @@ This produces:
 - `unit_tests`: Test suite.
 - `telemetry-api`: HTTP API server.
 
+### Local Verification (clang-tidy + Sanitizers)
+
+Before pushing, run clang-tidy and sanitizer checks locally to catch issues early.
+
+#### clang-tidy
+
+```bash
+# Configure with compile_commands.json
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake --build build -j
+
+# Run clang-tidy on specific files (fast path)
+clang-tidy -p build src/generator_client.cpp src/generator_client.h
+
+# Or enable clang-tidy during the build (checks all compiled sources)
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DENABLE_CLANG_TIDY=ON
+cmake --build build -j
+```
+
+#### AddressSanitizer + UndefinedBehaviorSanitizer
+
+```bash
+# Configure a sanitizer build
+cmake -S . -B build-asan \
+  -DENABLE_ASAN=ON \
+  -DENABLE_UBSAN=ON \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+cmake --build build-asan -j
+
+# Run tests under sanitizers
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+UBSAN_OPTIONS=halt_on_error=1 \
+./build-asan/unit_tests
+
+# Or via CTest
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+UBSAN_OPTIONS=halt_on_error=1 \
+ctest --test-dir build-asan --output-on-failure
+```
+
+> **Note (macOS):** leak detection (`detect_leaks=1`) requires the Clang runtime; set `ASAN_OPTIONS=detect_leaks=0` if using Apple Clang without leak-sanitizer support.
+
 ## Docker (Infra + Dev Container)
 
 ```bash
