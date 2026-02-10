@@ -35,7 +35,7 @@ auto GeneratorClient::GetBreakerState() const -> BreakerState {
     return state_;
 }
 
-auto GeneratorClient::ExecuteWithResilience(const std::string& method_name, GrpcCall call) -> grpc::Status {
+auto GeneratorClient::ExecuteWithResilience(const std::string& method_name, const GrpcCall& call) -> grpc::Status {
     if (!CanAttempt()) {
         telemetry::obs::EmitCounter("grpc_generator_rejected_breaker_total", 1, "count", "grpc", {{"method", method_name}});
         return {grpc::StatusCode::UNAVAILABLE, "Circuit breaker is open"};

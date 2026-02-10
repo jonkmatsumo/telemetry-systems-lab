@@ -6,7 +6,7 @@ namespace telemetry::api {
 
 class GeneratorClientTest : public ::testing::Test {
 protected:
-    GeneratorClientConfig GetTestConfig() {
+    auto GetTestConfig() -> GeneratorClientConfig {
         GeneratorClientConfig cfg;
         cfg.max_retries = 1;
         cfg.initial_backoff = std::chrono::milliseconds(1);
