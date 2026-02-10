@@ -61,6 +61,7 @@ TEST_F(ApiServerPerformanceTest, ListModelsUsesBulkFetch) {
     my_mock->list_models_result = models_list;
     
     // Init server with my_mock
+    EXPECT_CALL(*my_mock, ReconcileStaleJobs(testing::_)).Times(1);
     server = std::make_unique<ApiServer>("localhost:50051", my_mock);
     server_thread = std::thread([this]() {
         server->Start(host, port);

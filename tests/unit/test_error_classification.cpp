@@ -21,6 +21,7 @@ protected:
     void SetUp() override {
         port = AllocateTestPort();
         mock_db = std::make_shared<MockDbClient>();
+        EXPECT_CALL(*mock_db, ReconcileStaleJobs(testing::_)).Times(1);
         server = std::make_unique<ApiServer>("localhost:50051", mock_db);
         
         server_thread = std::thread([this]() {

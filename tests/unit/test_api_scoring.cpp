@@ -28,6 +28,9 @@ protected:
         mock_db = std::make_shared<MockDbClient>();
         mock_db->mock_artifact_path =
             std::string(TELEMETRY_SOURCE_DIR) + "/tests/parity/golden/test_pca_model.json";
+        
+        EXPECT_CALL(*mock_db, ReconcileStaleJobs(testing::_)).Times(1);
+
         // Using a dummy grpc target
         server = std::make_unique<ApiServer>("localhost:50051", mock_db);
     }
