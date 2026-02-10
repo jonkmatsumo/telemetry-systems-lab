@@ -1,6 +1,11 @@
 .git
 .gitignore
 build/
+build_san/
+build_tidy/
+build_*/
+build-*/
+cmake-build-*/
 postgres_data/
 **/.DS_Store
 README.md

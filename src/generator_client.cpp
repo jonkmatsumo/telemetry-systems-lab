@@ -12,12 +12,12 @@ public:
     explicit GrpcGeneratorStubAdapter(std::unique_ptr<telemetry::TelemetryService::StubInterface> stub)
         : stub_(std::move(stub)) {}
 
-    grpc::Status GenerateTelemetry(grpc::ClientContext* context, const telemetry::GenerateRequest& request, telemetry::GenerateResponse* response) override {
-        return stub_->GenerateTelemetry(context, request, response);
+    grpc::Status GenerateTelemetry(grpc::ClientContext& context, const telemetry::GenerateRequest& request, telemetry::GenerateResponse& response) override {
+        return stub_->GenerateTelemetry(&context, request, &response);
     }
 
-    grpc::Status GetRun(grpc::ClientContext* context, const telemetry::GetRunRequest& request, telemetry::RunStatus* response) override {
-        return stub_->GetRun(context, request, response);
+    grpc::Status GetRun(grpc::ClientContext& context, const telemetry::GetRunRequest& request, telemetry::RunStatus& response) override {
+        return stub_->GetRun(&context, request, &response);
     }
 
 private:
@@ -48,13 +48,13 @@ GeneratorClient::GeneratorClient(std::shared_ptr<IGeneratorStub> stub, const Gen
 
 auto GeneratorClient::GenerateTelemetry(const GenerateRequest& request, GenerateResponse& response) -> grpc::Status {
     return ExecuteWithResilience("GenerateTelemetry", [this, &request, &response](grpc::ClientContext& context) {
-        return stub_->GenerateTelemetry(&context, request, &response);
+        return stub_->GenerateTelemetry(context, request, response);
     });
 }
 
 auto GeneratorClient::GetRun(const GetRunRequest& request, RunStatus& response) -> grpc::Status {
     return ExecuteWithResilience("GetRun", [this, &request, &response](grpc::ClientContext& context) {
-        return stub_->GetRun(&context, request, &response);
+        return stub_->GetRun(context, request, response);
     });
 }
 

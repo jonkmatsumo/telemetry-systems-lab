@@ -239,7 +239,7 @@ auto TrainPcaFromDbBatched(const std::shared_ptr<IDbClient>& db_client,
                                   double percentile,
                                   size_t batch_size,
                                   std::function<void()> heartbeat,
-                                  TelemetryBatchSourceFactory batch_source_factory) -> PcaArtifact {
+                                  const TelemetryBatchSourceFactory& batch_source_factory) -> PcaArtifact {
     auto start = std::chrono::steady_clock::now();
     
     // Memory Guardrail: Pre-flight check

@@ -102,7 +102,7 @@ auto TrainPcaFromDbBatched(const std::shared_ptr<IDbClient>& db_client,
                                   double percentile,
                                   size_t batch_size,
                                   std::function<void()> heartbeat = nullptr,
-                                  TelemetryBatchSourceFactory batch_source_factory = nullptr) -> PcaArtifact;
+                                  const TelemetryBatchSourceFactory& batch_source_factory = TelemetryBatchSourceFactory{}) -> PcaArtifact;
 
 auto TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
                                 int n_components,

@@ -1,11 +1,21 @@
 #include <gtest/gtest.h>
 #include "generator_client.h"
+#include <spdlog/spdlog.h>
 #include <thread>
 
 namespace telemetry::api {
 
 class GeneratorClientTest : public ::testing::Test {
 protected:
+    void SetUp() override {
+        old_level_ = spdlog::get_level();
+        spdlog::set_level(spdlog::level::critical);
+    }
+
+    void TearDown() override {
+        spdlog::set_level(old_level_);
+    }
+
     auto GetTestConfig() -> GeneratorClientConfig {
         GeneratorClientConfig cfg;
         cfg.max_retries = 1;
@@ -16,6 +26,9 @@ protected:
         cfg.call_timeout = std::chrono::seconds(1);
         return cfg;
     }
+
+private:
+    spdlog::level::level_enum old_level_ = spdlog::level::info;
 };
 
 class FakeGeneratorStub : public IGeneratorStub {
@@ -23,11 +36,11 @@ public:
     grpc::Status next_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "Unavailable");
     int call_count = 0;
 
-    grpc::Status GenerateTelemetry(grpc::ClientContext*, const telemetry::GenerateRequest&, telemetry::GenerateResponse*) override {
+    grpc::Status GenerateTelemetry(grpc::ClientContext&, const telemetry::GenerateRequest&, telemetry::GenerateResponse&) override {
         call_count++;
         return next_status;
     }
-    grpc::Status GetRun(grpc::ClientContext*, const telemetry::GetRunRequest&, telemetry::RunStatus*) override {
+    grpc::Status GetRun(grpc::ClientContext&, const telemetry::GetRunRequest&, telemetry::RunStatus&) override {
         call_count++;
         return next_status;
     }

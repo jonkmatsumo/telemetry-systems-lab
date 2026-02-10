@@ -12,12 +12,12 @@ namespace telemetry::api {
 
 struct IGeneratorStub {
     virtual ~IGeneratorStub() = default;
-    virtual grpc::Status GenerateTelemetry(grpc::ClientContext* context,
+    virtual grpc::Status GenerateTelemetry(grpc::ClientContext& context,
                                            const telemetry::GenerateRequest& request,
-                                           telemetry::GenerateResponse* response) = 0;
-    virtual grpc::Status GetRun(grpc::ClientContext* context,
+                                           telemetry::GenerateResponse& response) = 0;
+    virtual grpc::Status GetRun(grpc::ClientContext& context,
                                 const telemetry::GetRunRequest& request,
-                                telemetry::RunStatus* response) = 0;
+                                telemetry::RunStatus& response) = 0;
 };
 
 struct GeneratorClientConfig {
