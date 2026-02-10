@@ -52,6 +52,29 @@ struct RunningStats {
     }
 };
 
+class DbTelemetryBatchSource final : public ITelemetryBatchSource {
+public:
+    DbTelemetryBatchSource(std::shared_ptr<DbConnectionManager> manager,
+                           std::string dataset_id,
+                           size_t batch_size)
+        : iter_(std::move(manager), std::move(dataset_id), batch_size) {}
+
+    auto NextBatch(std::vector<linalg::Vector>& out_batch) -> bool override {
+        return iter_.NextBatch(out_batch);
+    }
+
+    auto Reset() -> void override {
+        iter_.Reset();
+    }
+
+    [[nodiscard]] auto TotalRowsProcessed() const -> size_t override {
+        return iter_.TotalRowsProcessed();
+    }
+
+private:
+    TelemetryBatchIterator iter_;
+};
+
 
 static auto vec_sub(const linalg::Vector& a, const linalg::Vector& b) -> linalg::Vector {
     if (a.size() != b.size()) { throw std::runtime_error("vec_sub dimension mismatch"); }
@@ -215,7 +238,8 @@ auto TrainPcaFromDbBatched(const std::shared_ptr<IDbClient>& db_client,
                                   int n_components,
                                   double percentile,
                                   size_t batch_size,
-                                  std::function<void()> heartbeat) -> PcaArtifact {
+                                  std::function<void()> heartbeat,
+                                  TelemetryBatchSourceFactory batch_source_factory) -> PcaArtifact {
     auto start = std::chrono::steady_clock::now();
     
     // Memory Guardrail: Pre-flight check
@@ -238,16 +262,24 @@ auto TrainPcaFromDbBatched(const std::shared_ptr<IDbClient>& db_client,
                                  static_cast<double>(max_memory_bytes) / (1024.0 * 1024.0)));
     }
 
-    TelemetryBatchIterator iter(db_client->GetConnectionManager(), dataset_id, batch_size);
+    std::unique_ptr<ITelemetryBatchSource> batch_source;
+    if (batch_source_factory) {
+        batch_source = batch_source_factory(dataset_id, batch_size);
+    } else {
+        batch_source = std::make_unique<DbTelemetryBatchSource>(db_client->GetConnectionManager(), dataset_id, batch_size);
+    }
+    if (!batch_source) {
+        throw std::runtime_error("Batch source factory returned null");
+    }
 
     auto for_each = [&](const std::function<void(const linalg::Vector&)>& cb) {
-        iter.Reset();
+        batch_source->Reset();
         std::vector<linalg::Vector> batch;
         size_t batch_count = 0;
-        while (iter.NextBatch(batch)) {
+        while (batch_source->NextBatch(batch)) {
             batch_count++;
             if (batch_count % 10 == 0) {
-                spdlog::debug("Processed {} batches ({} rows)", batch_count, iter.TotalRowsProcessed());
+                spdlog::debug("Processed {} batches ({} rows)", batch_count, batch_source->TotalRowsProcessed());
                 if (heartbeat) { heartbeat(); }
             }
             for (const auto& v : batch) {
@@ -262,7 +294,7 @@ auto TrainPcaFromDbBatched(const std::shared_ptr<IDbClient>& db_client,
         double duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
         
         spdlog::info("PCA training completed: dataset_id={}, rows_processed={}, duration_ms={:.2f}",
-                     dataset_id, iter.TotalRowsProcessed(), duration_ms);
+                     dataset_id, batch_source->TotalRowsProcessed(), duration_ms);
         return artifact;
     } catch (const std::bad_alloc& e) {
         telemetry::obs::EmitCounter("pca_training_rejected_oom_total", 1, "count", "trainer", {{"reason", "bad_alloc"}});
@@ -277,7 +309,13 @@ auto TrainPcaFromDbBatched(const std::shared_ptr<DbConnectionManager>& manager,
                                   double percentile,
                                   size_t batch_size,
                                   std::function<void()> heartbeat) -> PcaArtifact {
-    return TrainPcaFromDbBatched(std::make_shared<DbClient>(manager), dataset_id, n_components, percentile, batch_size, std::move(heartbeat));
+    return TrainPcaFromDbBatched(std::make_shared<DbClient>(manager),
+                                 dataset_id,
+                                 n_components,
+                                 percentile,
+                                 batch_size,
+                                 std::move(heartbeat),
+                                 nullptr);
 }
 // NOLINTEND(bugprone-easily-swappable-parameters)
 
