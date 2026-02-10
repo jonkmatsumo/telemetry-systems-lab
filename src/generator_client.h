@@ -53,7 +53,7 @@ public:
     auto GetBreakerState() const -> BreakerState;
 
 private:
-    using GrpcCall = std::function<grpc::Status(grpc::ClientContext&)>;
+    using GrpcCall = std::function<grpc::Status(grpc::ClientContext*)>;
 
     auto ExecuteWithResilience(const std::string& method_name, const GrpcCall& call) -> grpc::Status;
     auto ShouldRetry(const grpc::Status& status) -> bool;

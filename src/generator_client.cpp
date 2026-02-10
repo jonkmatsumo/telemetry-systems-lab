@@ -47,14 +47,14 @@ GeneratorClient::GeneratorClient(std::shared_ptr<IGeneratorStub> stub, const Gen
 }
 
 auto GeneratorClient::GenerateTelemetry(const GenerateRequest& request, GenerateResponse& response) -> grpc::Status {
-    return ExecuteWithResilience("GenerateTelemetry", [this, &request, &response](grpc::ClientContext& context) {
-        return stub_->GenerateTelemetry(context, request, response);
+    return ExecuteWithResilience("GenerateTelemetry", [this, &request, &response](grpc::ClientContext* ctx) {
+        return stub_->GenerateTelemetry(*ctx, request, response);
     });
 }
 
 auto GeneratorClient::GetRun(const GetRunRequest& request, RunStatus& response) -> grpc::Status {
-    return ExecuteWithResilience("GetRun", [this, &request, &response](grpc::ClientContext& context) {
-        return stub_->GetRun(context, request, response);
+    return ExecuteWithResilience("GetRun", [this, &request, &response](grpc::ClientContext* ctx) {
+        return stub_->GetRun(*ctx, request, response);
     });
 }
 
@@ -77,8 +77,8 @@ auto GeneratorClient::ExecuteWithResilience(const std::string& method_name, cons
         grpc::ClientContext context;
         context.set_deadline(std::chrono::system_clock::now() + config_.call_timeout);
 
-        // RPC is invoked synchronously while the per-attempt context is in scope.
-        status = call(context);
+        // RPC is invoked synchronously; context must not escape this scope.
+        status = call(&context);
 
         if (status.ok()) {
             RecordSuccess();
