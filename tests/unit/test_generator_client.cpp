@@ -36,11 +36,16 @@ public:
     grpc::Status next_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "Unavailable");
     int call_count = 0;
 
-    auto GenerateTelemetry(grpc::ClientContext&, const telemetry::GenerateRequest&, telemetry::GenerateResponse&) -> grpc::Status override {
+    auto GenerateTelemetry(grpc::ClientContext* ctx, const telemetry::GenerateRequest&, telemetry::GenerateResponse&) -> grpc::Status override {
+        if (ctx == nullptr) return grpc::Status(grpc::StatusCode::INTERNAL, "Context is null");
+        // Access context to ensure it's valid
+        bool cancelled = ctx->IsCancelled(); 
+        (void)cancelled;
         call_count++;
         return next_status;
     }
-    auto GetRun(grpc::ClientContext&, const telemetry::GetRunRequest&, telemetry::RunStatus&) -> grpc::Status override {
+    auto GetRun(grpc::ClientContext* ctx, const telemetry::GetRunRequest&, telemetry::RunStatus&) -> grpc::Status override {
+         if (ctx == nullptr) return grpc::Status(grpc::StatusCode::INTERNAL, "Context is null");
         call_count++;
         return next_status;
     }
@@ -100,6 +105,29 @@ TEST_F(GeneratorClientTest, BreakerHalfOpenAfterTimeout) {
     // Should NOT be "Circuit breaker is open", but the actual error from stub
     EXPECT_NE(status.error_message(), "Circuit breaker is open");
     EXPECT_EQ(status.error_message(), "Unavailable");
+}
+
+TEST_F(GeneratorClientTest, BreakerRetriesAreSafeUnderASan) {
+    // Regression test for context corruption/lifetime issues
+    auto stub = std::make_shared<FakeGeneratorStub>();
+    stub->next_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "Retry me");
+    
+    // Config that allows retries
+    GeneratorClientConfig cfg = GetTestConfig();
+    cfg.max_retries = 5;
+    cfg.failure_threshold = 10; // Don't open breaker immediately
+    cfg.initial_backoff = std::chrono::milliseconds(0); // Fast
+    
+    GeneratorClient client(stub, cfg);
+    
+    GenerateRequest req;
+    GenerateResponse res;
+    
+    // This should retry 5 times, creating and destroying 6 contexts in total
+    auto status = client.GenerateTelemetry(req, res);
+    
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(stub->call_count, 6); // 1 initial + 5 retries
 }
 
 } // namespace telemetry::api
