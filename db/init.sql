@@ -1,4 +1,6 @@
 -- Create tables for Telemetry Generator MVP
+-- Canonical schema snapshot for fresh databases.
+-- Keep this file in sync with db/migrations; verify with scripts/check_schema_drift.sh.
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 

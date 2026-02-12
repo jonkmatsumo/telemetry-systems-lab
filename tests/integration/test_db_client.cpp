@@ -3,6 +3,8 @@
 #include <vector>
 #include <string>
 #include <chrono>
+#include <exception>
+#include <thread>
 #include <nlohmann/json.hpp>
 
 // Integration test - requires running Postgres instance
@@ -99,9 +101,13 @@ TEST_F(DbClientTest, EmptyBatch) {
 TEST(DbClientFailureTest, InvalidConnection) {
     DbClient client("postgresql://baduser:badpass@localhost:5432/bad_db");
     telemetry::GenerateRequest req;
-    // Should catch exception internally and log error (no throw from API surface)
-    // CreateRun logs error but doesn't throw.
-    ASSERT_NO_THROW(client.CreateRun("id", req, "PENDING"));
+    EXPECT_ANY_THROW(client.CreateRun("id", req, "PENDING"));
+    EXPECT_ANY_THROW(client.UpdateRunStatus("id", "RUNNING", 1));
+    EXPECT_ANY_THROW(client.Heartbeat(IDbClient::JobType::Generation, "id"));
+    EXPECT_ANY_THROW(client.UpdateModelRunStatus("id", "FAILED", "", "write failed"));
+    EXPECT_ANY_THROW(client.UpdateInferenceRunStatus("id", "FAILED", 0, nlohmann::json::array(), 0.0));
+    EXPECT_ANY_THROW(client.UpdateScoreJob("id", "FAILED", 0, 0, 0, "write failed"));
+    EXPECT_ANY_THROW(client.ReconcileStaleJobs());
 }
 
 TEST_F(DbClientTest, ListFiltersAndPagination) {
@@ -258,6 +264,62 @@ TEST_F(DbClientTest, ReconcileStaleJobs) {
     auto job = client.GetScoreJob(job_id);
     EXPECT_EQ(job["status"], "FAILED");
     EXPECT_EQ(job["error"], "System restart/recovery");
+}
+
+TEST_F(DbClientTest, ReconcileStaleJobsDoesNotFailCompletedGenerationRun) {
+    DbClient client(conn_str);
+    std::string run_id = GenerateUUID();
+
+    telemetry::GenerateRequest req;
+    req.set_tier("INTEGRATION");
+    req.set_start_time_iso("2025-01-06T00:00:00Z");
+    req.set_end_time_iso("2025-01-06T01:00:00Z");
+    req.set_interval_seconds(60);
+    req.set_seed(202);
+    req.set_host_count(1);
+    client.CreateRun(run_id, req, "RUNNING");
+
+    {
+        auto scope = client.BeginTransaction("TestSetStaleGenerationHeartbeat");
+        scope->txn().exec_params(
+            "UPDATE generation_runs SET heartbeat_at = NOW() - INTERVAL '5 minutes' WHERE run_id = $1",
+            run_id);
+        scope->commit();
+    }
+
+    std::exception_ptr completion_error;
+    std::exception_ptr reconciliation_error;
+
+    std::thread completion_thread([&]() {
+        try {
+            client.UpdateRunStatus(run_id, "SUCCEEDED", 42);
+        } catch (...) {
+            completion_error = std::current_exception();
+        }
+    });
+
+    std::thread reconciliation_thread([&]() {
+        try {
+            // Start slightly later to emulate overlap while completion is in-flight.
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            client.ReconcileStaleJobs(std::chrono::seconds(1));
+        } catch (...) {
+            reconciliation_error = std::current_exception();
+        }
+    });
+
+    completion_thread.join();
+    reconciliation_thread.join();
+
+    if (completion_error) {
+        std::rethrow_exception(completion_error);
+    }
+    if (reconciliation_error) {
+        std::rethrow_exception(reconciliation_error);
+    }
+
+    auto detail = client.GetDatasetDetail(run_id);
+    EXPECT_EQ(detail["status"], "SUCCEEDED");
 }
 
 TEST_F(DbClientTest, PersistsRequestId) {

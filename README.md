@@ -70,6 +70,48 @@ This produces:
 - `unit_tests`: Test suite.
 - `telemetry-api`: HTTP API server.
 
+### Local Verification (clang-tidy + Sanitizers)
+
+Before pushing, run clang-tidy and sanitizer checks locally to catch issues early.
+
+#### clang-tidy
+
+```bash
+# Configure with compile_commands.json
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake --build build -j
+
+# Run clang-tidy on specific files (fast path)
+clang-tidy -p build src/generator_client.cpp src/generator_client.h
+
+# Or enable clang-tidy during the build (checks all compiled sources)
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DENABLE_CLANG_TIDY=ON
+cmake --build build -j
+```
+
+#### AddressSanitizer + UndefinedBehaviorSanitizer
+
+```bash
+# Configure a sanitizer build
+cmake -S . -B build-asan \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+  -DCMAKE_LINKER_FLAGS="-fsanitize=address,undefined" \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+cmake --build build-asan -j
+
+# Run tests under sanitizers
+ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
+UBSAN_OPTIONS=halt_on_error=1 \
+./build-asan/unit_tests
+
+# Run clang-tidy on the relevant client files
+clang-tidy -p build-asan tests/unit/test_generator_client.cpp src/generator_client.cpp src/generator_client.h
+```
+
+> **Note (macOS):** leak detection (`detect_leaks=1`) requires the Clang runtime; set `ASAN_OPTIONS=detect_leaks=0` if using Apple Clang without leak-sanitizer support.
+
 ## Docker (Infra + Dev Container)
 
 ```bash
@@ -101,14 +143,19 @@ docker restart telemetry_generator_dev telemetry_api_dev
 
 - **Fresh DB**: `db/init.sql` is applied automatically by `docker-compose.infra.yml`.
 - **Existing DB**: You must apply incremental migrations.
+- `db/init.sql` is the canonical schema snapshot and must stay in sync with `db/migrations`.
+- Validate schema parity locally with:
+```bash
+PGHOST=localhost PGPORT=5434 PGUSER=postgres PGPASSWORD=password PGDATABASE=postgres \
+  ./scripts/check_schema_drift.sh
+```
 
 Example (docker):
 ```bash
 # Apply migrations in order
-docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260127_add_analytics.sql
-docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260128_add_score_job_progress.sql
-docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260129_add_request_id_to_jobs.sql
-docker exec -i telemetry_postgres psql -U postgres -d telemetry < db/migrations/20260129_retention_policy.sql
+for f in $(ls db/migrations/*.sql | sort); do
+  docker exec -i telemetry_postgres psql -U postgres -d telemetry < "$f"
+done
 ```
 
 ## Usage

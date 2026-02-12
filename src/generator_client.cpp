@@ -1,10 +1,28 @@
 #include "generator_client.h"
-#include <spdlog/spdlog.h>
-#include <thread>
 #include <random>
+#include <stdexcept>
+#include <thread>
+#include <spdlog/spdlog.h>
 #include "obs/metrics.h"
 
 namespace telemetry::api {
+
+class GrpcGeneratorStubAdapter : public IGeneratorStub {
+public:
+    explicit GrpcGeneratorStubAdapter(std::unique_ptr<telemetry::TelemetryService::StubInterface> stub)
+        : stub_(std::move(stub)) {}
+
+    auto GenerateTelemetry(grpc::ClientContext* context, const telemetry::GenerateRequest& request, telemetry::GenerateResponse* response) -> grpc::Status override {
+        return stub_->GenerateTelemetry(context, request, response);
+    }
+
+    auto GetRun(grpc::ClientContext* context, const telemetry::GetRunRequest& request, telemetry::RunStatus* response) -> grpc::Status override {
+        return stub_->GetRun(context, request, response);
+    }
+
+private:
+    std::unique_ptr<telemetry::TelemetryService::StubInterface> stub_;
+};
 
 GeneratorClient::GeneratorClient(std::string target, const GeneratorClientConfig& config)
     : target_(std::move(target)), config_(config) {
@@ -15,18 +33,28 @@ GeneratorClient::GeneratorClient(std::string target, const GeneratorClientConfig
     args.SetInt(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS, 1);
     
     channel_ = grpc::CreateCustomChannel(target_, grpc::InsecureChannelCredentials(), args);
-    stub_ = telemetry::TelemetryService::NewStub(channel_);
+    stub_ = std::make_shared<GrpcGeneratorStubAdapter>(telemetry::TelemetryService::NewStub(channel_));
+}
+
+GeneratorClient::GeneratorClient(std::unique_ptr<IGeneratorStub> stub, const GeneratorClientConfig& config)
+    : GeneratorClient(std::shared_ptr<IGeneratorStub>(std::move(stub)), config) {}
+
+GeneratorClient::GeneratorClient(std::shared_ptr<IGeneratorStub> stub, const GeneratorClientConfig& config)
+    : target_("in-memory"), config_(config), stub_(std::move(stub)) {
+    if (!stub_) {
+        throw std::invalid_argument("GeneratorClient stub must not be null");
+    }
 }
 
 auto GeneratorClient::GenerateTelemetry(const GenerateRequest& request, GenerateResponse& response) -> grpc::Status {
-    return ExecuteWithResilience("GenerateTelemetry", [&](grpc::ClientContext* context) {
-        return stub_->GenerateTelemetry(context, request, &response);
+    return ExecuteWithResilience("GenerateTelemetry", [this, &request, &response](grpc::ClientContext* ctx) {
+        return stub_->GenerateTelemetry(ctx, request, &response);
     });
 }
 
 auto GeneratorClient::GetRun(const GetRunRequest& request, RunStatus& response) -> grpc::Status {
-    return ExecuteWithResilience("GetRun", [&](grpc::ClientContext* context) {
-        return stub_->GetRun(context, request, &response);
+    return ExecuteWithResilience("GetRun", [this, &request, &response](grpc::ClientContext* ctx) {
+        return stub_->GetRun(ctx, request, &response);
     });
 }
 
@@ -35,7 +63,7 @@ auto GeneratorClient::GetBreakerState() const -> BreakerState {
     return state_;
 }
 
-auto GeneratorClient::ExecuteWithResilience(const std::string& method_name, GrpcCall call) -> grpc::Status {
+auto GeneratorClient::ExecuteWithResilience(const std::string& method_name, const GrpcCall& call) -> grpc::Status {
     if (!CanAttempt()) {
         telemetry::obs::EmitCounter("grpc_generator_rejected_breaker_total", 1, "count", "grpc", {{"method", method_name}});
         return {grpc::StatusCode::UNAVAILABLE, "Circuit breaker is open"};
@@ -49,6 +77,7 @@ auto GeneratorClient::ExecuteWithResilience(const std::string& method_name, Grpc
         grpc::ClientContext context;
         context.set_deadline(std::chrono::system_clock::now() + config_.call_timeout);
 
+        // RPC is invoked synchronously; context must not escape this scope.
         status = call(&context);
 
         if (status.ok()) {

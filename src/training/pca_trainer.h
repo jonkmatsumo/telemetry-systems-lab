@@ -1,8 +1,10 @@
 #pragma once
 
+#include <functional>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
-#include <optional>
 
 #include "linalg/matrix.h"
 
@@ -10,6 +12,18 @@
 #include "idb_client.h"
 
 namespace telemetry::training {
+
+class ITelemetryBatchSource {
+public:
+    virtual ~ITelemetryBatchSource() = default;
+    virtual auto NextBatch(std::vector<linalg::Vector>& out_batch) -> bool = 0;
+    virtual auto Reset() -> void = 0;
+    [[nodiscard]] virtual auto TotalRowsProcessed() const -> size_t = 0;
+};
+
+using TelemetryBatchSourceFactory = std::function<std::unique_ptr<ITelemetryBatchSource>(
+    const std::string& dataset_id,
+    size_t batch_size)>;
 
 struct TrainingConfig {
     std::string dataset_id;
@@ -69,25 +83,26 @@ struct PcaArtifact {
 };
 
 // NOLINTBEGIN(bugprone-easily-swappable-parameters)
-auto TrainPcaFromDb(std::shared_ptr<DbConnectionManager> manager,
+auto TrainPcaFromDb(const std::shared_ptr<DbConnectionManager>& manager,
                            const std::string& dataset_id,
                            int n_components,
                            double percentile,
                            std::function<void()> heartbeat = nullptr) -> PcaArtifact;
 
-auto TrainPcaFromDbBatched(std::shared_ptr<DbConnectionManager> manager,
+auto TrainPcaFromDbBatched(const std::shared_ptr<DbConnectionManager>& manager,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,
                                   size_t batch_size,
                                   std::function<void()> heartbeat = nullptr) -> PcaArtifact;
 
-auto TrainPcaFromDbBatched(std::shared_ptr<IDbClient> db_client,
+auto TrainPcaFromDbBatched(const std::shared_ptr<IDbClient>& db_client,
                                   const std::string& dataset_id,
                                   int n_components,
                                   double percentile,
                                   size_t batch_size,
-                                  std::function<void()> heartbeat = nullptr) -> PcaArtifact;
+                                  std::function<void()> heartbeat = nullptr,
+                                  const TelemetryBatchSourceFactory& batch_source_factory = TelemetryBatchSourceFactory{}) -> PcaArtifact;
 
 auto TrainPcaFromSamples(const std::vector<linalg::Vector>& samples,
                                 int n_components,

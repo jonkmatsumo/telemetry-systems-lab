@@ -3,6 +3,7 @@
 #include "mocks/mock_db_client.h"
 #include <httplib.h>
 #include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
 #include <thread>
 #include <chrono>
 
@@ -25,12 +26,25 @@ protected:
     std::unique_ptr<ApiServer> server;
 
     void SetUp() override {
+        old_level_ = spdlog::get_level();
+        spdlog::set_level(spdlog::level::critical);
+
         mock_db = std::make_shared<MockDbClient>();
         mock_db->mock_artifact_path =
             std::string(TELEMETRY_SOURCE_DIR) + "/tests/parity/golden/test_pca_model.json";
+        
+        EXPECT_CALL(*mock_db, ReconcileStaleJobs(testing::_)).Times(1);
+
         // Using a dummy grpc target
         server = std::make_unique<ApiServer>("localhost:50051", mock_db);
     }
+
+    void TearDown() override {
+        spdlog::set_level(old_level_);
+    }
+
+private:
+    spdlog::level::level_enum old_level_ = spdlog::level::info;
 };
 
 TEST_F(ApiScoringTest, ScoringJobFailsOnInsertError) {

@@ -6,7 +6,13 @@
 namespace {
 
 TEST(GeneratorLifecycleTest, EnforcesConcurrencyLimit) {
-    auto factory = []() { return std::make_shared<MockDbClient>(); };
+    auto mock_db = std::make_shared<MockDbClient>();
+    EXPECT_CALL(*mock_db, CreateRun(testing::_, testing::_, testing::_, testing::_)).Times(testing::AnyNumber());
+    EXPECT_CALL(*mock_db, Heartbeat(testing::_, testing::_)).Times(testing::AnyNumber());
+    EXPECT_CALL(*mock_db, UpdateRunStatus(testing::_, testing::_, testing::_, testing::_)).Times(testing::AnyNumber());
+    EXPECT_CALL(*mock_db, BatchInsertTelemetry(testing::_)).Times(testing::AnyNumber());
+
+    auto factory = [mock_db]() { return mock_db; };
     TelemetryServiceImpl service(factory);
     service.SetMaxConcurrentJobs(1);
     

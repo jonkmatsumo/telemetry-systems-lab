@@ -1,12 +1,30 @@
 #include <gtest/gtest.h>
 #include "db_connection_manager.h"
+#include <spdlog/spdlog.h>
 #include <thread>
 #include <vector>
 #include <atomic>
 
 namespace {
 
+class ScopedLogLevel final {
+public:
+    explicit ScopedLogLevel(spdlog::level::level_enum level)
+        : old_level_(spdlog::get_level()) {
+        spdlog::set_level(level);
+    }
+
+    ~ScopedLogLevel() {
+        spdlog::set_level(old_level_);
+    }
+
+private:
+    spdlog::level::level_enum old_level_;
+};
+
 TEST(DbConnectionPoolTest, InitialStats) {
+    ScopedLogLevel quiet_logs(spdlog::level::critical);
+
     PooledDbConnectionManager pool("host=dummy", 5, std::chrono::seconds(1));
     auto stats = pool.GetStats();
     EXPECT_EQ(stats.size, 5);
@@ -17,6 +35,8 @@ TEST(DbConnectionPoolTest, InitialStats) {
 }
 
 TEST(DbConnectionPoolTest, EnforcesMaxSize) {
+    ScopedLogLevel quiet_logs(spdlog::level::critical);
+
     // Using a non-existent connection to test pool state management
     std::string conn_str = "host=invalid_host_for_testing";
     PooledDbConnectionManager pool(conn_str, 2, std::chrono::milliseconds(100));
@@ -33,6 +53,8 @@ TEST(DbConnectionPoolTest, EnforcesMaxSize) {
 }
 
 TEST(DbConnectionPoolTest, FullPoolTimeouts) {
+    ScopedLogLevel quiet_logs(spdlog::level::critical);
+
     // We need a real DB to test a "full" pool where connections ARE successfully held.
     const char* db_url = std::getenv("DB_CONNECTION_STRING");
     if (!db_url) {
@@ -65,6 +87,8 @@ TEST(DbConnectionPoolTest, FullPoolTimeouts) {
 }
 
 TEST(DbConnectionPoolTest, ConcurrentStress) {
+    ScopedLogLevel quiet_logs(spdlog::level::critical);
+
     const char* db_url = std::getenv("DB_CONNECTION_STRING");
     if (!db_url) {
         db_url = "postgresql://postgres:password@postgres:5432/telemetry";

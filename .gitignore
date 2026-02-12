@@ -43,6 +43,10 @@
 # Build Directory
 build/
 build_san/
+build_tidy/
+build_*/
+build-*/
+cmake-build-*/
 
 # Generated Artifacts
 # Allow default model for tests, but ignore other runs

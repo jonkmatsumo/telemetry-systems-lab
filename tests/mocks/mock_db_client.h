@@ -9,7 +9,7 @@
 class MockDbClient : public IDbClient {
 public:
     std::shared_ptr<DbConnectionManager> GetConnectionManager() override {
-        return std::make_shared<SimpleDbConnectionManager>("dummy");
+        return std::make_shared<SimpleDbConnectionManager>("host=localhost port=5432 dbname=test_db user=test_user");
     }
 
     std::unique_ptr<telemetry::db::TransactionScope> BeginTransaction(const std::string& /*name*/ = "unnamed") override {
@@ -24,6 +24,23 @@ public:
     MOCK_METHOD(void, EnsurePartition, (std::chrono::system_clock::time_point tp), (override));
     MOCK_METHOD(void, CreateRun, (const std::string& run_id, const telemetry::GenerateRequest& config, const std::string& status, const std::string& request_id), (override));
     MOCK_METHOD(void, UpdateRunStatus, (const std::string& run_id, const std::string& status, long inserted_rows, const std::string& error), (override));
+    bool TryTransitionGenerationRunStatus(const std::string& run_id,
+                                          const std::string& expected_current,
+                                          const std::string& next_status,
+                                          long inserted_rows,
+                                          const std::string& error = "") override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto& current = generation_run_statuses[run_id];
+        if (current == expected_current || (current.empty() && expected_current == "PENDING")) {
+            current = next_status;
+            generation_run_inserted_rows[run_id] = inserted_rows;
+            if (!error.empty()) {
+                generation_run_errors[run_id] = error;
+            }
+            return true;
+        }
+        return false;
+    }
     MOCK_METHOD(void, BatchInsertTelemetry, (const std::vector<TelemetryRecord>& records), (override));
     MOCK_METHOD(void, Heartbeat, (JobType type, const std::string& job_id), (override));
     MOCK_METHOD(telemetry::RunStatus, GetRunStatus, (const std::string& run_id), (override));
@@ -330,6 +347,9 @@ public:
     std::string last_job_error;
     std::string last_model_run_id;
     std::string last_model_run_status;
+    std::map<std::string, std::string> generation_run_statuses;
+    std::map<std::string, long> generation_run_inserted_rows;
+    std::map<std::string, std::string> generation_run_errors;
     std::map<std::string, std::string> model_run_statuses; // Store status per ID
     std::map<std::string, std::string> job_statuses;
     std::mutex mutex_;

@@ -55,6 +55,11 @@ public:
                          const std::string& status, 
                          long inserted_rows,
                          const std::string& error = "") -> void override;
+    auto TryTransitionGenerationRunStatus(const std::string& run_id,
+                                          const std::string& expected_current,
+                                          const std::string& next_status,
+                                          long inserted_rows,
+                                          const std::string& error = "") -> bool override;
 
     auto BatchInsertTelemetry(const std::vector<TelemetryRecord>& records) -> void override;
     
