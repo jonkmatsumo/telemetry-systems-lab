@@ -258,37 +258,40 @@ TEST_F(DbClientTest, CreateScoreJobConcurrentCallsShareSingleActiveJob) {
 
     std::promise<void> start_promise;
     std::shared_future<void> start_signal = start_promise.get_future().share();
-    std::string job_a;
-    std::string job_b;
-    std::exception_ptr err_a;
-    std::exception_ptr err_b;
+    
+    const int num_threads = 4;
+    std::vector<std::string> results(num_threads);
+    std::vector<std::exception_ptr> errors(num_threads);
+    std::vector<std::thread> threads;
 
-    auto create_job = [&](std::string* output, std::exception_ptr* err) {
+    auto create_job_worker = [&](int idx) {
         try {
             DbClient worker(conn_str);
             start_signal.wait();
-            *output = worker.CreateScoreJob(run_id, model_run_id);
+            results[idx] = worker.CreateScoreJob(run_id, model_run_id);
         } catch (...) {
-            *err = std::current_exception();
+            errors[idx] = std::current_exception();
         }
     };
 
-    std::thread t1(create_job, &job_a, &err_a);
-    std::thread t2(create_job, &job_b, &err_b);
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back(create_job_worker, i);
+    }
+    
     start_promise.set_value();
-    t1.join();
-    t2.join();
-
-    if (err_a) {
-        std::rethrow_exception(err_a);
-    }
-    if (err_b) {
-        std::rethrow_exception(err_b);
+    for (auto& t : threads) {
+        t.join();
     }
 
-    ASSERT_FALSE(job_a.empty());
-    ASSERT_FALSE(job_b.empty());
-    EXPECT_EQ(job_a, job_b);
+    for (int i = 0; i < num_threads; ++i) {
+        if (errors[i]) {
+            std::rethrow_exception(errors[i]);
+        }
+        ASSERT_FALSE(results[i].empty());
+        if (i > 0) {
+            EXPECT_EQ(results[0], results[i]);
+        }
+    }
 
     auto jobs = setup_client.ListScoreJobs(50, 0, "", run_id, model_run_id);
     long active_jobs = 0;
