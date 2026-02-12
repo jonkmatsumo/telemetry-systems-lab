@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS generation_runs (
     end_time TIMESTAMPTZ NOT NULL,
     interval_seconds INT NOT NULL,
     seed BIGINT NOT NULL,
-    status TEXT NOT NULL, -- PENDING, RUNNING, SUCCEEDED, FAILED, CANCELLED
+    status TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')),
     inserted_rows BIGINT NOT NULL DEFAULT 0,
     config JSONB NOT NULL,
     error TEXT NULL,
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS model_runs (
     model_run_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     dataset_id UUID NOT NULL REFERENCES generation_runs(run_id),
     name TEXT NOT NULL, -- e.g. "pca_default"
-    status TEXT NOT NULL, -- PENDING, RUNNING, COMPLETED, FAILED
+    status TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED')),
     artifact_path TEXT NULL,
     error TEXT NULL,
     request_id TEXT NULL,
@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS model_runs (
 CREATE TABLE IF NOT EXISTS inference_runs (
     inference_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     model_run_id UUID NOT NULL REFERENCES model_runs(model_run_id),
-    status TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED')),
     anomaly_count INT NOT NULL DEFAULT 0,
     details JSONB NULL,
     latency_ms DOUBLE PRECISION NULL,
@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS dataset_score_jobs (
     job_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     dataset_id UUID NOT NULL REFERENCES generation_runs(run_id),
     model_run_id UUID NOT NULL REFERENCES model_runs(model_run_id),
-    status TEXT NOT NULL, -- PENDING, RUNNING, COMPLETED, FAILED
+    status TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED')),
     total_rows BIGINT NOT NULL DEFAULT 0,
     processed_rows BIGINT NOT NULL DEFAULT 0,
     last_record_id BIGINT NOT NULL DEFAULT 0,
@@ -173,5 +173,8 @@ CREATE TABLE IF NOT EXISTS dataset_scores (
 
 CREATE INDEX IF NOT EXISTS idx_score_jobs_request_id ON dataset_score_jobs(request_id);
 CREATE INDEX IF NOT EXISTS idx_score_jobs_heartbeat ON dataset_score_jobs(heartbeat_at) WHERE status IN ('RUNNING', 'PENDING');
+CREATE UNIQUE INDEX IF NOT EXISTS idx_score_jobs_active_unique
+    ON dataset_score_jobs(dataset_id, model_run_id)
+    WHERE status IN ('PENDING', 'RUNNING');
 CREATE INDEX IF NOT EXISTS idx_scores_dataset_model ON dataset_scores(dataset_id, model_run_id);
 CREATE INDEX IF NOT EXISTS idx_scores_record_id ON dataset_scores(record_id);

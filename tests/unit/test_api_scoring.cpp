@@ -91,4 +91,21 @@ TEST_F(ApiScoringTest, ScoringJobFailsOnFetchError) {
     EXPECT_EQ(mock_db->last_job_error, "Simulated fetch failure");
 }
 
+TEST_F(ApiScoringTest, ScoringJobEmitsHeartbeatsDuringBatchProcessing) {
+    EXPECT_CALL(*mock_db, Heartbeat(IDbClient::JobType::ScoreJob, "mock-score-job-id"))
+        .Times(testing::AtLeast(1));
+
+    httplib::Request req;
+    req.body = R"({"dataset_id": "ds-1", "model_run_id": "model-1"})";
+    httplib::Response res;
+
+    ApiServerTestPeer::HandleScoreDatasetJob(*server, req, res);
+
+    EXPECT_EQ(res.status, 202);
+
+    // Allow async scoring loop to process enough batches to trigger heartbeat cadence.
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    EXPECT_EQ(mock_db->last_job_status, "COMPLETED");
+}
+
 } // namespace telemetry::api

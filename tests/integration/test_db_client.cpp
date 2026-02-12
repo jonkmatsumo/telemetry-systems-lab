@@ -5,6 +5,7 @@
 #include <chrono>
 #include <exception>
 #include <thread>
+#include <future>
 #include <nlohmann/json.hpp>
 
 // Integration test - requires running Postgres instance
@@ -121,8 +122,8 @@ TEST_F(DbClientTest, ListFiltersAndPagination) {
     req.set_interval_seconds(60);
     req.set_seed(42);
     req.set_host_count(1);
-    ASSERT_NO_THROW(client.CreateRun(run_id, req, "INTEGRATION_TEST"));
-    ASSERT_NO_THROW(client.UpdateRunStatus(run_id, "INTEGRATION_TEST", 1));
+    ASSERT_NO_THROW(client.CreateRun(run_id, req, "PENDING"));
+    ASSERT_NO_THROW(client.UpdateRunStatus(run_id, "PENDING", 1));
 
     std::string model_run_id = client.CreateModelRun(run_id, "test_model", {{"n_components", 3}});
     ASSERT_FALSE(model_run_id.empty());
@@ -136,7 +137,7 @@ TEST_F(DbClientTest, ListFiltersAndPagination) {
     ASSERT_FALSE(job_id.empty());
     ASSERT_NO_THROW(client.UpdateScoreJob(job_id, "COMPLETED", 10, 10, 0));
 
-    auto runs = client.ListGenerationRuns(50, 0, "INTEGRATION_TEST");
+    auto runs = client.ListGenerationRuns(50, 0, "PENDING");
     ASSERT_FALSE(runs.empty());
 
     auto models = client.ListModelRuns(50, 0, "COMPLETED", run_id);
@@ -148,7 +149,7 @@ TEST_F(DbClientTest, ListFiltersAndPagination) {
     auto jobs = client.ListScoreJobs(50, 0, "COMPLETED", run_id, model_run_id);
     ASSERT_FALSE(jobs.empty());
 
-    auto future_filtered = client.ListGenerationRuns(50, 0, "INTEGRATION_TEST", "2999-01-01T00:00:00Z");
+    auto future_filtered = client.ListGenerationRuns(50, 0, "PENDING", "2999-01-01T00:00:00Z");
     ASSERT_TRUE(future_filtered.empty());
 }
 
@@ -237,6 +238,94 @@ TEST_F(DbClientTest, CreateScoreJobIsIdempotent) {
     std::string job_b = client.CreateScoreJob(run_id, model_run_id);
     ASSERT_FALSE(job_a.empty());
     ASSERT_EQ(job_a, job_b);
+}
+
+TEST_F(DbClientTest, CreateScoreJobConcurrentCallsShareSingleActiveJob) {
+    DbClient setup_client(conn_str);
+
+    std::string run_id = GenerateUUID();
+    telemetry::GenerateRequest req;
+    req.set_tier("INTEGRATION");
+    req.set_start_time_iso("2025-01-04T00:00:00Z");
+    req.set_end_time_iso("2025-01-04T01:00:00Z");
+    req.set_interval_seconds(60);
+    req.set_seed(101);
+    req.set_host_count(1);
+    setup_client.CreateRun(run_id, req, "SUCCEEDED");
+
+    std::string model_run_id = setup_client.CreateModelRun(run_id, "test_model_concurrent_idempotent", {{"n_components", 3}});
+    ASSERT_FALSE(model_run_id.empty());
+
+    std::promise<void> start_promise;
+    std::shared_future<void> start_signal = start_promise.get_future().share();
+    
+    const size_t num_threads = 4;
+    std::vector<std::string> results(num_threads);
+    std::vector<std::exception_ptr> errors(num_threads);
+    std::vector<std::thread> threads;
+    threads.reserve(num_threads);
+
+    auto create_job_worker = [&](size_t idx) {
+        try {
+            DbClient worker(conn_str);
+            start_signal.wait();
+            results[idx] = worker.CreateScoreJob(run_id, model_run_id);
+        } catch (...) {
+            errors[idx] = std::current_exception();
+        }
+    };
+
+    for (size_t i = 0; i < num_threads; ++i) {
+        threads.emplace_back(create_job_worker, i);
+    }
+    
+    start_promise.set_value();
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    for (size_t i = 0; i < num_threads; ++i) {
+        if (errors[i]) {
+            std::rethrow_exception(errors[i]);
+        }
+        ASSERT_FALSE(results[i].empty());
+        if (i > 0) {
+            EXPECT_EQ(results[0], results[i]);
+        }
+    }
+
+    auto jobs = setup_client.ListScoreJobs(50, 0, "", run_id, model_run_id);
+    long active_jobs = 0;
+    for (const auto& job : jobs) {
+        const std::string status = job.value("status", "");
+        if (status == "PENDING" || status == "RUNNING") {
+            active_jobs++;
+        }
+    }
+    EXPECT_EQ(active_jobs, 1);
+}
+
+TEST_F(DbClientTest, InvalidLifecycleStatusWritesFail) {
+    DbClient client(conn_str);
+
+    std::string run_id = GenerateUUID();
+    telemetry::GenerateRequest req;
+    req.set_tier("INTEGRATION");
+    req.set_start_time_iso("2025-01-04T00:00:00Z");
+    req.set_end_time_iso("2025-01-04T01:00:00Z");
+    req.set_interval_seconds(60);
+    req.set_seed(102);
+    req.set_host_count(1);
+    client.CreateRun(run_id, req, "SUCCEEDED");
+
+    std::string model_run_id = client.CreateModelRun(run_id, "test_invalid_status", {{"n_components", 3}});
+    ASSERT_FALSE(model_run_id.empty());
+    std::string job_id = client.CreateScoreJob(run_id, model_run_id);
+    ASSERT_FALSE(job_id.empty());
+
+    EXPECT_ANY_THROW(client.UpdateRunStatus(run_id, "NOT_A_STATUS", 0));
+    EXPECT_ANY_THROW(client.UpdateModelRunStatus(model_run_id, "NOT_A_STATUS"));
+    EXPECT_ANY_THROW(client.UpdateScoreJob(job_id, "NOT_A_STATUS", 10, 1, 1));
 }
 
 TEST_F(DbClientTest, ReconcileStaleJobs) {

@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <stdexcept>
 #include <spdlog/spdlog.h>
 #include <grpcpp/grpcpp.h>
 #include "server.h"
@@ -8,7 +9,10 @@ void RunServer() {
     std::string server_address("0.0.0.0:50051");
     
     const char* db_conn_env = std::getenv("DB_CONNECTION_STRING");
-    std::string db_conn_str = db_conn_env ? db_conn_env : "postgresql://postgres:password@localhost:5432/telemetry";
+    if (!db_conn_env || std::string(db_conn_env).empty()) {
+        throw std::runtime_error("DB_CONNECTION_STRING environment variable is required");
+    }
+    std::string db_conn_str = db_conn_env;
     
     TelemetryServiceImpl service(db_conn_str);
 
@@ -22,7 +26,7 @@ void RunServer() {
     server->Wait();
 }
 
-auto main() -> int {
+auto main() -> int { // NOLINT(bugprone-exception-escape)
     spdlog::info("Telemetry Generator Service Starting...");
     try {
         RunServer();

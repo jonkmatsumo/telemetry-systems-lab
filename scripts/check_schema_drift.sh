@@ -18,11 +18,9 @@ fi
 : "${PGHOST:=localhost}"
 : "${PGPORT:=5432}"
 : "${PGUSER:=postgres}"
-: "${PGPASSWORD:=password}"
 : "${PGDATABASE:=postgres}"
 : "${PGOPTIONS:=--client-min-messages=warning}"
 
-export PGPASSWORD
 export PGOPTIONS
 
 stamp="$(date +%s)_$RANDOM"

@@ -120,8 +120,8 @@ TEST(DbConnectionPoolTest, ConcurrentStress) {
         
         std::vector<std::thread> threads;
         threads.reserve(10);
-        for (int i = 0; i < 10; ++i) {
-            threads.emplace_back(worker, i);
+        for (size_t i = 0; i < 10; ++i) {
+            threads.emplace_back(worker, static_cast<int>(i));
         }
         
         for (auto& t : threads) {

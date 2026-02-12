@@ -100,7 +100,11 @@ class AnomalyRatePoint {
   final double anomalyRate;
   final int total;
 
-  AnomalyRatePoint({required this.ts, required this.anomalyRate, required this.total});
+  AnomalyRatePoint({
+    required this.ts,
+    required this.anomalyRate,
+    required this.total,
+  });
 
   factory AnomalyRatePoint.fromJson(Map<String, dynamic> json) {
     return AnomalyRatePoint(
@@ -189,10 +193,7 @@ class TopKEntry {
   TopKEntry({required this.label, required this.count});
 
   factory TopKEntry.fromJson(Map<String, dynamic> json) {
-    return TopKEntry(
-      label: json['label'] ?? '',
-      count: json['count'] ?? 0,
-    );
+    return TopKEntry(label: json['label'] ?? '', count: json['count'] ?? 0);
   }
 }
 
@@ -217,7 +218,11 @@ class TimeSeriesPoint {
   final Map<String, double> values;
   final int count;
 
-  TimeSeriesPoint({required this.ts, required this.values, required this.count});
+  TimeSeriesPoint({
+    required this.ts,
+    required this.values,
+    required this.count,
+  });
 
   factory TimeSeriesPoint.fromJson(Map<String, dynamic> json) {
     final values = <String, double>{};
@@ -227,7 +232,7 @@ class TimeSeriesPoint {
       }
     });
     return TimeSeriesPoint(
-      ts: json['ts'] ?? '', 
+      ts: json['ts'] ?? '',
       values: values,
       count: json['count'] ?? 0,
     );
@@ -240,7 +245,12 @@ class TimeSeriesResponse {
   final ResponseMeta meta;
   final int? bucketSeconds;
 
-  TimeSeriesResponse({required this.items, required this.meta, this.bucketSeconds, this.baseline = const []});
+  TimeSeriesResponse({
+    required this.items,
+    required this.meta,
+    this.bucketSeconds,
+    this.baseline = const [],
+  });
 
   factory TimeSeriesResponse.fromJson(Map<String, dynamic> json) {
     final meta = ResponseMeta.fromJson(json['meta'] ?? {});
@@ -262,7 +272,11 @@ class HistogramData {
   final List<int> counts;
   final ResponseMeta meta;
 
-  HistogramData({required this.edges, required this.counts, required this.meta});
+  HistogramData({
+    required this.edges,
+    required this.counts,
+    required this.meta,
+  });
 
   factory HistogramData.fromJson(Map<String, dynamic> json) {
     return HistogramData(
@@ -335,7 +349,8 @@ class ModelRunSummary {
       tieBreakBasis: json['tie_break_basis'],
       isEligible: json['is_eligible'] ?? true,
       eligibilityReason: json['eligibility_reason'],
-      selectionMetricValue: (json['selection_metric_value'] as num?)?.toDouble(),
+      selectionMetricValue: (json['selection_metric_value'] as num?)
+          ?.toDouble(),
       candidateFingerprint: json['candidate_fingerprint'],
       generatorVersion: json['generator_version'],
       seedUsed: json['seed_used'],
@@ -418,11 +433,7 @@ class EvalMetrics {
   final List<Map<String, double>> roc;
   final List<Map<String, double>> pr;
 
-  EvalMetrics({
-    required this.confusion,
-    required this.roc,
-    required this.pr,
-  });
+  EvalMetrics({required this.confusion, required this.roc, required this.pr});
 
   factory EvalMetrics.fromJson(Map<String, dynamic> json) {
     return EvalMetrics(
@@ -433,14 +444,18 @@ class EvalMetrics {
         'fn': json['confusion']?['fn'] ?? 0,
       },
       roc: (json['roc'] as List? ?? [])
-          .map<Map<String, double>>((e) => (e as Map).map(
-                (k, v) => MapEntry(k.toString(), (v ?? 0.0).toDouble()),
-              ))
+          .map<Map<String, double>>(
+            (e) => (e as Map).map(
+              (k, v) => MapEntry(k.toString(), (v ?? 0.0).toDouble()),
+            ),
+          )
           .toList(),
       pr: (json['pr'] as List? ?? [])
-          .map<Map<String, double>>((e) => (e as Map).map(
-                (k, v) => MapEntry(k.toString(), (v ?? 0.0).toDouble()),
-              ))
+          .map<Map<String, double>>(
+            (e) => (e as Map).map(
+              (k, v) => MapEntry(k.toString(), (v ?? 0.0).toDouble()),
+            ),
+          )
           .toList(),
     );
   }
@@ -484,7 +499,11 @@ class DatasetStatus {
   final String status;
   final int rowsInserted;
 
-  DatasetStatus({required this.runId, required this.status, required this.rowsInserted});
+  DatasetStatus({
+    required this.runId,
+    required this.status,
+    required this.rowsInserted,
+  });
 
   factory DatasetStatus.fromJson(Map<String, dynamic> json) {
     return DatasetStatus(
@@ -567,13 +586,32 @@ class TelemetryService {
   static const String _defaultBaseUrl = 'http://localhost:8280';
   final String baseUrl;
   final http.Client _client;
+  final Duration requestTimeout;
+  final int maxRetries;
+  final Duration initialRetryDelay;
+  final Duration maxRetryDelay;
   final Duration cacheTtl = const Duration(seconds: 30);
   final Map<String, _CacheEntry> _cache = {};
 
-  TelemetryService({String? baseUrl, http.Client? client})
-      : baseUrl = baseUrl ??
-            const String.fromEnvironment('API_BASE_URL', defaultValue: _defaultBaseUrl),
-        _client = client ?? http.Client();
+  TelemetryService({
+    String? baseUrl,
+    http.Client? client,
+    Duration? requestTimeout,
+    int? maxRetries,
+    Duration? initialRetryDelay,
+    Duration? maxRetryDelay,
+  }) : baseUrl =
+           baseUrl ??
+           const String.fromEnvironment(
+             'API_BASE_URL',
+             defaultValue: _defaultBaseUrl,
+           ),
+       _client = client ?? http.Client(),
+       requestTimeout = requestTimeout ?? const Duration(seconds: 15),
+       maxRetries = maxRetries ?? 3,
+       initialRetryDelay =
+           initialRetryDelay ?? const Duration(milliseconds: 200),
+       maxRetryDelay = maxRetryDelay ?? const Duration(seconds: 2);
 
   String _cacheKey(String path, [Map<String, String>? params]) {
     if (params == null || params.isEmpty) return path;
@@ -600,6 +638,79 @@ class TelemetryService {
     return Uri.parse('$baseUrl$path').replace(queryParameters: params);
   }
 
+  String _formatOperation(String method, Uri uri) {
+    final query = uri.hasQuery ? '?${uri.query}' : '';
+    return '$method ${uri.path}$query';
+  }
+
+  bool _isTransientStatus(int statusCode) {
+    return statusCode >= 500 && statusCode < 600;
+  }
+
+  Duration _retryDelayForAttempt(int attempt) {
+    final scaledMs = initialRetryDelay.inMilliseconds * (1 << (attempt - 1));
+    final cappedMs = scaledMs > maxRetryDelay.inMilliseconds
+        ? maxRetryDelay.inMilliseconds
+        : scaledMs;
+    return Duration(milliseconds: cappedMs);
+  }
+
+  Future<http.Response> _withTimeout(
+    Future<http.Response> Function() request,
+    String operation,
+    bool allowRetry,
+  ) async {
+    for (var attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        final response = await request().timeout(requestTimeout);
+        if (allowRetry &&
+            _isTransientStatus(response.statusCode) &&
+            attempt < maxRetries) {
+          await Future<void>.delayed(_retryDelayForAttempt(attempt + 1));
+          continue;
+        }
+        return response;
+      } on TimeoutException {
+        if (allowRetry && attempt < maxRetries) {
+          await Future<void>.delayed(_retryDelayForAttempt(attempt + 1));
+          continue;
+        }
+        throw Exception(
+          'Request timed out after ${requestTimeout.inSeconds}s during $operation',
+        );
+      }
+    }
+    throw Exception('Request retry loop exited unexpectedly for $operation');
+  }
+
+  Future<http.Response> _get(Uri uri) {
+    return _withTimeout(
+      () => _client.get(uri),
+      _formatOperation('GET', uri),
+      true,
+    );
+  }
+
+  Future<http.Response> _delete(Uri uri) {
+    return _withTimeout(
+      () => _client.delete(uri),
+      _formatOperation('DELETE', uri),
+      false,
+    );
+  }
+
+  Future<http.Response> _post(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+  }) {
+    return _withTimeout(
+      () => _client.post(uri, headers: headers, body: body),
+      _formatOperation('POST', uri),
+      false,
+    );
+  }
+
   void _handleError(http.Response response, String defaultMessage) {
     try {
       final body = jsonDecode(response.body);
@@ -621,22 +732,26 @@ class TelemetryService {
   }
 
   Future<List<Map<String, String>>> getMetricsSchema() async {
-    final response = await _client.get(Uri.parse('$baseUrl/schema/metrics'));
+    final response = await _get(Uri.parse('$baseUrl/schema/metrics'));
     if (response.statusCode == 200) {
       final List metrics = jsonDecode(response.body)['metrics'];
-      return metrics.map<Map<String, String>>((m) => Map<String, String>.from(m)).toList();
+      return metrics
+          .map<Map<String, String>>((m) => Map<String, String>.from(m))
+          .toList();
     }
     _handleError(response, 'Failed to get metrics schema');
     throw Exception('Unreachable');
   }
 
   Future<String> generateDataset(int hostCount) async {
-    final response = await _client.post(
+    final response = await _post(
       Uri.parse('$baseUrl/datasets'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'host_count': hostCount}),
     );
-    if (response.statusCode == 200 || response.statusCode == 201 || response.statusCode == 202) {
+    if (response.statusCode == 200 ||
+        response.statusCode == 201 ||
+        response.statusCode == 202) {
       return jsonDecode(response.body)['run_id'];
     }
     _handleError(response, 'Failed to generate dataset');
@@ -644,7 +759,7 @@ class TelemetryService {
   }
 
   Future<DatasetStatus> getDatasetStatus(String id) async {
-    final response = await _client.get(Uri.parse('$baseUrl/datasets/$id'));
+    final response = await _get(Uri.parse('$baseUrl/datasets/$id'));
     if (response.statusCode == 200) {
       return DatasetStatus.fromJson(jsonDecode(response.body));
     }
@@ -652,17 +767,19 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<String> trainModel(String datasetId,
-      {String name = 'pca_default', int? nComponents, double? percentile, Map<String, dynamic>? hpoConfig}) async {
-    final Map<String, dynamic> body = {
-      'dataset_id': datasetId,
-      'name': name,
-    };
+  Future<String> trainModel(
+    String datasetId, {
+    String name = 'pca_default',
+    int? nComponents,
+    double? percentile,
+    Map<String, dynamic>? hpoConfig,
+  }) async {
+    final Map<String, dynamic> body = {'dataset_id': datasetId, 'name': name};
     if (nComponents != null) body['n_components'] = nComponents;
     if (percentile != null) body['percentile'] = percentile;
     if (hpoConfig != null) body['hpo_config'] = hpoConfig;
 
-    final response = await _client.post(
+    final response = await _post(
       Uri.parse('$baseUrl/train'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(body),
@@ -675,7 +792,7 @@ class TelemetryService {
   }
 
   Future<ModelStatus> getModelStatus(String id) async {
-    final response = await _client.get(Uri.parse('$baseUrl/train/$id'));
+    final response = await _get(Uri.parse('$baseUrl/train/$id'));
     if (response.statusCode == 200) {
       return ModelStatus.fromJson(jsonDecode(response.body));
     }
@@ -684,7 +801,7 @@ class TelemetryService {
   }
 
   Future<void> cancelModelRun(String id) async {
-    final response = await _client.delete(Uri.parse('$baseUrl/train/$id'));
+    final response = await _delete(Uri.parse('$baseUrl/train/$id'));
     if (response.statusCode == 200) {
       return;
     }
@@ -692,7 +809,7 @@ class TelemetryService {
   }
 
   Future<Map<String, dynamic>> rerunFailedTrials(String modelRunId) async {
-    final response = await _client.post(
+    final response = await _post(
       Uri.parse('$baseUrl/models/$modelRunId/rerun_failed'),
       headers: {'Content-Type': 'application/json'},
     );
@@ -703,8 +820,11 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<InferenceResponse> runInference(String modelId, List<Map<String, dynamic>> samples) async {
-    final response = await _client.post(
+  Future<InferenceResponse> runInference(
+    String modelId,
+    List<Map<String, dynamic>> samples,
+  ) async {
+    final response = await _post(
       Uri.parse('$baseUrl/inference'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'model_run_id': modelId, 'samples': samples}),
@@ -716,12 +836,13 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<List<DatasetRun>> listDatasets(
-      {int limit = 50,
-      int offset = 0,
-      String? status,
-      String? createdFrom,
-      String? createdTo}) async {
+  Future<List<DatasetRun>> listDatasets({
+    int limit = 50,
+    int offset = 0,
+    String? status,
+    String? createdFrom,
+    String? createdTo,
+  }) async {
     final params = {'limit': '$limit', 'offset': '$offset'};
     if (status != null) params['status'] = status;
     if (createdFrom != null) params['created_from'] = createdFrom;
@@ -729,7 +850,7 @@ class TelemetryService {
     final key = _cacheKey('/datasets', params);
     final cached = _readCache<List<DatasetRun>>(key);
     if (cached != null) return cached;
-    final response = await _client.get(_buildUri('/datasets', params));
+    final response = await _get(_buildUri('/datasets', params));
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
           .map((e) => DatasetRun.fromJson(e as Map<String, dynamic>))
@@ -745,7 +866,7 @@ class TelemetryService {
     final key = _cacheKey('/datasets/$runId');
     final cached = _readCache<Map<String, dynamic>>(key);
     if (cached != null) return cached;
-    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId'));
+    final response = await _get(Uri.parse('$baseUrl/datasets/$runId'));
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       _writeCache(key, data);
@@ -756,31 +877,42 @@ class TelemetryService {
   }
 
   Future<List<Map<String, dynamic>>> getDatasetModels(String runId) async {
-    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/models'));
+    final response = await _get(Uri.parse('$baseUrl/datasets/$runId/models'));
     if (response.statusCode == 200) {
       final List items = jsonDecode(response.body);
-      return items.map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m)).toList();
+      return items
+          .map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m))
+          .toList();
     }
     _handleError(response, 'Failed to get dataset models');
     throw Exception('Unreachable');
   }
 
-  Future<List<Map<String, dynamic>>> getModelScoredDatasets(String modelRunId) async {
-    final response = await _client.get(Uri.parse('$baseUrl/models/$modelRunId/datasets/scored'));
+  Future<List<Map<String, dynamic>>> getModelScoredDatasets(
+    String modelRunId,
+  ) async {
+    final response = await _get(
+      Uri.parse('$baseUrl/models/$modelRunId/datasets/scored'),
+    );
     if (response.statusCode == 200) {
       final List items = jsonDecode(response.body);
-      return items.map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m)).toList();
+      return items
+          .map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m))
+          .toList();
     }
     _handleError(response, 'Failed to get scored datasets');
     throw Exception('Unreachable');
   }
 
-  Future<Map<String, dynamic>> getScores(String datasetId, String modelRunId,
-      {int limit = 50,
-      int offset = 0,
-      bool onlyAnomalies = false,
-      double minScore = 0.0,
-      double? maxScore}) async {
+  Future<Map<String, dynamic>> getScores(
+    String datasetId,
+    String modelRunId, {
+    int limit = 50,
+    int offset = 0,
+    bool onlyAnomalies = false,
+    double minScore = 0.0,
+    double? maxScore,
+  }) async {
     final params = {
       'dataset_id': datasetId,
       'model_run_id': modelRunId,
@@ -792,7 +924,7 @@ class TelemetryService {
     if (maxScore != null) {
       params['max_score'] = '$maxScore';
     }
-    final response = await _client.get(_buildUri('/scores', params));
+    final response = await _get(_buildUri('/scores', params));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -800,17 +932,26 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<List<Map<String, dynamic>>> getDatasetSamples(String runId, {int limit = 20}) async {
-    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/samples?limit=$limit'));
+  Future<List<Map<String, dynamic>>> getDatasetSamples(
+    String runId, {
+    int limit = 20,
+  }) async {
+    final response = await _get(
+      Uri.parse('$baseUrl/datasets/$runId/samples?limit=$limit'),
+    );
     if (response.statusCode == 200) {
       // Handle both old list format and new map format if necessary, but we changed API to return map.
       // However, to keep compatibility with existing calls that expect List, we should check type.
       final body = jsonDecode(response.body);
       if (body is Map && body.containsKey('items')) {
         final List items = body['items'];
-        return items.map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m)).toList();
+        return items
+            .map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m))
+            .toList();
       } else if (body is List) {
-        return body.map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m)).toList();
+        return body
+            .map<Map<String, dynamic>>((m) => Map<String, dynamic>.from(m))
+            .toList();
       }
       return [];
     }
@@ -818,7 +959,8 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<Map<String, dynamic>> searchDatasetRecords(String runId, {
+  Future<Map<String, dynamic>> searchDatasetRecords(
+    String runId, {
     int limit = 50,
     int offset = 0,
     String? sortBy,
@@ -841,8 +983,8 @@ class TelemetryService {
     if (anomalyType != null) params['anomaly_type'] = anomalyType;
     if (hostId != null) params['host_id'] = hostId;
     if (region != null) params['region'] = region;
-    
-    final response = await _client.get(_buildUri('/datasets/$runId/samples', params));
+
+    final response = await _get(_buildUri('/datasets/$runId/samples', params));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -850,8 +992,13 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<Map<String, dynamic>> getDatasetRecord(String runId, int recordId) async {
-    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/records/$recordId'));
+  Future<Map<String, dynamic>> getDatasetRecord(
+    String runId,
+    int recordId,
+  ) async {
+    final response = await _get(
+      Uri.parse('$baseUrl/datasets/$runId/records/$recordId'),
+    );
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -859,8 +1006,13 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<Map<String, dynamic>> getMetricStats(String runId, String metric) async {
-    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/metrics/$metric/stats'));
+  Future<Map<String, dynamic>> getMetricStats(
+    String runId,
+    String metric,
+  ) async {
+    final response = await _get(
+      Uri.parse('$baseUrl/datasets/$runId/metrics/$metric/stats'),
+    );
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -869,7 +1021,9 @@ class TelemetryService {
   }
 
   Future<Map<String, dynamic>> getDatasetMetricsSummary(String runId) async {
-    final response = await _client.get(Uri.parse('$baseUrl/datasets/$runId/metrics/summary'));
+    final response = await _get(
+      Uri.parse('$baseUrl/datasets/$runId/metrics/summary'),
+    );
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -877,14 +1031,18 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<DatasetSummary> getDatasetSummary(String runId, {int topk = 5, bool forceRefresh = false}) async {
+  Future<DatasetSummary> getDatasetSummary(
+    String runId, {
+    int topk = 5,
+    bool forceRefresh = false,
+  }) async {
     final params = {'topk': '$topk'};
     final key = _cacheKey('/datasets/$runId/summary', params);
     if (!forceRefresh) {
       final cached = _readCache<DatasetSummary>(key);
       if (cached != null) return cached;
     }
-    final response = await _client.get(_buildUri('/datasets/$runId/summary', params));
+    final response = await _get(_buildUri('/datasets/$runId/summary', params));
     if (response.statusCode == 200) {
       final summary = DatasetSummary.fromJson(jsonDecode(response.body));
       _writeCache(key, summary);
@@ -894,19 +1052,19 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<TopKResponse> getTopK(String runId, String column,
-      {int k = 10,
-      String? region,
-      String? isAnomaly,
-      String? anomalyType,
-      String? startTime,
-      String? endTime,
-      bool includeTotalDistinct = false,
-      bool forceRefresh = false}) async {
-    final params = <String, String>{
-      'column': column,
-      'k': '$k',
-    };
+  Future<TopKResponse> getTopK(
+    String runId,
+    String column, {
+    int k = 10,
+    String? region,
+    String? isAnomaly,
+    String? anomalyType,
+    String? startTime,
+    String? endTime,
+    bool includeTotalDistinct = false,
+    bool forceRefresh = false,
+  }) async {
+    final params = <String, String>{'column': column, 'k': '$k'};
     if (region != null) params['region'] = region;
     if (isAnomaly != null) params['is_anomaly'] = isAnomaly;
     if (anomalyType != null) params['anomaly_type'] = anomalyType;
@@ -919,7 +1077,7 @@ class TelemetryService {
       final cached = _readCache<TopKResponse>(key);
       if (cached != null) return cached;
     }
-    final response = await _client.get(_buildUri('/datasets/$runId/topk', params));
+    final response = await _get(_buildUri('/datasets/$runId/topk', params));
     if (response.statusCode == 200) {
       final data = TopKResponse.fromJson(jsonDecode(response.body));
       _writeCache(key, data);
@@ -929,17 +1087,19 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<TimeSeriesResponse> getTimeSeries(String runId,
-      {required List<String> metrics,
-      List<String> aggs = const ['mean'],
-      String bucket = '1h',
-      String? region,
-      String? isAnomaly,
-      String? anomalyType,
-      String? startTime,
-      String? endTime,
-      String? compareMode,
-      bool forceRefresh = false}) async {
+  Future<TimeSeriesResponse> getTimeSeries(
+    String runId, {
+    required List<String> metrics,
+    List<String> aggs = const ['mean'],
+    String bucket = '1h',
+    String? region,
+    String? isAnomaly,
+    String? anomalyType,
+    String? startTime,
+    String? endTime,
+    String? compareMode,
+    bool forceRefresh = false,
+  }) async {
     final params = <String, String>{
       'metrics': metrics.join(','),
       'aggs': aggs.join(','),
@@ -956,7 +1116,9 @@ class TelemetryService {
       final cached = _readCache<TimeSeriesResponse>(key);
       if (cached != null) return cached;
     }
-    final response = await _client.get(_buildUri('/datasets/$runId/timeseries', params));
+    final response = await _get(
+      _buildUri('/datasets/$runId/timeseries', params),
+    );
     if (response.statusCode == 200) {
       final data = TimeSeriesResponse.fromJson(jsonDecode(response.body));
       _writeCache(key, data);
@@ -966,18 +1128,20 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<HistogramData> getHistogram(String runId,
-      {required String metric,
-      int bins = 40,
-      String range = 'minmax',
-      double? min,
-      double? max,
-      String? region,
-      String? isAnomaly,
-      String? anomalyType,
-      String? startTime,
-      String? endTime,
-      bool forceRefresh = false}) async {
+  Future<HistogramData> getHistogram(
+    String runId, {
+    required String metric,
+    int bins = 40,
+    String range = 'minmax',
+    double? min,
+    double? max,
+    String? region,
+    String? isAnomaly,
+    String? anomalyType,
+    String? startTime,
+    String? endTime,
+    bool forceRefresh = false,
+  }) async {
     final params = <String, String>{
       'metric': metric,
       'bins': '$bins',
@@ -995,7 +1159,9 @@ class TelemetryService {
       final cached = _readCache<HistogramData>(key);
       if (cached != null) return cached;
     }
-    final response = await _client.get(_buildUri('/datasets/$runId/histogram', params));
+    final response = await _get(
+      _buildUri('/datasets/$runId/histogram', params),
+    );
     if (response.statusCode == 200) {
       final data = HistogramData.fromJson(jsonDecode(response.body));
       _writeCache(key, data);
@@ -1005,13 +1171,14 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<List<ModelRunSummary>> listModels(
-      {int limit = 50,
-      int offset = 0,
-      String? status,
-      String? datasetId,
-      String? createdFrom,
-      String? createdTo}) async {
+  Future<List<ModelRunSummary>> listModels({
+    int limit = 50,
+    int offset = 0,
+    String? status,
+    String? datasetId,
+    String? createdFrom,
+    String? createdTo,
+  }) async {
     final params = {'limit': '$limit', 'offset': '$offset'};
     if (status != null) params['status'] = status;
     if (datasetId != null) params['dataset_id'] = datasetId;
@@ -1020,7 +1187,7 @@ class TelemetryService {
     final key = _cacheKey('/models', params);
     final cached = _readCache<List<ModelRunSummary>>(key);
     if (cached != null) return cached;
-    final response = await _client.get(_buildUri('/models', params));
+    final response = await _get(_buildUri('/models', params));
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
           .map((e) => ModelRunSummary.fromJson(e as Map<String, dynamic>))
@@ -1036,7 +1203,7 @@ class TelemetryService {
     final key = _cacheKey('/models/$modelRunId');
     final cached = _readCache<Map<String, dynamic>>(key);
     if (cached != null) return cached;
-    final response = await _client.get(Uri.parse('$baseUrl/models/$modelRunId'));
+    final response = await _get(Uri.parse('$baseUrl/models/$modelRunId'));
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       _writeCache(key, data);
@@ -1046,9 +1213,15 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<Map<String, dynamic>> getHpoTrials(String parentRunId, {int limit = 50, int offset = 0}) async {
+  Future<Map<String, dynamic>> getHpoTrials(
+    String parentRunId, {
+    int limit = 50,
+    int offset = 0,
+  }) async {
     final params = {'limit': '$limit', 'offset': '$offset'};
-    final response = await _client.get(_buildUri('/models/$parentRunId/trials', params));
+    final response = await _get(
+      _buildUri('/models/$parentRunId/trials', params),
+    );
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -1056,18 +1229,16 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<List<InferenceRunSummary>> listInferenceRuns(
-      {String? datasetId,
-      String? modelRunId,
-      String? status,
-      String? createdFrom,
-      String? createdTo,
-      int limit = 50,
-      int offset = 0}) async {
-    final params = <String, String>{
-      'limit': '$limit',
-      'offset': '$offset',
-    };
+  Future<List<InferenceRunSummary>> listInferenceRuns({
+    String? datasetId,
+    String? modelRunId,
+    String? status,
+    String? createdFrom,
+    String? createdTo,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final params = <String, String>{'limit': '$limit', 'offset': '$offset'};
     if (datasetId != null) params['dataset_id'] = datasetId;
     if (modelRunId != null) params['model_run_id'] = modelRunId;
     if (status != null) params['status'] = status;
@@ -1076,7 +1247,7 @@ class TelemetryService {
     final key = _cacheKey('/inference_runs', params);
     final cached = _readCache<List<InferenceRunSummary>>(key);
     if (cached != null) return cached;
-    final response = await _client.get(_buildUri('/inference_runs', params));
+    final response = await _get(_buildUri('/inference_runs', params));
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
           .map((e) => InferenceRunSummary.fromJson(e as Map<String, dynamic>))
@@ -1089,7 +1260,9 @@ class TelemetryService {
   }
 
   Future<Map<String, dynamic>> getInferenceRun(String inferenceId) async {
-    final response = await _client.get(Uri.parse('$baseUrl/inference_runs/$inferenceId'));
+    final response = await _get(
+      Uri.parse('$baseUrl/inference_runs/$inferenceId'),
+    );
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -1098,7 +1271,7 @@ class TelemetryService {
   }
 
   Future<String> startScoreJob(String datasetId, String modelRunId) async {
-    final response = await _client.post(
+    final response = await _post(
       Uri.parse('$baseUrl/jobs/score_dataset'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'dataset_id': datasetId, 'model_run_id': modelRunId}),
@@ -1111,7 +1284,7 @@ class TelemetryService {
   }
 
   Future<ScoreJobStatus> getJobStatus(String jobId) async {
-    final response = await _client.get(Uri.parse('$baseUrl/jobs/$jobId'));
+    final response = await _get(Uri.parse('$baseUrl/jobs/$jobId'));
     if (response.statusCode == 200) {
       return ScoreJobStatus.fromJson(jsonDecode(response.body));
     }
@@ -1120,7 +1293,7 @@ class TelemetryService {
   }
 
   Future<ScoreJobStatus> getJobProgress(String jobId) async {
-    final response = await _client.get(Uri.parse('$baseUrl/jobs/$jobId/progress'));
+    final response = await _get(Uri.parse('$baseUrl/jobs/$jobId/progress'));
     if (response.statusCode == 200) {
       return ScoreJobStatus.fromJson(jsonDecode(response.body));
     }
@@ -1129,7 +1302,7 @@ class TelemetryService {
   }
 
   Future<void> cancelJob(String jobId) async {
-    final response = await _client.delete(Uri.parse('$baseUrl/jobs/$jobId'));
+    final response = await _delete(Uri.parse('$baseUrl/jobs/$jobId'));
     if (response.statusCode == 200) {
       return;
     }
@@ -1137,18 +1310,16 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<List<ScoreJobStatus>> listScoreJobs(
-      {int limit = 50,
-      int offset = 0,
-      String? status,
-      String? datasetId,
-      String? modelRunId,
-      String? createdFrom,
-      String? createdTo}) async {
-    final params = <String, String>{
-      'limit': '$limit',
-      'offset': '$offset',
-    };
+  Future<List<ScoreJobStatus>> listScoreJobs({
+    int limit = 50,
+    int offset = 0,
+    String? status,
+    String? datasetId,
+    String? modelRunId,
+    String? createdFrom,
+    String? createdTo,
+  }) async {
+    final params = <String, String>{'limit': '$limit', 'offset': '$offset'};
     if (status != null) params['status'] = status;
     if (datasetId != null) params['dataset_id'] = datasetId;
     if (modelRunId != null) params['model_run_id'] = modelRunId;
@@ -1157,7 +1328,7 @@ class TelemetryService {
     final key = _cacheKey('/jobs', params);
     final cached = _readCache<List<ScoreJobStatus>>(key);
     if (cached != null) return cached;
-    final response = await _client.get(_buildUri('/jobs', params));
+    final response = await _get(_buildUri('/jobs', params));
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
           .map((e) => ScoreJobStatus.fromJson(e as Map<String, dynamic>))
@@ -1169,14 +1340,18 @@ class TelemetryService {
     throw Exception('Unreachable');
   }
 
-  Future<EvalMetrics> getModelEval(String modelRunId, String datasetId,
-      {int points = 50, int maxSamples = 20000}) async {
+  Future<EvalMetrics> getModelEval(
+    String modelRunId,
+    String datasetId, {
+    int points = 50,
+    int maxSamples = 20000,
+  }) async {
     final params = {
       'dataset_id': datasetId,
       'points': '$points',
       'max_samples': '$maxSamples',
     };
-    final response = await _client.get(_buildUri('/models/$modelRunId/eval', params));
+    final response = await _get(_buildUri('/models/$modelRunId/eval', params));
     if (response.statusCode == 200) {
       return EvalMetrics.fromJson(jsonDecode(response.body));
     }
@@ -1185,16 +1360,19 @@ class TelemetryService {
   }
 
   Future<List<ErrorDistributionEntry>> getErrorDistribution(
-      String modelRunId, String datasetId,
-      {required String groupBy}) async {
-    final params = {
-      'dataset_id': datasetId,
-      'group_by': groupBy,
-    };
-    final response = await _client.get(_buildUri('/models/$modelRunId/error_distribution', params));
+    String modelRunId,
+    String datasetId, {
+    required String groupBy,
+  }) async {
+    final params = {'dataset_id': datasetId, 'group_by': groupBy};
+    final response = await _get(
+      _buildUri('/models/$modelRunId/error_distribution', params),
+    );
     if (response.statusCode == 200) {
       final items = (jsonDecode(response.body)['items'] as List? ?? [])
-          .map((e) => ErrorDistributionEntry.fromJson(e as Map<String, dynamic>))
+          .map(
+            (e) => ErrorDistributionEntry.fromJson(e as Map<String, dynamic>),
+          )
           .toList();
       return items;
     }

@@ -455,7 +455,7 @@ void ApiServer::Initialize() {
                     if (tst == "PENDING" || tst == "RUNNING") {
                         job_manager_->CancelJob("train-" + tid);
                         db_client_->UpdateModelRunStatus(tid, "CANCELLED", "", "Cancelled by parent tuning run request");
-                        db_client_->UpdateTrialEligibility(tid, false, "CANCELED", 0.0);
+                        db_client_->UpdateTrialEligibility(tid, false, "CANCELLED", 0.0);
                     }
                 }
             }
@@ -1897,6 +1897,10 @@ auto ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                 auto model = model_cache_->GetOrCreate(model_run_id, artifact_path);
 
                 const int batch = 5000;
+                constexpr int kScoreHeartbeatEveryBatches = 10;
+                const auto kScoreHeartbeatInterval = std::chrono::seconds(5);
+                int batches_since_heartbeat = 0;
+                auto last_heartbeat_at = std::chrono::steady_clock::now();
                 while (!stop_flag->load()) {
                     auto rows = db_client_->FetchScoringRowsAfterRecord(dataset_id, last_record, batch);
                     if (rows.empty()) { break; }
@@ -1916,6 +1920,15 @@ auto ApiServer::HandleScoreDatasetJob(const httplib::Request& req, httplib::Resp
                     processed += static_cast<long>(rows.size());
                     last_record = rows.back().record_id;
                     db_client_->UpdateScoreJob(job_id, "RUNNING", total, processed, last_record);
+                    batches_since_heartbeat++;
+
+                    const auto now = std::chrono::steady_clock::now();
+                    if (batches_since_heartbeat >= kScoreHeartbeatEveryBatches ||
+                        now - last_heartbeat_at >= kScoreHeartbeatInterval) {
+                        db_client_->Heartbeat(IDbClient::JobType::ScoreJob, job_id);
+                        batches_since_heartbeat = 0;
+                        last_heartbeat_at = now;
+                    }
                 }
                 
                 if (stop_flag->load()) {

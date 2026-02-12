@@ -86,7 +86,7 @@ TEST_F(ApiServerErrorTest, ReturnsInvalidArgument) {
     body["model_run_id"] = "test";
     std::vector<nlohmann::json> samples;
     samples.reserve(1001);
-    for(int i=0; i<1001; ++i) {
+    for(size_t i=0; i<1001; ++i) {
         samples.emplace_back();
     }
     body["samples"] = samples;

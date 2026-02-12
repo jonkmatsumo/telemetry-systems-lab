@@ -51,7 +51,9 @@ COPY CMakeLists.txt .
 COPY proto/ proto/
 COPY src/ src/
 COPY tests/ tests/
-RUN mkdir build && cd build && cmake .. && make -j1 telemetry-generator telemetry-api telemetry-scorer telemetry-train-pca unit_tests
+RUN mkdir build && cd build && cmake .. \
+    && cmake --build . --parallel ${CMAKE_BUILD_PARALLEL_LEVEL:-4} \
+       --target telemetry-generator telemetry-api telemetry-scorer telemetry-train-pca unit_tests
 
 # Stage 4: Runtime
 FROM ubuntu:22.04 AS runtime
