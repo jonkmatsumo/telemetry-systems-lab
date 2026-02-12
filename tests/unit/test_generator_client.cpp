@@ -36,15 +36,15 @@ public:
     grpc::Status next_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "Unavailable");
     int call_count = 0;
 
-    auto GenerateTelemetry(grpc::ClientContext* ctx, const telemetry::GenerateRequest&, telemetry::GenerateResponse&) -> grpc::Status override {
+    auto GenerateTelemetry(grpc::ClientContext* ctx, const telemetry::GenerateRequest&, telemetry::GenerateResponse*) -> grpc::Status override {
         if (ctx == nullptr) return grpc::Status(grpc::StatusCode::INTERNAL, "Context is null");
         // Access context to ensure it's valid
-        bool cancelled = ctx->IsCancelled(); 
-        (void)cancelled;
+        auto deadline = ctx->deadline();
+        (void)deadline;
         call_count++;
         return next_status;
     }
-    auto GetRun(grpc::ClientContext* ctx, const telemetry::GetRunRequest&, telemetry::RunStatus&) -> grpc::Status override {
+    auto GetRun(grpc::ClientContext* ctx, const telemetry::GetRunRequest&, telemetry::RunStatus*) -> grpc::Status override {
          if (ctx == nullptr) return grpc::Status(grpc::StatusCode::INTERNAL, "Context is null");
         call_count++;
         return next_status;

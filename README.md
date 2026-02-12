@@ -94,21 +94,20 @@ cmake --build build -j
 ```bash
 # Configure a sanitizer build
 cmake -S . -B build-asan \
-  -DENABLE_ASAN=ON \
-  -DENABLE_UBSAN=ON \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+  -DCMAKE_LINKER_FLAGS="-fsanitize=address,undefined" \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 cmake --build build-asan -j
 
 # Run tests under sanitizers
-ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
 UBSAN_OPTIONS=halt_on_error=1 \
 ./build-asan/unit_tests
 
-# Or via CTest
-ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
-UBSAN_OPTIONS=halt_on_error=1 \
-ctest --test-dir build-asan --output-on-failure
+# Run clang-tidy on the relevant client files
+clang-tidy -p build-asan tests/unit/test_generator_client.cpp src/generator_client.cpp src/generator_client.h
 ```
 
 > **Note (macOS):** leak detection (`detect_leaks=1`) requires the Clang runtime; set `ASAN_OPTIONS=detect_leaks=0` if using Apple Clang without leak-sanitizer support.
