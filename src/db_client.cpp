@@ -1588,26 +1588,35 @@ auto DbClient::GetDatasetMetricsSummary(const std::string& run_id) -> nlohmann::
 auto DbClient::CreateScoreJob(const std::string& dataset_id, 
                                const std::string& model_run_id,
                                const std::string& request_id) -> std::string {
-    int retries = 3;
+    int retries = 5;
     while (retries > 0) {
         try {
             auto scope = BeginTransaction("CreateScoreJob");
-            // Use READ COMMITTED (default) but ensure the CTE handles race conditions.
-            // If two transactions insert simultaneously, one will hit the unique index conflict.
             auto res = PQXX_EXEC_PREPPED(scope->txn(), "insert_or_get_score_job",
                  dataset_id, model_run_id, request_id);
             scope->commit();
-            if (!res.empty()) { return res[0]["job_id"].as<std::string>(); }
-            return ""; 
+            if (!res.empty()) {
+                return res[0]["job_id"].as<std::string>();
+            }
+            // If we didn't get a result, a race might have occurred where an existing job 
+            // was committed after our query started but before it finished.
+            retries--;
+            if (retries == 0) {
+                return "";
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         } catch (const pqxx::serialization_failure& e) {
             retries--;
-            if (retries == 0) throw;
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            if (retries == 0) {
+                throw;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         } catch (const pqxx::unique_violation& e) {
-            // This can happen if the CTE check and insert race.
             retries--;
-            if (retries == 0) throw;
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            if (retries == 0) {
+                throw;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         } catch (const std::exception& e) {
             spdlog::error("Failed to create score job: {}", e.what());
             throw;

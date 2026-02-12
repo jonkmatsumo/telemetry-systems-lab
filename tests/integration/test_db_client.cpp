@@ -259,12 +259,13 @@ TEST_F(DbClientTest, CreateScoreJobConcurrentCallsShareSingleActiveJob) {
     std::promise<void> start_promise;
     std::shared_future<void> start_signal = start_promise.get_future().share();
     
-    const int num_threads = 4;
+    const size_t num_threads = 4;
     std::vector<std::string> results(num_threads);
     std::vector<std::exception_ptr> errors(num_threads);
     std::vector<std::thread> threads;
+    threads.reserve(num_threads);
 
-    auto create_job_worker = [&](int idx) {
+    auto create_job_worker = [&](size_t idx) {
         try {
             DbClient worker(conn_str);
             start_signal.wait();
@@ -274,7 +275,7 @@ TEST_F(DbClientTest, CreateScoreJobConcurrentCallsShareSingleActiveJob) {
         }
     };
 
-    for (int i = 0; i < num_threads; ++i) {
+    for (size_t i = 0; i < num_threads; ++i) {
         threads.emplace_back(create_job_worker, i);
     }
     
@@ -283,7 +284,7 @@ TEST_F(DbClientTest, CreateScoreJobConcurrentCallsShareSingleActiveJob) {
         t.join();
     }
 
-    for (int i = 0; i < num_threads; ++i) {
+    for (size_t i = 0; i < num_threads; ++i) {
         if (errors[i]) {
             std::rethrow_exception(errors[i]);
         }
