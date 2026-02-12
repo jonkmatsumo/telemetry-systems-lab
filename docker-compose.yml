@@ -6,7 +6,7 @@ services:
     container_name: telemetry_api
     env_file: .env
     environment:
-      DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:${DB_PORT_INTERNAL}/telemetry"
+      DB_CONNECTION_STRING: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${DB_PORT_INTERNAL}/${POSTGRES_DB}"
       GRPC_GENERATOR_TARGET: "telemetry-generator:${GRPC_PORT_INTERNAL}"
     ports:
       - "${API_HTTP_PORT}:${API_HTTP_PORT_INTERNAL}"
@@ -23,7 +23,7 @@ services:
     command: ["./telemetry-generator"]
     env_file: .env
     environment:
-      DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:${DB_PORT_INTERNAL}/telemetry"
+      DB_CONNECTION_STRING: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${DB_PORT_INTERNAL}/${POSTGRES_DB}"
       SERVER_ADDRESS: "0.0.0.0:${GRPC_PORT_INTERNAL}"
     ports:
       - "${GRPC_PORT}:${GRPC_PORT_INTERNAL}"

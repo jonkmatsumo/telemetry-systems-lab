@@ -7,7 +7,7 @@ services:
     command: [ "sh", "-c", "cmake -B build -S . && cmake --build build -j$$(nproc) --target telemetry-generator && ./build/telemetry-generator" ]
     env_file: .env
     environment:
-      DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:${DB_PORT_INTERNAL}/telemetry"
+      DB_CONNECTION_STRING: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${DB_PORT_INTERNAL}/${POSTGRES_DB}"
       SERVER_ADDRESS: "0.0.0.0:${GRPC_PORT_INTERNAL}"
     volumes:
       - ./src:/app/src
@@ -26,7 +26,7 @@ services:
     command: [ "sh", "-c", "while [ ! -f ./build/telemetry-api ]; do echo 'Waiting for build...'; sleep 2; done; ./build/telemetry-api" ]
     env_file: .env
     environment:
-      DB_CONNECTION_STRING: "postgresql://postgres:password@postgres:${DB_PORT_INTERNAL}/telemetry"
+      DB_CONNECTION_STRING: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${DB_PORT_INTERNAL}/${POSTGRES_DB}"
       GRPC_GENERATOR_TARGET: "telemetry-generator:${GRPC_PORT_INTERNAL}"
       API_PORT: ${API_HTTP_PORT_INTERNAL}
     ports:

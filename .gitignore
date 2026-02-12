@@ -48,6 +48,9 @@ build_*/
 build-*/
 cmake-build-*/
 
+# Local environment overrides
+.env
+
 # Generated Artifacts
 # Allow default model for tests, but ignore other runs
 /artifacts/*

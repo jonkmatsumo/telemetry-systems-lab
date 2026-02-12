@@ -202,6 +202,7 @@ add_executable(unit_tests
     tests/unit/test_db_client_security.cpp
     tests/unit/test_job_manager.cpp
     tests/unit/test_obs_metrics.cpp
+    tests/unit/test_db_json_parse.cpp
     tests/unit/test_obs_context.cpp
     tests/unit/test_hardening_scaffolding.cpp
     tests/unit/test_api_scoring.cpp
@@ -260,7 +261,12 @@ set_tests_properties(UnitTests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 add_executable(test_client tests/client.cpp)
 target_link_libraries(test_client PRIVATE telemetry_proto PkgConfig::GRPC PkgConfig::PROTOBUF)
 
-add_executable(db_integration_tests tests/integration/test_db_client.cpp src/db_client.cpp src/db_connection_manager.cpp)
+add_executable(db_integration_tests 
+    tests/integration/test_db_client.cpp 
+    tests/integration/test_pagination_determinism.cpp
+    src/db_client.cpp 
+    src/db_connection_manager.cpp
+)
 target_include_directories(db_integration_tests PRIVATE src)
 target_link_libraries(db_integration_tests PRIVATE GTest::GTest GTest::Main telemetry_proto PkgConfig::GRPC PkgConfig::PROTOBUF fmt::fmt spdlog::spdlog PkgConfig::PQXX PkgConfig::UUID)
 

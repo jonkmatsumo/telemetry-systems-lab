@@ -6,6 +6,7 @@
 #include "obs/metrics.h"
 #include "pagination.h"
 #include "obs/context.h"
+#include "db_json_parse.h"
 #include <google/protobuf/util/json_util.h>
 #include <fmt/chrono.h>
 #include <algorithm>
@@ -27,6 +28,23 @@
   #pragma GCC diagnostic push
   #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
+
+namespace {
+auto ParseJsonFieldWithObservability(const pqxx::field& field,
+                                     const std::string& field_name,
+                                     const std::string& record_id,
+                                     const std::string& operation,
+                                     const nlohmann::json& null_value, // NOLINT(bugprone-easily-swappable-parameters)
+                                     const nlohmann::json& parse_failure_value) -> nlohmann::json {
+    if (field.is_null()) {
+        return null_value;
+    }
+
+    return telemetry::db::ParseJsonPayloadWithObservability(
+        field.c_str(), field_name, record_id, operation, parse_failure_value);
+}
+} // namespace
+
 DbClient::DbClient(const std::string& connection_string) 
     : manager_(std::make_shared<SimpleDbConnectionManager>(connection_string, [](pqxx::connection& C) {
         DbClient::PrepareStatements(C);
@@ -139,13 +157,19 @@ auto DbClient::PrepareStatements(pqxx::connection& C) -> void {
               "SELECT cpu_usage, memory_usage, disk_utilization, network_rx_rate, network_tx_rate, metric_timestamp, host_id, labels "
               "FROM host_telemetry_archival WHERE run_id = $1 AND record_id = $2");
 
-    C.prepare("check_score_job_exists",
-              "SELECT job_id FROM dataset_score_jobs WHERE dataset_id = $1 AND model_run_id = $2 "
-              "AND status IN ('PENDING', 'RUNNING')");
-
-    C.prepare("insert_score_job",
-              "INSERT INTO dataset_score_jobs (dataset_id, model_run_id, status, request_id) "
-              "VALUES ($1, $2, 'PENDING', $3) RETURNING job_id");
+    C.prepare("insert_or_get_score_job",
+              "WITH inserted AS ("
+              "  INSERT INTO dataset_score_jobs (dataset_id, model_run_id, status, request_id) "
+              "  VALUES ($1, $2, 'PENDING', $3) "
+              "  ON CONFLICT (dataset_id, model_run_id) WHERE status IN ('PENDING', 'RUNNING') "
+              "  DO NOTHING "
+              "  RETURNING job_id"
+              ") "
+              "SELECT job_id FROM inserted "
+              "UNION ALL "
+              "SELECT job_id FROM dataset_score_jobs "
+              "WHERE dataset_id = $1 AND model_run_id = $2 AND status IN ('PENDING', 'RUNNING') "
+              "LIMIT 1");
 
     C.prepare("update_score_job_completed",
               "UPDATE dataset_score_jobs SET status=$1, total_rows=$2, processed_rows=$3, last_record_id=$4, updated_at=NOW(), heartbeat_at=NOW(), completed_at=NOW() "
@@ -499,17 +523,16 @@ auto DbClient::Heartbeat(JobType type, const std::string& job_id) -> void {
 
 auto DbClient::InsertAlert(const Alert& alert) -> void {
     try {
-        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
-        pqxx::work W(C);
+        auto scope = BeginTransaction("InsertAlert");
         
         auto to_iso = [](std::chrono::system_clock::time_point tp) {
             return fmt::format("{:%Y-%m-%d %H:%M:%S%z}", tp);
         };
 
-        PQXX_EXEC_PREPPED(W, "insert_alert",
+        PQXX_EXEC_PREPPED(scope->txn(), "insert_alert",
                       alert.host_id, alert.run_id, to_iso(alert.timestamp),
                       alert.severity, alert.source, alert.score, alert.details_json);
-        W.commit();
+        scope->commit();
         spdlog::info("Inserted alert for host {} severity {}", alert.host_id, alert.severity);
     } catch (const std::exception& e) {
         spdlog::error("Failed to insert alert: {}", e.what());
@@ -600,6 +623,7 @@ auto DbClient::UpdateModelRunStatus(const std::string& model_run_id,
                                     const nlohmann::json& error_summary) -> void {
     try {
         auto scope = BeginTransaction("UpdateModelRunStatus");
+        const std::string normalized_status = (status == "CANCELED") ? "CANCELLED" : status;
         
         std::string summary_str;
         const char* summary_ptr = nullptr;
@@ -608,15 +632,15 @@ auto DbClient::UpdateModelRunStatus(const std::string& model_run_id,
             summary_ptr = summary_str.c_str();
         }
 
-        if (status == "COMPLETED") {
+        if (normalized_status == "COMPLETED") {
              PQXX_EXEC_PREPPED(scope->txn(), "update_model_run_completed",
-                          status, artifact_path, model_run_id);
-        } else if (status == "FAILED" || status == "CANCELLED" || status == "CANCELED") {
+                          normalized_status, artifact_path, model_run_id);
+        } else if (normalized_status == "FAILED" || normalized_status == "CANCELLED") {
              PQXX_EXEC_PREPPED(scope->txn(), "update_model_run_failed",
-                          status, error, summary_ptr, model_run_id);
+                          normalized_status, error, summary_ptr, model_run_id);
         } else {
              PQXX_EXEC_PREPPED(scope->txn(), "update_model_run_status",
-                          status, model_run_id);
+                          normalized_status, model_run_id);
         }
         scope->commit();
     } catch (const std::exception& e) {
@@ -639,87 +663,48 @@ auto DbClient::GetModelRun(const std::string& model_run_id) -> nlohmann::json {
         auto res = PQXX_EXEC_PREPPED(N, "get_model_run", model_run_id);
 
         if (!res.empty()) {
-            // ...
-            j["model_run_id"] = res[0][0].as<std::string>();
-            // ... (keep middle assignments)
-            j["dataset_id"] = res[0][1].as<std::string>();
-            j["name"] = res[0][2].as<std::string>();
-            j["status"] = res[0][3].as<std::string>();
-            j["artifact_path"] = res[0][4].is_null() ? "" : res[0][4].as<std::string>();
-            j["error"] = res[0][5].is_null() ? "" : res[0][5].as<std::string>();
-            j["created_at"] = res[0][6].as<std::string>();
-            j["completed_at"] = res[0][7].is_null() ? "" : res[0][7].as<std::string>();
-            j["request_id"] = res[0][8].is_null() ? "" : res[0][8].as<std::string>();
+            const auto& row = res[0];
+            j["model_run_id"] = row["model_run_id"].as<std::string>();
+            j["dataset_id"] = row["dataset_id"].as<std::string>();
+            j["name"] = row["name"].as<std::string>();
+            j["status"] = row["status"].as<std::string>();
+            j["artifact_path"] = row["artifact_path"].is_null() ? "" : row["artifact_path"].as<std::string>();
+            j["error"] = row["error"].is_null() ? "" : row["error"].as<std::string>();
+            j["created_at"] = row["created_at"].as<std::string>();
+            j["completed_at"] = row["completed_at"].is_null() ? "" : row["completed_at"].as<std::string>();
+            j["request_id"] = row["request_id"].is_null() ? "" : row["request_id"].as<std::string>();
+            j["training_config"] = ParseJsonFieldWithObservability(
+                row["training_config"], "training_config", model_run_id, "GetModelRun",
+                nlohmann::json::object(), nlohmann::json::object());
+            j["hpo_config"] = ParseJsonFieldWithObservability(
+                row["hpo_config"], "hpo_config", model_run_id, "GetModelRun",
+                nlohmann::json(), nlohmann::json::object());
+            j["parent_run_id"] = row["parent_run_id"].is_null() ? nlohmann::json() : nlohmann::json(row["parent_run_id"].as<std::string>());
+            j["trial_index"] = row["trial_index"].is_null() ? nlohmann::json() : nlohmann::json(row["trial_index"].as<int>());
+            j["trial_params"] = ParseJsonFieldWithObservability(
+                row["trial_params"], "trial_params", model_run_id, "GetModelRun",
+                nlohmann::json(), nlohmann::json::object());
+            j["best_trial_run_id"] = row["best_trial_run_id"].is_null() ? nlohmann::json() : nlohmann::json(row["best_trial_run_id"].as<std::string>());
+            j["best_metric_value"] = row["best_metric_value"].is_null() ? nlohmann::json() : nlohmann::json(row["best_metric_value"].as<double>());
+            j["best_metric_name"] = row["best_metric_name"].is_null() ? nlohmann::json() : nlohmann::json(row["best_metric_name"].as<std::string>());
 
-            if (!res[0][9].is_null()) {
-                try {
-                    j["training_config"] = nlohmann::json::parse(res[0][9].as<std::string>());
-                } catch (...) {
-                    j["training_config"] = nlohmann::json::object();
-                }
-            } else {
-                j["training_config"] = nlohmann::json::object();
-            }
+            j["selection_metric_direction"] = row["selection_metric_direction"].is_null() ? nlohmann::json() : nlohmann::json(row["selection_metric_direction"].as<std::string>());
+            j["tie_break_basis"] = row["tie_break_basis"].is_null() ? nlohmann::json() : nlohmann::json(row["tie_break_basis"].as<std::string>());
+            j["is_eligible"] = row["is_eligible"].as<bool>();
+            j["eligibility_reason"] = row["eligibility_reason"].is_null() ? nlohmann::json() : nlohmann::json(row["eligibility_reason"].as<std::string>());
+            j["selection_metric_value"] = row["selection_metric_value"].is_null() ? nlohmann::json() : nlohmann::json(row["selection_metric_value"].as<double>());
 
-            if (!res[0][10].is_null()) {
-                try {
-                    j["hpo_config"] = nlohmann::json::parse(res[0][10].as<std::string>());
-                } catch (...) {
-                    j["hpo_config"] = nlohmann::json::object();
-                }
-            } else {
-                j["hpo_config"] = nlohmann::json();
-            }
-
-            j["parent_run_id"] = res[0][11].is_null() ? nlohmann::json() : nlohmann::json(res[0][11].as<std::string>());
-            j["trial_index"] = res[0][12].is_null() ? nlohmann::json() : nlohmann::json(res[0][12].as<int>());
-            
-            if (!res[0][13].is_null()) {
-                try {
-                    j["trial_params"] = nlohmann::json::parse(res[0][13].as<std::string>());
-                } catch (...) {
-                    j["trial_params"] = nlohmann::json::object();
-                }
-            } else {
-                j["trial_params"] = nlohmann::json();
-            }
-
-            j["best_trial_run_id"] = res[0][14].is_null() ? nlohmann::json() : nlohmann::json(res[0][14].as<std::string>());
-            j["best_metric_value"] = res[0][15].is_null() ? nlohmann::json() : nlohmann::json(res[0][15].as<double>());
-            j["best_metric_name"] = res[0][16].is_null() ? nlohmann::json() : nlohmann::json(res[0][16].as<std::string>());
-
-            j["selection_metric_direction"] = res[0][17].is_null() ? nlohmann::json() : nlohmann::json(res[0][17].as<std::string>());
-            j["tie_break_basis"] = res[0][18].is_null() ? nlohmann::json() : nlohmann::json(res[0][18].as<std::string>());
-            j["is_eligible"] = res[0][19].as<bool>();
-            j["eligibility_reason"] = res[0][20].is_null() ? nlohmann::json() : nlohmann::json(res[0][20].as<std::string>());
-            j["selection_metric_value"] = res[0][21].is_null() ? nlohmann::json() : nlohmann::json(res[0][21].as<double>());
-
-            j["candidate_fingerprint"] = res[0][22].is_null() ? nlohmann::json() : nlohmann::json(res[0][22].as<std::string>());
-            j["generator_version"] = res[0][23].is_null() ? nlohmann::json() : nlohmann::json(res[0][23].as<std::string>());
-            j["seed_used"] = res[0][24].is_null() ? nlohmann::json() : nlohmann::json(res[0][24].as<long long>());
-
-            if (!res[0][25].is_null()) {
-                try {
-                    j["error_summary"] = nlohmann::json::parse(res[0][25].as<std::string>());
-                } catch (...) {
-                    j["error_summary"] = nlohmann::json::object();
-                }
-            } else {
-                j["error_summary"] = nlohmann::json();
-            }
-
-            if (!res[0][26].is_null()) {
-                try {
-                    j["error_aggregates"] = nlohmann::json::parse(res[0][26].as<std::string>());
-                } catch (...) {
-                    j["error_aggregates"] = nlohmann::json::object();
-                }
-            } else {
-                j["error_aggregates"] = nlohmann::json();
-            }
-
-            j["selection_metric_source"] = res[0][27].is_null() ? nlohmann::json() : nlohmann::json(res[0][27].as<std::string>());
-            j["selection_metric_computed_at"] = res[0][28].is_null() ? nlohmann::json() : nlohmann::json(res[0][28].as<std::string>());
+            j["candidate_fingerprint"] = row["candidate_fingerprint"].is_null() ? nlohmann::json() : nlohmann::json(row["candidate_fingerprint"].as<std::string>());
+            j["generator_version"] = row["generator_version"].is_null() ? nlohmann::json() : nlohmann::json(row["generator_version"].as<std::string>());
+            j["seed_used"] = row["seed_used"].is_null() ? nlohmann::json() : nlohmann::json(row["seed_used"].as<long long>());
+            j["error_summary"] = ParseJsonFieldWithObservability(
+                row["error_summary"], "error_summary", model_run_id, "GetModelRun",
+                nlohmann::json(), nlohmann::json::object());
+            j["error_aggregates"] = ParseJsonFieldWithObservability(
+                row["error_aggregates"], "error_aggregates", model_run_id, "GetModelRun",
+                nlohmann::json(), nlohmann::json::object());
+            j["selection_metric_source"] = row["selection_metric_source"].is_null() ? nlohmann::json() : nlohmann::json(row["selection_metric_source"].as<std::string>());
+            j["selection_metric_computed_at"] = row["selection_metric_computed_at"].is_null() ? nlohmann::json() : nlohmann::json(row["selection_metric_computed_at"].as<std::string>());
         }
 
     } catch (const std::exception& e) {
@@ -736,12 +721,11 @@ auto DbClient::UpdateBestTrial(const std::string& parent_run_id,
                                const std::string& best_metric_direction,
                                const std::string& tie_break_basis) -> void {
     try {
-        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
-        pqxx::work W(C);
-        PQXX_EXEC_PREPPED(W, "update_best_trial",
+        auto scope = BeginTransaction("UpdateBestTrial");
+        PQXX_EXEC_PREPPED(scope->txn(), "update_best_trial",
                      best_trial_run_id, best_metric_value, best_metric_name, 
                      best_metric_direction, tie_break_basis, parent_run_id);
-        W.commit();
+        scope->commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to update best trial for {}: {}", parent_run_id, e.what());
         throw;
@@ -836,11 +820,14 @@ auto DbClient::GetHpoTrialsPaginated(const std::string& parent_run_id, int limit
         auto res = PQXX_EXEC_PREPPED(N, "get_hpo_trials_paginated",
              parent_run_id, limit, offset);
         for (const auto& row : res) {
+            const auto model_run_id = row[0].as<std::string>();
             nlohmann::json j;
-            j["model_run_id"] = row[0].as<std::string>();
+            j["model_run_id"] = model_run_id;
             j["status"] = row[1].as<std::string>();
             j["trial_index"] = row[2].as<int>();
-            j["trial_params"] = nlohmann::json::parse(row[3].as<std::string>());
+            j["trial_params"] = ParseJsonFieldWithObservability(
+                row[3], "trial_params", model_run_id, "GetHpoTrialsPaginated",
+                nlohmann::json::object(), nlohmann::json::object());
             j["created_at"] = row[4].as<std::string>();
             j["completed_at"] = row[5].is_null() ? "" : row[5].as<std::string>();
             j["error"] = row[6].is_null() ? "" : row[6].as<std::string>();
@@ -848,18 +835,14 @@ auto DbClient::GetHpoTrialsPaginated(const std::string& parent_run_id, int limit
             j["eligibility_reason"] = row[8].is_null() ? nlohmann::json() : nlohmann::json(row[8].as<std::string>());
             j["selection_metric_value"] = row[9].is_null() ? nlohmann::json() : nlohmann::json(row[9].as<double>());
             j["selection_metric_source"] = row[10].is_null() ? nlohmann::json() : nlohmann::json(row[10].as<std::string>());
-            if (!row[11].is_null()) {
-                try {
-                    j["error_summary"] = nlohmann::json::parse(row[11].as<std::string>());
-                } catch (...) { j["error_summary"] = nlohmann::json::object(); }
-            } else { j["error_summary"] = nlohmann::json(); }
+            j["error_summary"] = ParseJsonFieldWithObservability(
+                row[11], "error_summary", model_run_id, "GetHpoTrialsPaginated",
+                nlohmann::json(), nlohmann::json::object());
             j["dataset_id"] = row[12].as<std::string>();
             j["name"] = row[13].as<std::string>();
-            if (!row[14].is_null()) {
-                try {
-                    j["training_config"] = nlohmann::json::parse(row[14].as<std::string>());
-                } catch (...) { j["training_config"] = nlohmann::json::object(); }
-            } else { j["training_config"] = nlohmann::json::object(); }
+            j["training_config"] = ParseJsonFieldWithObservability(
+                row[14], "training_config", model_run_id, "GetHpoTrialsPaginated",
+                nlohmann::json::object(), nlohmann::json::object());
             out.push_back(j);
         }
     } catch (const std::exception& e) {
@@ -1016,7 +999,9 @@ auto DbClient::GetDatasetRecord(const std::string& run_id, long record_id) -> nl
             j["network_tx_rate"] = res[0][4].as<double>();
             j["timestamp"] = res[0][5].as<std::string>();
             j["host_id"] = res[0][6].as<std::string>();
-            j["labels"] = nlohmann::json::parse(res[0][7].c_str());
+            j["labels"] = ParseJsonFieldWithObservability(
+                res[0][7], "labels", fmt::format("{}:{}", run_id, record_id), "GetDatasetRecord",
+                nlohmann::json::object(), nlohmann::json::object());
         }
     } catch (const std::exception& e) {
         spdlog::error("Failed to get dataset record run {} record {}: {}", run_id, record_id, e.what());
@@ -1053,7 +1038,7 @@ auto DbClient::ListModelRuns(int limit,
             }
             query += " ";
         }
-        query += "ORDER BY created_at DESC LIMIT $1 OFFSET $2";
+        query += "ORDER BY created_at DESC, model_run_id DESC LIMIT $1 OFFSET $2";
         auto res = PQXX_EXEC_PARAMS(N, query, limit, offset);
         for (const auto& row : res) {
             nlohmann::json j;
@@ -1065,15 +1050,9 @@ auto DbClient::ListModelRuns(int limit,
             j["error"] = row[5].is_null() ? "" : row[5].as<std::string>();
             j["created_at"] = row[6].as<std::string>();
             j["completed_at"] = row[7].is_null() ? "" : row[7].as<std::string>();
-            if (!row[8].is_null()) {
-                try {
-                    j["training_config"] = nlohmann::json::parse(row[8].as<std::string>());
-                } catch (...) {
-                    j["training_config"] = nlohmann::json::object();
-                }
-            } else {
-                j["training_config"] = nlohmann::json::object();
-            }
+            j["training_config"] = ParseJsonFieldWithObservability(
+                row[8], "training_config", row[0].as<std::string>(), "ListModelRuns",
+                nlohmann::json::object(), nlohmann::json::object());
             j["parent_run_id"] = row[9].is_null() ? nlohmann::json() : nlohmann::json(row[9].as<std::string>());
             j["trial_index"] = row[10].is_null() ? nlohmann::json() : nlohmann::json(row[10].as<int>());
             j["best_trial_run_id"] = row[11].is_null() ? nlohmann::json() : nlohmann::json(row[11].as<std::string>());
@@ -1120,7 +1099,7 @@ auto DbClient::ListInferenceRuns(const std::string& dataset_id,
             }
             base += " ";
         }
-        base += "ORDER BY i.created_at DESC LIMIT $1 OFFSET $2";
+        base += "ORDER BY i.created_at DESC, i.inference_id DESC LIMIT $1 OFFSET $2";
         auto res = PQXX_EXEC_PARAMS(N, base, limit, offset);
         for (const auto& row : res) {
             nlohmann::json j;
@@ -1153,7 +1132,9 @@ auto DbClient::GetInferenceRun(const std::string& inference_id) -> nlohmann::jso
             j["status"] = res[0][2].as<std::string>();
             j["anomaly_count"] = res[0][3].as<int>();
             j["latency_ms"] = res[0][4].is_null() ? 0.0 : res[0][4].as<double>();
-            j["details"] = res[0][5].is_null() ? nlohmann::json::array() : nlohmann::json::parse(res[0][5].c_str());
+            j["details"] = ParseJsonFieldWithObservability(
+                res[0][5], "details", inference_id, "GetInferenceRun",
+                nlohmann::json::array(), nlohmann::json::array());
             j["created_at"] = res[0][6].as<std::string>();
         }
     } catch (const std::exception& e) {
@@ -1207,12 +1188,12 @@ auto DbClient::GetScoredDatasetsForModel(const std::string& model_run_id) -> nlo
 auto DbClient::GetDatasetSummary(const std::string& run_id, int topk) -> nlohmann::json {
     nlohmann::json j;
     try {
-        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
-        pqxx::work W(C);
-        auto res = W.exec(
+        auto scope = BeginTransaction("GetDatasetSummary");
+        auto& txn = scope->txn();
+        auto res = txn.exec(
             "SELECT COUNT(*), MIN(metric_timestamp), MAX(metric_timestamp), "
             "SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) "
-            "FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id));
+            "FROM host_telemetry_archival WHERE run_id = " + txn.quote(run_id));
         if (!res.empty()) {
             long count = res[0][0].as<long>();
             j["row_count"] = count;
@@ -1222,9 +1203,9 @@ auto DbClient::GetDatasetSummary(const std::string& run_id, int topk) -> nlohman
             j["anomaly_rate"] = count > 0 ? static_cast<double>(anomalies) / static_cast<double>(count) : 0.0;
         }
 
-        auto res_types = W.exec(
+        auto res_types = txn.exec(
             "SELECT anomaly_type, COUNT(*) FROM host_telemetry_archival "
-            "WHERE run_id = " + W.quote(run_id) + " AND is_anomaly = true AND anomaly_type IS NOT NULL "
+            "WHERE run_id = " + txn.quote(run_id) + " AND is_anomaly = true AND anomaly_type IS NOT NULL "
             "GROUP BY anomaly_type ORDER BY COUNT(*) DESC");
         nlohmann::json type_counts = nlohmann::json::array();
         long other = 0;
@@ -1250,32 +1231,32 @@ auto DbClient::GetDatasetSummary(const std::string& run_id, int topk) -> nlohman
         }
         j["anomaly_type_counts"] = type_counts;
 
-        auto res_distinct = W.exec(
+        auto res_distinct = txn.exec(
             "SELECT COUNT(DISTINCT host_id), COUNT(DISTINCT project_id), COUNT(DISTINCT region) "
-            "FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id));
+            "FROM host_telemetry_archival WHERE run_id = " + txn.quote(run_id));
         if (!res_distinct.empty()) {
             j["distinct_counts"]["host_id"] = res_distinct[0][0].as<long>();
             j["distinct_counts"]["project_id"] = res_distinct[0][1].as<long>();
             j["distinct_counts"]["region"] = res_distinct[0][2].as<long>();
         }
 
-        auto res_latency = W.exec(
+        auto res_latency = txn.exec(
             "SELECT "
             "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (ingestion_time - metric_timestamp))), "
             "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (ingestion_time - metric_timestamp))) "
-            "FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id));
+            "FROM host_telemetry_archival WHERE run_id = " + txn.quote(run_id));
         if (!res_latency.empty()) {
             j["ingestion_latency_p50"] = res_latency[0][0].is_null() ? 0.0 : res_latency[0][0].as<double>();
             j["ingestion_latency_p95"] = res_latency[0][1].is_null() ? 0.0 : res_latency[0][1].as<double>();
         }
 
-        auto res_trend = W.exec(
-            "WITH max_ts AS (SELECT MAX(metric_timestamp) AS max_ts FROM host_telemetry_archival WHERE run_id = " + W.quote(run_id) + ") "
+        auto res_trend = txn.exec(
+            "WITH max_ts AS (SELECT MAX(metric_timestamp) AS max_ts FROM host_telemetry_archival WHERE run_id = " + txn.quote(run_id) + ") "
             "SELECT date_trunc('hour', h.metric_timestamp) AS bucket, "
             "COUNT(*) AS total, "
             "SUM(CASE WHEN h.is_anomaly THEN 1 ELSE 0 END) AS anomalies "
             "FROM host_telemetry_archival h, max_ts "
-            "WHERE h.run_id = " + W.quote(run_id) + " AND h.metric_timestamp >= max_ts.max_ts - INTERVAL '24 hours' "
+            "WHERE h.run_id = " + txn.quote(run_id) + " AND h.metric_timestamp >= max_ts.max_ts - INTERVAL '24 hours' "
             "GROUP BY bucket ORDER BY bucket ASC");
         nlohmann::json trend = nlohmann::json::array();
         for (const auto& row : res_trend) {
@@ -1290,7 +1271,7 @@ auto DbClient::GetDatasetSummary(const std::string& run_id, int topk) -> nlohman
         }
         j["anomaly_rate_trend"] = trend;
 
-        W.commit();
+        scope->commit();
     } catch (const std::exception& e) {
         spdlog::error("Failed to get dataset summary {}: {}", run_id, e.what());
         throw; // Propagate the exception
@@ -1606,18 +1587,12 @@ auto DbClient::GetDatasetMetricsSummary(const std::string& run_id) -> nlohmann::
 auto DbClient::CreateScoreJob(const std::string& dataset_id, 
                                const std::string& model_run_id,
                                const std::string& request_id) -> std::string {    try {
-        auto C_ptr = manager_->GetConnection(); pqxx::connection& C = *C_ptr;
-        pqxx::work W(C);
-        
-        // Check if job already exists
-        auto existing = PQXX_EXEC_PREPPED(W, "check_score_job_exists",
-             dataset_id, model_run_id);
-        if (!existing.empty()) { return existing[0][0].as<std::string>(); }
-
-        auto res = PQXX_EXEC_PREPPED(W, "insert_score_job",
+        auto scope = BeginTransaction("CreateScoreJob");
+        scope->txn().exec0("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+        auto res = PQXX_EXEC_PREPPED(scope->txn(), "insert_or_get_score_job",
              dataset_id, model_run_id, request_id);
-        W.commit();
-        if (!res.empty()) { return res[0][0].as<std::string>(); }
+        scope->commit();
+        if (!res.empty()) { return res[0]["job_id"].as<std::string>(); }
     } catch (const std::exception& e) {
         spdlog::error("Failed to create score job: {}", e.what());
         throw;
@@ -1705,7 +1680,7 @@ auto DbClient::ListScoreJobs(int limit,
             }
             query += " ";
         }
-        query += "ORDER BY created_at DESC LIMIT $1 OFFSET $2";
+        query += "ORDER BY created_at DESC, job_id DESC LIMIT $1 OFFSET $2";
         auto res = PQXX_EXEC_PARAMS(N, query, limit, offset);
         for (const auto& row : res) {
             nlohmann::json j;
@@ -2150,7 +2125,9 @@ auto DbClient::SearchDatasetRecords(const std::string& run_id,
             j["anomaly_type"] = row[9].is_null() ? "" : row[9].as<std::string>();
             j["region"] = row[10].as<std::string>();
             j["project_id"] = row[11].as<std::string>();
-            j["labels"] = row[12].is_null() ? nlohmann::json::object() : nlohmann::json::parse(row[12].c_str());
+            j["labels"] = ParseJsonFieldWithObservability(
+                row[12], "labels", row[0].as<std::string>(), "SearchDatasetRecords",
+                nlohmann::json::object(), nlohmann::json::object());
             out["items"].push_back(j);
         }
         

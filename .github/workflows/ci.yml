@@ -10,6 +10,11 @@ on:
 permissions:
   contents: read
 
+env:
+  POSTGRES_USER: postgres
+  POSTGRES_DB: telemetry
+  POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || format('ci-{0}', github.run_id) }}
+
 jobs:
   build-and-test:
     name: Build & Unit Test
@@ -57,9 +62,9 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: password
-          POSTGRES_DB: telemetry
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
         ports:
           - 5432:5432
         # Set health check to ensure DB is ready
@@ -86,16 +91,16 @@ jobs:
         env:
           PGHOST: localhost
           PGPORT: 5432
-          PGUSER: postgres
-          PGPASSWORD: password
+          PGUSER: ${{ env.POSTGRES_USER }}
+          PGPASSWORD: ${{ env.POSTGRES_PASSWORD }}
           PGDATABASE: postgres
         run: ./scripts/check_schema_drift.sh
 
       - name: Initialize Database Schema
         env:
-          PGPASSWORD: password
+          PGPASSWORD: ${{ env.POSTGRES_PASSWORD }}
         run: |
-          psql -h localhost -U postgres -d telemetry -f db/init.sql
+          psql -h localhost -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -f db/init.sql
 
       - name: Configure CMake
         run: cmake -B build -S .
@@ -105,7 +110,7 @@ jobs:
 
       - name: Run Integration Tests
         env:
-          DB_CONNECTION_STRING: "postgresql://postgres:password@localhost:5432/telemetry"
+          DB_CONNECTION_STRING: "postgresql://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@localhost:5432/${{ env.POSTGRES_DB }}"
         run: ./build/db_integration_tests
 
   docker-check:
@@ -151,4 +156,3 @@ jobs:
         run: cmake -B build -S . -DENABLE_CLANG_TIDY=ON
       - name: Build (runs clang-tidy)
         run: cmake --build build -j$(nproc)
-
